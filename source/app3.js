@@ -33,6 +33,9 @@ async function boot() {
     S.psb = Replays.battle; S.psMode = 'main';
     Replays.battle.subscribe(st => { Replays.update(st); onPS(); });   // Battle keeps one listener: feed the embed's controls too
     await loadText(txt, true); MARK('first render done');
+    // Showdown's teambuilder tables (past-gen data for hover tooltips) load after the page is usable.
+    const lazy = () => { const el = document.createElement('script'); el.src = 'https://play.pokemonshowdown.com/data/teambuilder-tables.js?a7'; document.head.appendChild(el); };
+    (window.requestIdleCallback || (f => setTimeout(f, 1500)))(lazy);
   } catch (e) {
     $id('takeSec').innerHTML = `<p class="rb-err">Could not start: ${esc(e.message || e)}</p>`;
     console.error(e);
