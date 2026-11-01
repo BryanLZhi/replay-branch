@@ -1242,14 +1242,16 @@ async function loadEngine() {
 function until(test, ms = 60000) {
   return new Promise((res, rej) => { const t0 = Date.now(); const tick = () => { let ok = false; try { ok = test(); } catch {} if (ok) res(); else if (Date.now() - t0 > ms) rej(new Error('Showdown did not load (check your connection).')); else setTimeout(tick, 100); }; tick(); });
 }
+const MARKS = []; const MARK = l => { MARKS.push(l + ' ' + Math.round(performance.now())); if (location.hash === '#perf') { let p = document.getElementById('perflive'); if (!p) { p = document.createElement('pre'); p.id = 'perflive'; document.body.appendChild(p); } p.textContent = MARKS.join('\n'); } };
 async function boot() {
   try {
-    E = await loadEngine();
-    await until(() => window.Replays && Replays.battle && window.Battle && window.Dex);
-    const txt = await fetch('sample.json').then(r => r.text());
+    MARK('module start');
+    E = await loadEngine(); MARK('engine loaded');
+    await until(() => window.Replays && Replays.battle && window.Battle && window.Dex); MARK('showdown ready');
+    const txt = await fetch('sample.json').then(r => r.text()); MARK('sample fetched');
     S.psb = Replays.battle; S.psMode = 'main';
     Replays.battle.subscribe(st => { Replays.update(st); onPS(); });   // Battle keeps one listener: feed the embed's controls too
-    await loadText(txt, true);
+    await loadText(txt, true); MARK('first render done');
   } catch (e) {
     $id('takeSec').innerHTML = `<p class="rb-err">Could not start: ${esc(e.message || e)}</p>`;
     console.error(e);
@@ -1264,21 +1266,21 @@ async function loadText(text, first) {
   let payload = null;
   const t = String(text || '').trim();
   if (t.startsWith('{')) { try { const j = JSON.parse(t); if (j && j.rbv && j.log) payload = j; } catch {} }
-  const rep = E.parseReplayInput(payload ? payload.log : t);
+  MARK('loadText start'); const rep = E.parseReplayInput(payload ? payload.log : t); MARK('replay input parsed');
   S.rep = rep;
   S.key = rep.meta.id || ('log-' + hash(rep.lines.slice(0, 40).join('\n') + rep.lines.length));
   S.node.clear(); S.takeCache.clear();
   S.stats = null;
-  try { const r = await fetch('stats/' + rep.formatid + '.json'); if (r.ok) S.stats = await r.json(); } catch {}
-  S.cbEnd = E.clientAt(rep, rep.lastTurn + 1).cb;
-  S.base = [S.cbEnd.p1, S.cbEnd.p2].map(side => side.team.map(p => E.suggestSet(E.knownOf(p), S.stats, rep.gen)));
+  try { const r = await fetch('stats/' + rep.formatid + '.json'); MARK('stats response'); if (r.ok) S.stats = await r.json(); } catch {}
+  MARK('stats fetched'); S.cbEnd = E.clientAt(rep, rep.lastTurn + 1).cb; MARK('replay parsed');
+  MARK('before sets'); S.base = [S.cbEnd.p1, S.cbEnd.p2].map(side => side.team.map(p => E.suggestSet(E.knownOf(p), S.stats, rep.gen)));
   S.study = (payload && payload.study) || loadStored(S.key) || {rbv: 1, sets: null, nodes: {}, kids: {}, notes: {}, seq: 0};
   if (!S.study.sets || S.study.sets.length !== 2 || S.study.sets.some((s, i) => s.length !== S.base[i].length)) S.study.sets = clone(S.base);
   if (payload) save();
   S.take = null; S.sel = {}; S.tera = {};
   if (!first) S.psMode = '';
   S.cur = '';
-  go('r0');
+  MARK('before go'); go('r0'); MARK('after go');
 }
 
 // ------------------------------------------------------------------ study tree model
@@ -1842,7 +1844,12 @@ async function selftest() {
   const pre = document.createElement('pre'); pre.id = 'selftest'; pre.textContent = out.join('\n'); document.body.appendChild(pre);
 }
 window.addEventListener('error', e => { const p = document.getElementById('errlog') || Object.assign(document.body.appendChild(document.createElement('pre')), {id: 'errlog', hidden: true}); p.textContent += (e.message || e) + '\n'; });
-boot().then(() => { if (location.hash === '#selftest') selftest(); });
+boot().then(() => {
+  if (location.hash === '#selftest') selftest();
+  if (location.hash === '#perf') { const pre = document.createElement('pre'); pre.id = 'perf';
+    const res = performance.getEntriesByType('resource').filter(r => r.duration > 50).map(r => r.name.split('/').slice(-2).join('/') + ' start ' + Math.round(r.startTime) + ' end ' + Math.round(r.responseEnd));
+    pre.textContent = MARKS.join('\n') + '\nload event ' + Math.round(performance.getEntriesByType('navigation')[0]?.loadEventStart || 0) + '\n' + res.join('\n'); document.body.appendChild(pre); }
+});
 
 window.ctl = ctl;
 </script>
