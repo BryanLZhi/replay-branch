@@ -1,0 +1,1720 @@
+<!DOCTYPE html>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Replay Branch</title>
+<style>
+html,body {font-family:Verdana, sans-serif;font-size:10pt;margin:0;padding:0;}body{padding:12px 0;}
+.battle-log {font-family:Verdana, sans-serif;font-size:10pt;}
+.battle-log .inner {padding:4px 8px 0px 8px;} .battle-log .inner-preempt {padding:0 8px 4px 8px;} .battle-log .inner-after {margin-top:0.5em;}
+.battle-log h2 {margin:0.5em -8px;padding:4px 8px;border:1px solid #AAAAAA;background:#E0E7EA;border-left:0;border-right:0;font-family:Verdana, sans-serif;font-size:13pt;}
+.battle-log .chat {vertical-align:middle;padding:3px 0 3px 0;font-size:8pt;} .battle-log .chat strong {color:#40576A;} .battle-log .chat em {padding:1px 4px 1px 3px;color:#000000;font-style:normal;}
+.subtle {color:#3A4A66;}
+
+/* ---- Replay Branch panel ---- */
+[hidden] { display: none !important; }
+:root { --rb-panel: #fff; --rb-panel2: #f0f3f6; --rb-line: #aaa; --rb-fg: #222; --rb-muted: #5b6570; --rb-sel: #ffe9a0; --rb-selline: #c99a17;
+  --rb-cur: #cde0fb; --rb-curline: #5b8fd6; --rb-branch: #1d7a39; --rb-branchbg: #e9f6ed; --rb-bad: #b3261e; --rb-btn1: #fff; --rb-btn2: #e1e6ea; --rb-btnline: #aaa; }
+body.dark { --rb-panel: #26292e; --rb-panel2: #31353b; --rb-line: #50565e; --rb-fg: #ddd; --rb-muted: #a0a9b3; --rb-sel: #5a4713; --rb-selline: #d2a42c;
+  --rb-cur: #24406a; --rb-curline: #6c9ce0; --rb-branch: #6fd68c; --rb-branchbg: #1c2e22; --rb-bad: #ff8a80; --rb-btn1: #4a4f56; --rb-btn2: #3a3e44; --rb-btnline: #666; }
+body.dark { background: #1b1d21; color: #ddd; }
+.rb-wrap { max-width: 1180px; margin: 0 auto; padding: 0 16px; box-sizing: border-box; color: var(--rb-fg); }
+.rb-section { background: var(--rb-panel); border: 1px solid var(--rb-line); border-radius: 6px; padding: 12px; margin: 12px 0 0; }
+.rb-section h2 { margin: 0 0 8px; font-size: 13pt; font-weight: normal; }
+.button { font: inherit; font-size: 9pt; padding: 3px 9px; border: 1px solid var(--rb-btnline); border-radius: 5px; background: linear-gradient(var(--rb-btn1), var(--rb-btn2)); color: var(--rb-fg); cursor: pointer; vertical-align: middle; }
+.button:hover { border-color: var(--rb-curline); }
+.button:disabled { opacity: .5; cursor: default; }
+.textbox { font: inherit; font-size: 9pt; border: 1px solid var(--rb-btnline); border-radius: 4px; background: var(--rb-panel); color: var(--rb-fg); padding: 3px 5px; }
+.rb-note { font-size: 8.5pt; color: var(--rb-muted); }
+.rb-err { font-size: 9pt; color: var(--rb-bad); }
+.rb-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 8px; }
+.rb-pos { font-size: 9pt; } .rb-pos b { color: var(--rb-branch); }
+.rb-mode { display: inline-block; background: #1d7a39; color: #fff; border-radius: 4px; padding: 1px 8px; font-size: 9pt; margin-left: 4px; vertical-align: middle; font-weight: normal; }
+.rb-choose { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+@media (max-width: 560px) { .rb-choose { grid-template-columns: minmax(0, 1fr); } }
+.rb-pside { border: 1px solid var(--rb-line); border-radius: 6px; padding: 8px; background: var(--rb-panel2); min-width: 0; }
+.rb-pside h3 { margin: 0 0 6px; font-size: 9.5pt; display: flex; justify-content: space-between; gap: 6px; }
+.rb-moves { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; }
+.t-Normal { --t: #a8a878; } .t-Fire { --t: #f08030; } .t-Water { --t: #6890f0; } .t-Electric { --t: #f8d030; } .t-Grass { --t: #78c850; }
+.t-Ice { --t: #98d8d8; } .t-Fighting { --t: #c03028; } .t-Poison { --t: #a040a0; } .t-Ground { --t: #e0c068; } .t-Flying { --t: #a890f0; }
+.t-Psychic { --t: #f85888; } .t-Bug { --t: #a8b820; } .t-Rock { --t: #b8a038; } .t-Ghost { --t: #705898; } .t-Dragon { --t: #7038f8; }
+.t-Dark { --t: #705848; } .t-Steel { --t: #b8b8d0; } .t-Fairy { --t: #ee99ac; } .t-Stellar { --t: #40b5a5; } .t-Unknown { --t: #68a090; }
+.rb-mv { font: inherit; text-align: left; border-radius: 5px; padding: 4px 7px; cursor: pointer; border: 1px solid color-mix(in srgb, var(--t, #999) 60%, #333);
+  background: linear-gradient(color-mix(in srgb, var(--t, #ccc) 15%, #fff), color-mix(in srgb, var(--t, #ccc) 40%, #fff)); color: #222; min-width: 0; font-size: 9pt; }
+body.dark .rb-mv { background: linear-gradient(color-mix(in srgb, var(--t, #ccc) 25%, #2a2f36), color-mix(in srgb, var(--t, #ccc) 45%, #2a2f36)); color: #eee; }
+.rb-mv b { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rb-mv small { font-size: 7.5pt; opacity: .8; display: flex; justify-content: space-between; gap: 4px; }
+.rb-mv:disabled { opacity: .4; cursor: default; }
+.rb-mv.on, .rb-sw.on { outline: 3px solid var(--rb-selline); outline-offset: -1px; }
+.rb-switches { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+.rb-sw { display: inline-flex; align-items: center; gap: 2px; padding: 0 6px 0 0; }
+.rb-picon { width: 40px; height: 30px; display: inline-block; vertical-align: middle; }
+.rb-rolls { display: flex; flex-direction: column; gap: 5px; }
+.rb-roll { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; padding: 4px 6px; border-radius: 4px; background: var(--rb-panel2); font-size: 9pt; }
+.rb-roll small { color: var(--rb-muted); }
+.rb-seg { display: inline-flex; }
+.rb-seg .button { border-radius: 0; margin: 0; }
+.rb-seg .button:first-child { border-radius: 5px 0 0 5px; } .rb-seg .button:last-child { border-radius: 0 5px 5px 0; }
+.rb-seg .button.on, .rb-glyphs .button.on { background: var(--rb-sel); font-weight: bold; }
+.rb-tabs { display: flex; gap: 4px; margin-bottom: 8px; }
+.rb-tabs .button.cur { font-weight: bold; background: var(--rb-cur); }
+.rb-movelist { font-size: 9pt; max-height: 420px; overflow: auto; border: 1px solid var(--rb-line); border-radius: 4px; background: var(--rb-panel); }
+.rb-mrow { display: grid; grid-template-columns: 36px minmax(0, 1fr) minmax(0, 1fr); border-bottom: 1px solid var(--rb-line); cursor: pointer; }
+.rb-mrow .no { background: var(--rb-panel2); color: var(--rb-muted); text-align: center; padding: 3px 0; }
+.rb-mrow .a { padding: 3px 6px; min-width: 0; overflow-wrap: anywhere; }
+.rb-mrow:hover .a { background: var(--rb-panel2); }
+.rb-mrow.cur .a { background: var(--rb-cur); }
+.rb-mrow.start .a { grid-column: 2 / 4; color: var(--rb-muted); }
+.rb-glyph { font-weight: bold; color: var(--rb-branch); margin-left: 3px; }
+.rb-vars { padding: 4px 6px 6px 18px; border-bottom: 1px solid var(--rb-line); background: var(--rb-branchbg); line-height: 1.75; }
+.rb-var { border-left: 2px solid var(--rb-branch); padding-left: 6px; margin: 2px 0; }
+.rb-tok { cursor: pointer; padding: 1px 3px; border-radius: 3px; }
+.rb-tok:hover { background: var(--rb-panel2); }
+.rb-tok.cur { background: var(--rb-cur); outline: 1px solid var(--rb-curline); }
+.rb-tok .tn { color: var(--rb-muted); margin-right: 2px; }
+.rb-cmt { color: var(--rb-muted); font-style: italic; }
+.rb-notes { margin-top: 8px; display: flex; flex-direction: column; gap: 6px; }
+.rb-section textarea { width: 100%; box-sizing: border-box; }
+.rb-teamhead { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; margin: 4px 0 8px; flex-wrap: wrap; }
+.rb-mons { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 8px; margin-bottom: 14px; }
+.rb-mon { border: 1px solid var(--rb-line); border-radius: 6px; padding: 8px; background: var(--rb-panel2); display: flex; flex-direction: column; gap: 4px; min-width: 0; font-size: 9pt; }
+.rb-mon .hd { display: flex; align-items: center; gap: 4px; font-weight: bold; min-width: 0; }
+.rb-mon .hd .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rb-mon label { display: grid; grid-template-columns: 54px minmax(0, 1fr); align-items: center; gap: 4px; color: var(--rb-muted); }
+.rb-mon input, .rb-mon select { min-width: 0; width: 100%; box-sizing: border-box; }
+.rb-mon .guess { font-style: italic; border-style: dashed !important; }
+.rb-mvgrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 3px; }
+.rb-evs { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 2px; }
+.rb-evs input { text-align: center; padding: 2px 0; }
+.rb-evs span { font-size: 7.5pt; text-align: center; color: var(--rb-muted); }
+.rb-type { display: inline-block; font-size: 7.5pt; font-weight: bold; color: #fff; text-shadow: 0 1px 0 #0006; background: var(--t); border-radius: 3px; padding: 0 4px; line-height: 14px; }
+.rb-modal { position: fixed; inset: 0; background: rgba(0,0,0,.55); display: flex; align-items: center; justify-content: center; padding: 16px; z-index: 50; }
+.rb-modal .rb-section { width: min(640px, 100%); max-height: 90vh; overflow: auto; box-sizing: border-box; margin: 0; }
+.rb-modal textarea { min-height: 160px; font-family: Consolas, monospace; font-size: 8.5pt; width: 100%; box-sizing: border-box; }
+.rb-topbar { display: flex; justify-content: flex-end; gap: 6px; max-width: 1180px; margin: 0 auto 8px; padding: 0 16px; box-sizing: border-box; }
+.rb-license { font-size: 7.5pt; color: #999; text-align: center; margin: 18px 0 8px; }
+#gate { position: fixed; inset: 0; z-index: 100; background: #2a3a4f; display: flex; align-items: center; justify-content: center; padding: 16px; }
+#gate form { background: #fff; color: #222; border-radius: 8px; padding: 20px; width: min(320px, 100%); box-sizing: border-box; display: flex; flex-direction: column; gap: 10px; }
+#gate h1 { margin: 0; font-size: 14pt; font-weight: normal; }
+</style>
+
+<div id="gate" hidden>
+  <form id="gateForm"><h1>Replay Branch</h1><label for="gatePw" class="rb-note" style="color:#555">Password</label>
+    <input id="gatePw" type="password" class="textbox" autocomplete="current-password" style="background:#fff;color:#222">
+    <button class="button" type="submit"><strong>Enter</strong></button><span id="gateErr" class="rb-err"></span></form>
+</div>
+
+<div class="rb-topbar"><button class="button" type="button" onclick="ctl('load')">Load replay</button> <button class="button" type="button" onclick="ctl('export')">Export study</button></div>
+
+<div class="wrapper replay-wrapper" style="max-width:1180px;margin:0 auto">
+<input type="hidden" name="replayid" value="smogtours-gen9uu-987009" />
+<div class="battle"></div><div class="battle-log"></div><div class="replay-controls"></div><div class="replay-controls-2"></div>
+<h1 style="font-weight:normal;text-align:center" id="rbTitle"></h1>
+<script type="text/plain" class="battle-log-data">|inactive|Battle timer is ON: inactive players will automatically lose when time's up.
+|t:|1793502004
+|gametype|singles
+|player|p1|wssi|#uwcivbrazil|
+|player|p2|wintminter|#scl6islanders2|
+|gen|9
+|tier|[Gen 9] UU
+|rule|HP Percentage Mod: HP is shown in percentages
+|rule|Endless Battle Clause: Forcing endless battles is banned
+|rule|Species Clause: Limit one of each Pokemon
+|rule|OHKO Clause: OHKO moves are banned
+|rule|Evasion Items Clause: Evasion items are banned
+|rule|Evasion Moves Clause: Evasion moves are banned
+|rule|Evasion Abilities Clause: Evasion abilities are banned
+|rule|Sleep Moves Clause: Sleep-inducing moves are banned
+|clearpoke
+|poke|p1|Talonflame, F|
+|poke|p1|Lokix, M|
+|poke|p1|Excadrill, F|
+|poke|p1|Fezandipiti, M|
+|poke|p1|Slowking, F|
+|poke|p1|Latios, M|
+|poke|p2|Donphan, M|
+|poke|p2|Keldeo-Resolute|
+|poke|p2|Weavile, F|
+|poke|p2|Fezandipiti, M|
+|poke|p2|Metagross|
+|poke|p2|Thundurus, M|
+|teampreview
+|c|☆wintminter|hf 
+|c|☆wssi|Again, vry thank you for postponing
+|c|☆wssi|u2
+|inactive|wssi has 270 seconds left.
+|inactive|wintminter has 270 seconds left.
+|inactive|wssi has 240 seconds left.
+|inactive|wintminter has 240 seconds left.
+|inactive|wintminter has 210 seconds left.
+|
+|t:|1793502107
+|teamsize|p1|6
+|teamsize|p2|6
+|start
+|switch|p1a: Fezandipiti|Fezandipiti, M|100\/100
+|switch|p2a: Keldeo|Keldeo-Resolute|100\/100
+|turn|1
+|inactive|wintminter has 240 seconds left.
+|
+|t:|1793502145
+|switch|p2a: Fezandipiti|Fezandipiti, M|100\/100
+|switch|p1a: Slowking|Slowking, F|100\/100
+|
+|upkeep
+|turn|2
+|inactive|wintminter has 240 seconds left.
+|
+|t:|1793502168
+|switch|p1a: Fezandipiti|Fezandipiti, M|100\/100
+|move|p2a: Fezandipiti|U-turn|p1a: Fezandipiti
+|-resisted|p1a: Fezandipiti
+|-damage|p1a: Fezandipiti|98\/100
+|-damage|p2a: Fezandipiti|84\/100|[from] item: Rocky Helmet|[of] p1a: Fezandipiti
+|
+|t:|1793502176
+|switch|p2a: Metagross|Metagross|100\/100|[from] U-turn
+|
+|upkeep
+|turn|3
+|
+|t:|1793502183
+|switch|p1a: Talonflame|Talonflame, F|100\/100
+|move|p2a: Metagross|Knock Off|p1a: Talonflame
+|-damage|p1a: Talonflame|53\/100
+|-enditem|p1a: Talonflame|Heavy-Duty Boots|[from] move: Knock Off|[of] p2a: Metagross
+|
+|upkeep
+|turn|4
+|inactive|wssi has 270 seconds left.
+|inactive|wintminter has 210 seconds left.
+|
+|t:|1793502214
+|switch|p2a: Fezandipiti|Fezandipiti, M|84\/100
+|move|p1a: Talonflame|Roost|p1a: Talonflame
+|-heal|p1a: Talonflame|100\/100
+|-singleturn|p1a: Talonflame|move: Roost
+|
+|upkeep
+|turn|5
+|inactive|wintminter has 210 seconds left.
+|inactive|wssi has 270 seconds left.
+|c|+cheru|go minty!!!
+|
+|t:|1793502242
+|move|p1a: Talonflame|U-turn|p2a: Fezandipiti
+|-resisted|p2a: Fezandipiti
+|-damage|p2a: Fezandipiti|81\/100
+|-damage|p1a: Talonflame|84\/100|[from] item: Rocky Helmet|[of] p2a: Fezandipiti
+|
+|t:|1793502244
+|switch|p1a: Fezandipiti|Fezandipiti, M|98\/100|[from] U-turn
+|move|p2a: Fezandipiti|U-turn|p1a: Fezandipiti
+|-resisted|p1a: Fezandipiti
+|-damage|p1a: Fezandipiti|95\/100
+|-damage|p2a: Fezandipiti|65\/100|[from] item: Rocky Helmet|[of] p1a: Fezandipiti
+|c|+NinjaCaro|Go mint!
+|c|☆wssi|kkkkkkkkkkkk
+|c|+NDK|Go Wssi!
+|
+|t:|1793502260
+|switch|p2a: Metagross|Metagross|100\/100|[from] U-turn
+|
+|upkeep
+|turn|6
+|inactive|wssi has 270 seconds left.
+|inactive|wintminter has 180 seconds left.
+|
+|t:|1793502302
+|switch|p1a: Slowking|Slowking, F|100\/100
+|switch|p2a: Donphan|Donphan, M|100\/100
+|
+|upkeep
+|turn|7
+|inactive|wintminter has 150 seconds left.
+|
+|t:|1793502328
+|switch|p2a: Fezandipiti|Fezandipiti, M|65\/100
+|move|p1a: Slowking|Scald|p2a: Fezandipiti
+|-damage|p2a: Fezandipiti|43\/100
+|-status|p2a: Fezandipiti|brn
+|
+|-damage|p2a: Fezandipiti|37\/100 brn|[from] brn
+|upkeep
+|turn|8
+|
+|t:|1793502337
+|move|p2a: Fezandipiti|Roost|p2a: Fezandipiti
+|-heal|p2a: Fezandipiti|87\/100 brn
+|-singleturn|p2a: Fezandipiti|move: Roost
+|move|p1a: Slowking|Future Sight|p2a: Fezandipiti
+|-start|p1a: Slowking|move: Future Sight
+|
+|-damage|p2a: Fezandipiti|81\/100 brn|[from] brn
+|upkeep
+|turn|9
+|inactive|wintminter has 150 seconds left.
+|
+|t:|1793502362
+|switch|p1a: Excadrill|Excadrill, F|100\/100
+|-ability|p1a: Excadrill|Mold Breaker
+|move|p2a: Fezandipiti|U-turn|p1a: Excadrill
+|-resisted|p1a: Excadrill
+|-damage|p1a: Excadrill|96\/100
+|
+|t:|1793502366
+|switch|p2a: Weavile|Weavile, F|100\/100|[from] U-turn
+|
+|-heal|p1a: Excadrill|100\/100|[from] item: Leftovers
+|upkeep
+|turn|10
+|
+|t:|1793502372
+|switch|p1a: Talonflame|Talonflame, F|84\/100
+|move|p2a: Weavile|Protect||[still]
+|-fail|p2a: Weavile
+|
+|-end|p2a: Weavile|move: Future Sight
+|-immune|p2a: Weavile
+|upkeep
+|turn|11
+|inactive|wssi has 270 seconds left.
+|inactive|wintminter has 150 seconds left.
+|
+|t:|1793502408
+|switch|p2a: Fezandipiti|Fezandipiti, M|81\/100 brn
+|move|p1a: Talonflame|Roost|p1a: Talonflame
+|-heal|p1a: Talonflame|100\/100
+|-singleturn|p1a: Talonflame|move: Roost
+|
+|-damage|p2a: Fezandipiti|75\/100 brn|[from] brn
+|upkeep
+|turn|12
+|
+|t:|1793502414
+|switch|p1a: Fezandipiti|Fezandipiti, M|95\/100
+|move|p2a: Fezandipiti|U-turn|p1a: Fezandipiti
+|-resisted|p1a: Fezandipiti
+|-damage|p1a: Fezandipiti|94\/100
+|-damage|p2a: Fezandipiti|58\/100 brn|[from] item: Rocky Helmet|[of] p1a: Fezandipiti
+|
+|t:|1793502419
+|switch|p2a: Metagross|Metagross|100\/100|[from] U-turn
+|
+|upkeep
+|turn|13
+|inactive|wintminter has 150 seconds left.
+|inactive|wssi has 270 seconds left.
+|
+|t:|1793502448
+|switch|p1a: Talonflame|Talonflame, F|100\/100
+|switch|p2a: Donphan|Donphan, M|100\/100
+|
+|upkeep
+|turn|14
+|inactive|wssi has 270 seconds left.
+|
+|t:|1793502455
+|move|p1a: Talonflame|U-turn|p2a: Donphan
+|-damage|p2a: Donphan|93\/100
+|
+|t:|1793502459
+|switch|p1a: Slowking|Slowking, F|100\/100|[from] U-turn
+|move|p2a: Donphan|Head Smash|p1a: Slowking
+|-damage|p1a: Slowking|70\/100
+|-damage|p2a: Donphan|76\/100|[from] item: Rocky Helmet|[of] p1a: Slowking
+|-damage|p2a: Donphan|61\/100|[from] Recoil
+|
+|-heal|p2a: Donphan|67\/100|[from] item: Leftovers
+|upkeep
+|turn|15
+|inactive|wintminter has 150 seconds left.
+|
+|t:|1793502477
+|switch|p2a: Fezandipiti|Fezandipiti, M|58\/100 brn
+|move|p1a: Slowking|Scald|p2a: Fezandipiti
+|-damage|p2a: Fezandipiti|37\/100 brn
+|
+|-damage|p2a: Fezandipiti|31\/100 brn|[from] brn
+|upkeep
+|turn|16
+|
+|t:|1793502485
+|move|p2a: Fezandipiti|Roost|p2a: Fezandipiti
+|-heal|p2a: Fezandipiti|81\/100 brn
+|-singleturn|p2a: Fezandipiti|move: Roost
+|-prepare|p1a: Slowking|Chilly Reception|[premajor]
+|move|p1a: Slowking|Chilly Reception|p1a: Slowking
+|-weather|Snowscape
+|
+|t:|1793502498
+|switch|p1a: Excadrill|Excadrill, F|100\/100|[from] Chilly Reception
+|-ability|p1a: Excadrill|Mold Breaker
+|
+|-weather|Snowscape|[upkeep]
+|-damage|p2a: Fezandipiti|75\/100 brn|[from] brn
+|upkeep
+|turn|17
+|inactive|wintminter has 150 seconds left.
+|
+|t:|1793502520
+|switch|p2a: Donphan|Donphan, M|67\/100
+|move|p1a: Excadrill|Earthquake|p2a: Donphan
+|-damage|p2a: Donphan|38\/100
+|
+|-weather|Snowscape|[upkeep]
+|-heal|p2a: Donphan|44\/100|[from] item: Leftovers
+|upkeep
+|turn|18
+|
+|t:|1793502532
+|switch|p1a: Slowking|Slowking, F|100\/100
+|move|p2a: Donphan|Earthquake|p1a: Slowking
+|-damage|p1a: Slowking|69\/100
+|
+|-weather|Snowscape|[upkeep]
+|-heal|p2a: Donphan|50\/100|[from] item: Leftovers
+|upkeep
+|turn|19
+|inactive|wintminter has 150 seconds left.
+|
+|t:|1793502547
+|switch|p2a: Fezandipiti|Fezandipiti, M|75\/100 brn
+|move|p1a: Slowking|Scald|p2a: Fezandipiti
+|-damage|p2a: Fezandipiti|53\/100 brn
+|
+|-weather|Snowscape|[upkeep]
+|-damage|p2a: Fezandipiti|47\/100 brn|[from] brn
+|upkeep
+|turn|20
+|
+|t:|1793502552
+|switch|p1a: Fezandipiti|Fezandipiti, M|94\/100
+|move|p2a: Fezandipiti|Roost|p2a: Fezandipiti
+|-heal|p2a: Fezandipiti|97\/100 brn
+|-singleturn|p2a: Fezandipiti|move: Roost
+|
+|-weather|none
+|-damage|p2a: Fezandipiti|91\/100 brn|[from] brn
+|upkeep
+|turn|21
+|inactive|wintminter has 150 seconds left.
+|
+|t:|1793502574
+|move|p2a: Fezandipiti|U-turn|p1a: Fezandipiti
+|-resisted|p1a: Fezandipiti
+|-damage|p1a: Fezandipiti|93\/100
+|-damage|p2a: Fezandipiti|74\/100 brn|[from] item: Rocky Helmet|[of] p1a: Fezandipiti
+|
+|t:|1793502578
+|switch|p2a: Metagross|Metagross|100\/100|[from] U-turn
+|move|p1a: Fezandipiti|Heat Wave|p2a: Metagross
+|-supereffective|p2a: Metagross
+|-damage|p2a: Metagross|77\/100
+|
+|upkeep
+|turn|22
+|inactive|wssi has 270 seconds left.
+|
+|t:|1793502620
+|switch|p1a: Talonflame|Talonflame, F|100\/100
+|move|p2a: Metagross|Knock Off|p1a: Talonflame
+|-damage|p1a: Talonflame|70\/100
+|
+|upkeep
+|turn|23
+|inactive|wintminter has 150 seconds left.
+|inactive|wssi has 240 seconds left.
+|
+|t:|1793502662
+|switch|p2a: Fezandipiti|Fezandipiti, M|74\/100 brn
+|move|p1a: Talonflame|Roost|p1a: Talonflame
+|-heal|p1a: Talonflame|100\/100
+|-singleturn|p1a: Talonflame|move: Roost
+|
+|-damage|p2a: Fezandipiti|68\/100 brn|[from] brn
+|upkeep
+|turn|24
+|inactive|wssi has 240 seconds left.
+|
+|t:|1793502668
+|switch|p1a: Fezandipiti|Fezandipiti, M|93\/100
+|move|p2a: Fezandipiti|Roost|p2a: Fezandipiti
+|-heal|p2a: Fezandipiti|100\/100 brn
+|-singleturn|p2a: Fezandipiti|move: Roost
+|
+|-damage|p2a: Fezandipiti|94\/100 brn|[from] brn
+|upkeep
+|turn|25
+|
+|t:|1793502673
+|move|p2a: Fezandipiti|U-turn|p1a: Fezandipiti
+|-resisted|p1a: Fezandipiti
+|-damage|p1a: Fezandipiti|92\/100
+|-damage|p2a: Fezandipiti|78\/100 brn|[from] item: Rocky Helmet|[of] p1a: Fezandipiti
+|
+|t:|1793502677
+|switch|p2a: Metagross|Metagross|77\/100|[from] U-turn
+|move|p1a: Fezandipiti|Heat Wave|p2a: Metagross
+|-supereffective|p2a: Metagross
+|-damage|p2a: Metagross|54\/100
+|
+|upkeep
+|turn|26
+|
+|t:|1793502687
+|switch|p1a: Talonflame|Talonflame, F|100\/100
+|switch|p2a: Donphan|Donphan, M|50\/100
+|
+|-heal|p2a: Donphan|56\/100|[from] item: Leftovers
+|upkeep
+|turn|27
+|
+|t:|1793502707
+|move|p1a: Talonflame|U-turn|p2a: Donphan
+|-damage|p2a: Donphan|48\/100
+|
+|t:|1793502709
+|switch|p1a: Slowking|Slowking, F|100\/100|[from] U-turn
+|move|p2a: Donphan|Stealth Rock|p1a: Slowking
+|-sidestart|p1: wssi|move: Stealth Rock
+|
+|-heal|p2a: Donphan|54\/100|[from] item: Leftovers
+|upkeep
+|turn|28
+|inactive|wintminter has 180 seconds left.
+|inactive|wintminter has 150 seconds left.
+|
+|t:|1793502746
+|switch|p2a: Keldeo|Keldeo-Resolute|100\/100
+|move|p1a: Slowking|Scald|p2a: Keldeo
+|-resisted|p2a: Keldeo
+|-damage|p2a: Keldeo|84\/100
+|
+|upkeep
+|turn|29
+|inactive|wssi has 270 seconds left.
+|inactive|wintminter has 150 seconds left.
+|inactive|wintminter has 120 seconds left.
+|
+|t:|1793502787
+|switch|p2a: Fezandipiti|Fezandipiti, M|78\/100 brn
+|move|p1a: Slowking|Scald|p2a: Fezandipiti
+|-damage|p2a: Fezandipiti|59\/100 brn
+|
+|-damage|p2a: Fezandipiti|53\/100 brn|[from] brn
+|upkeep
+|turn|30
+|inactive|wssi has 270 seconds left.
+|
+|t:|1793502813
+|switch|p1a: Excadrill|Excadrill, F|100\/100
+|-damage|p1a: Excadrill|98\/100|[from] Stealth Rock
+|-ability|p1a: Excadrill|Mold Breaker
+|move|p2a: Fezandipiti|U-turn|p1a: Excadrill
+|-resisted|p1a: Excadrill
+|-damage|p1a: Excadrill|93\/100
+|inactive|wintminter has 120 seconds left.
+|
+|t:|1793502847
+|switch|p2a: Keldeo|Keldeo-Resolute|84\/100|[from] U-turn
+|
+|-heal|p1a: Excadrill|99\/100|[from] item: Leftovers
+|upkeep
+|turn|31
+|
+|t:|1793502853
+|switch|p1a: Slowking|Slowking, F|100\/100
+|-damage|p1a: Slowking|88\/100|[from] Stealth Rock
+|move|p2a: Keldeo|Surf|p1a: Slowking
+|-resisted|p1a: Slowking
+|-damage|p1a: Slowking|67\/100
+|-damage|p2a: Keldeo|74\/100|[from] item: Life Orb
+|
+|upkeep
+|turn|32
+|inactive|wintminter has 90 seconds left.
+|
+|t:|1793502892
+|switch|p2a: Thundurus|Thundurus, M|100\/100
+|-prepare|p1a: Slowking|Chilly Reception|[premajor]
+|move|p1a: Slowking|Chilly Reception|p1a: Slowking
+|-weather|Snowscape
+|
+|t:|1793502897
+|switch|p1a: Excadrill|Excadrill, F|99\/100|[from] Chilly Reception
+|-damage|p1a: Excadrill|96\/100|[from] Stealth Rock
+|-ability|p1a: Excadrill|Mold Breaker
+|
+|-weather|Snowscape|[upkeep]
+|-heal|p1a: Excadrill|100\/100|[from] item: Leftovers
+|upkeep
+|turn|33
+|inactive|wintminter has 90 seconds left.
+|
+|t:|1793502925
+|move|p2a: Thundurus|Dark Pulse|p1a: Excadrill
+|-damage|p1a: Excadrill|73\/100
+|move|p1a: Excadrill|Rapid Spin|p2a: Thundurus
+|-damage|p2a: Thundurus|74\/100
+|-boost|p1a: Excadrill|spe|1
+|-sideend|p1: wssi|Stealth Rock|[from] move: Rapid Spin|[of] p1a: Excadrill
+|
+|-weather|Snowscape|[upkeep]
+|-heal|p1a: Excadrill|79\/100|[from] item: Leftovers
+|upkeep
+|turn|34
+|inactive|wssi has 270 seconds left.
+|
+|t:|1793502935
+|switch|p2a: Donphan|Donphan, M|54\/100
+|move|p1a: Excadrill|Rock Slide|p2a: Donphan
+|-resisted|p2a: Donphan
+|-damage|p2a: Donphan|47\/100
+|
+|-weather|Snowscape|[upkeep]
+|-heal|p1a: Excadrill|85\/100|[from] item: Leftovers
+|-heal|p2a: Donphan|53\/100|[from] item: Leftovers
+|upkeep
+|turn|35
+|inactive|wssi has 270 seconds left.
+|
+|t:|1793502945
+|switch|p1a: Slowking|Slowking, F|99\/100
+|move|p2a: Donphan|Earthquake|p1a: Slowking
+|-crit|p1a: Slowking
+|-damage|p1a: Slowking|52\/100
+|
+|-weather|Snowscape|[upkeep]
+|-heal|p2a: Donphan|59\/100|[from] item: Leftovers
+|upkeep
+|turn|36
+|inactive|wintminter has 90 seconds left.
+|
+|t:|1793502963
+|switch|p2a: Fezandipiti|Fezandipiti, M|53\/100 brn
+|move|p1a: Slowking|Scald|p2a: Fezandipiti
+|-damage|p2a: Fezandipiti|33\/100 brn
+|
+|-weather|none
+|-damage|p2a: Fezandipiti|27\/100 brn|[from] brn
+|upkeep
+|turn|37
+|
+|t:|1793502969
+|move|p2a: Fezandipiti|Roost|p2a: Fezandipiti
+|-heal|p2a: Fezandipiti|77\/100 brn
+|-singleturn|p2a: Fezandipiti|move: Roost
+|-prepare|p1a: Slowking|Chilly Reception|[premajor]
+|move|p1a: Slowking|Chilly Reception|p1a: Slowking
+|-weather|Snowscape
+|
+|t:|1793502986
+|switch|p1a: Excadrill|Excadrill, F|85\/100|[from] Chilly Reception
+|-ability|p1a: Excadrill|Mold Breaker
+|
+|-weather|Snowscape|[upkeep]
+|-heal|p1a: Excadrill|91\/100|[from] item: Leftovers
+|-damage|p2a: Fezandipiti|71\/100 brn|[from] brn
+|upkeep
+|turn|38
+|inactive|wintminter has 90 seconds left.
+|inactive|wintminter has 60 seconds left.
+|
+|t:|1793503042
+|switch|p2a: Keldeo|Keldeo-Resolute|74\/100
+|move|p1a: Excadrill|Earthquake|p2a: Keldeo
+|-damage|p2a: Keldeo|16\/100
+|
+|-weather|Snowscape|[upkeep]
+|-heal|p1a: Excadrill|97\/100|[from] item: Leftovers
+|upkeep
+|turn|39
+|
+|t:|1793503049
+|switch|p1a: Slowking|Slowking, F|85\/100
+|move|p2a: Keldeo|Pain Split|p1a: Slowking
+|-sethp|p1a: Slowking|49\/100|[from] move: Pain Split|[silent]
+|-sethp|p2a: Keldeo|60\/100|[from] move: Pain Split
+|
+|-weather|Snowscape|[upkeep]
+|upkeep
+|turn|40
+|inactive|wintminter has 30 seconds left.
+|
+|t:|1793503081
+|move|p2a: Keldeo|Taunt|p1a: Slowking
+|-start|p1a: Slowking|move: Taunt
+|-prepare|p1a: Slowking|Chilly Reception|[premajor]
+|cant|p1a: Slowking|move: Taunt|Chilly Reception
+|
+|-weather|Snowscape|[upkeep]
+|upkeep
+|turn|41
+|inactive|wintminter has 30 seconds left.
+|
+|t:|1793503095
+|switch|p1a: Latios|Latios, M|100\/100
+|move|p2a: Keldeo|Surf|p1a: Latios
+|-resisted|p1a: Latios
+|-damage|p1a: Latios|68\/100
+|-damage|p2a: Keldeo|50\/100|[from] item: Life Orb
+|
+|-weather|none
+|upkeep
+|turn|42
+|
+|t:|1793503104
+|switch|p2a: Metagross|Metagross|54\/100
+|move|p1a: Latios|Aura Sphere|p2a: Metagross
+|-damage|p2a: Metagross|25\/100
+|
+|upkeep
+|turn|43
+|inactive|wintminter has 30 seconds left.
+|
+|t:|1793503132
+|switch|p2a: Fezandipiti|Fezandipiti, M|71\/100 brn
+|move|p1a: Latios|Aura Sphere|p2a: Fezandipiti
+|-resisted|p2a: Fezandipiti
+|-damage|p2a: Fezandipiti|63\/100 brn
+|
+|-damage|p2a: Fezandipiti|57\/100 brn|[from] brn
+|upkeep
+|turn|44
+|
+|t:|1793503136
+|switch|p1a: Excadrill|Excadrill, F|97\/100
+|-ability|p1a: Excadrill|Mold Breaker
+|move|p2a: Fezandipiti|U-turn|p1a: Excadrill
+|-resisted|p1a: Excadrill
+|-damage|p1a: Excadrill|92\/100
+|
+|t:|1793503145
+|switch|p2a: Donphan|Donphan, M|59\/100|[from] U-turn
+|
+|-heal|p1a: Excadrill|98\/100|[from] item: Leftovers
+|-heal|p2a: Donphan|65\/100|[from] item: Leftovers
+|upkeep
+|turn|45
+|
+|t:|1793503153
+|switch|p1a: Slowking|Slowking, F|83\/100
+|move|p2a: Donphan|Stealth Rock|p1a: Slowking
+|-sidestart|p1: wssi|move: Stealth Rock
+|
+|-heal|p2a: Donphan|71\/100|[from] item: Leftovers
+|upkeep
+|turn|46
+|
+|t:|1793503175
+|switch|p2a: Keldeo|Keldeo-Resolute|50\/100
+|move|p1a: Slowking|Scald|p2a: Keldeo
+|-resisted|p2a: Keldeo
+|-damage|p2a: Keldeo|32\/100
+|
+|upkeep
+|turn|47
+|inactive|wintminter has 30 seconds left.
+|
+|t:|1793503198
+|move|p2a: Keldeo|Taunt|p1a: Slowking
+|-start|p1a: Slowking|move: Taunt
+|-prepare|p1a: Slowking|Chilly Reception|[premajor]
+|cant|p1a: Slowking|move: Taunt|Chilly Reception
+|
+|upkeep
+|turn|48
+|
+|t:|1793503201
+|move|p2a: Keldeo|Pain Split|p1a: Slowking
+|-sethp|p1a: Slowking|55\/100|[from] move: Pain Split|[silent]
+|-sethp|p2a: Keldeo|66\/100|[from] move: Pain Split
+|move|p1a: Slowking|Scald|p2a: Keldeo
+|-resisted|p2a: Keldeo
+|-damage|p2a: Keldeo|49\/100
+|
+|upkeep
+|turn|49
+|
+|t:|1793503218
+|switch|p1a: Latios|Latios, M|68\/100
+|-damage|p1a: Latios|55\/100|[from] Stealth Rock
+|move|p2a: Keldeo|Secret Sword|p1a: Latios
+|-resisted|p1a: Latios
+|-damage|p1a: Latios|18\/100
+|-damage|p2a: Keldeo|39\/100|[from] item: Life Orb
+|
+|upkeep
+|turn|50
+|inactive|wintminter has 30 seconds left.
+|
+|t:|1793503242
+|switch|p2a: Metagross|Metagross|25\/100
+|move|p1a: Latios|Luster Purge|p2a: Metagross
+|-resisted|p2a: Metagross
+|-damage|p2a: Metagross|13\/100
+|
+|upkeep
+|turn|51
+|inactive|wintminter has 30 seconds left.
+|inactive|wintminter has 20 seconds left.
+|inactive|wintminter has 15 seconds left.
+|
+|t:|1793503270
+|switch|p1a: Talonflame|Talonflame, F|100\/100
+|-damage|p1a: Talonflame|51\/100|[from] Stealth Rock
+|move|p2a: Metagross|Knock Off|p1a: Talonflame
+|-damage|p1a: Talonflame|23\/100
+|
+|upkeep
+|turn|52
+|inactive|wintminter has 25 seconds left this turn.
+|inactive|wintminter has 20 seconds left.
+|
+|t:|1793503281
+|move|p1a: Talonflame|Defog|p2a: Metagross
+|-fail|p2a: Metagross|unboost|[from] ability: Clear Body|[of] p2a: Metagross
+|-sideend|p1: wssi|Stealth Rock|[from] move: Defog|[of] p1a: Talonflame
+|move|p2a: Metagross|Earthquake|p1a: Talonflame
+|-immune|p1a: Talonflame
+|
+|upkeep
+|turn|53
+|inactive|wintminter has 30 seconds left this turn.
+|inactive|wintminter has 20 seconds left.
+|inactive|wssi has 270 seconds left.
+|
+|t:|1793503305
+|move|p1a: Talonflame|Flare Blitz|p2a: Metagross
+|-supereffective|p2a: Metagross
+|-damage|p2a: Metagross|0 fnt
+|faint|p2a: Metagross
+|-damage|p1a: Talonflame|19\/100|[from] Recoil
+|
+|upkeep
+|inactive|wintminter has 25 seconds left this turn.
+|
+|t:|1793503309
+|switch|p2a: Donphan|Donphan, M|71\/100
+|turn|54
+|
+|t:|1793503321
+|move|p1a: Talonflame|U-turn|p2a: Donphan
+|-crit|p2a: Donphan
+|-damage|p2a: Donphan|60\/100
+|
+|t:|1793503331
+|switch|p1a: Slowking|Slowking, F|88\/100|[from] U-turn
+|move|p2a: Donphan|Stealth Rock|p1a: Slowking
+|-sidestart|p1: wssi|move: Stealth Rock
+|
+|-heal|p2a: Donphan|66\/100|[from] item: Leftovers
+|upkeep
+|turn|55
+|
+|t:|1793503341
+|switch|p2a: Keldeo|Keldeo-Resolute|39\/100
+|-prepare|p1a: Slowking|Chilly Reception|[premajor]
+|move|p1a: Slowking|Chilly Reception|p1a: Slowking
+|-weather|Snowscape
+|
+|t:|1793503344
+|switch|p1a: Latios|Latios, M|18\/100|[from] Chilly Reception
+|-damage|p1a: Latios|5\/100|[from] Stealth Rock
+|
+|-weather|Snowscape|[upkeep]
+|upkeep
+|turn|56
+|
+|t:|1793503362
+|switch|p2a: Fezandipiti|Fezandipiti, M|57\/100 brn
+|move|p1a: Latios|Draco Meteor|p2a: Fezandipiti
+|-immune|p2a: Fezandipiti
+|
+|-weather|Snowscape|[upkeep]
+|-damage|p2a: Fezandipiti|51\/100 brn|[from] brn
+|upkeep
+|turn|57
+|
+|t:|1793503374
+|switch|p1a: Fezandipiti|Fezandipiti, M|92\/100
+|-damage|p1a: Fezandipiti|79\/100|[from] Stealth Rock
+|move|p2a: Fezandipiti|U-turn|p1a: Fezandipiti
+|-resisted|p1a: Fezandipiti
+|-damage|p1a: Fezandipiti|78\/100
+|-damage|p2a: Fezandipiti|34\/100 brn|[from] item: Rocky Helmet|[of] p1a: Fezandipiti
+|
+|t:|1793503391
+|switch|p2a: Keldeo|Keldeo-Resolute|39\/100|[from] U-turn
+|
+|-weather|Snowscape|[upkeep]
+|upkeep
+|turn|58
+|inactive|wssi has 270 seconds left.
+|
+|t:|1793503444
+|move|p2a: Keldeo|Pain Split|p1a: Fezandipiti
+|-sethp|p1a: Fezandipiti|56\/100|[from] move: Pain Split|[silent]
+|-sethp|p2a: Keldeo|66\/100|[from] move: Pain Split
+|move|p1a: Fezandipiti|Moonblast|p2a: Keldeo
+|-supereffective|p2a: Keldeo
+|-damage|p2a: Keldeo|13\/100
+|
+|-weather|Snowscape|[upkeep]
+|upkeep
+|turn|59
+|inactive|wssi has 240 seconds left.
+|
+|t:|1793503475
+|switch|p1a: Slowking|Slowking, F|100\/100
+|-damage|p1a: Slowking|88\/100|[from] Stealth Rock
+|move|p2a: Keldeo|Surf|p1a: Slowking
+|-resisted|p1a: Slowking
+|-damage|p1a: Slowking|65\/100
+|-damage|p2a: Keldeo|3\/100|[from] item: Life Orb
+|
+|-weather|none
+|upkeep
+|turn|60
+|inactive|wssi has 240 seconds left.
+|inactive|wssi has 210 seconds left.
+|
+|t:|1793503521
+|switch|p1a: Lokix|Lokix, M|100\/100
+|-damage|p1a: Lokix|76\/100|[from] Stealth Rock
+|move|p2a: Keldeo|Pain Split|p1a: Lokix
+|-sethp|p1a: Lokix|39\/100|[from] move: Pain Split|[silent]
+|-sethp|p2a: Keldeo|35\/100|[from] move: Pain Split
+|
+|upkeep
+|turn|61
+|
+|t:|1793503535
+|switch|p2a: Fezandipiti|Fezandipiti, M|34\/100 brn
+|move|p1a: Lokix|First Impression|p2a: Fezandipiti
+|-resisted|p2a: Fezandipiti
+|-damage|p2a: Fezandipiti|14\/100 brn
+|-damage|p1a: Lokix|23\/100|[from] item: Rocky Helmet|[of] p2a: Fezandipiti
+|
+|-damage|p2a: Fezandipiti|8\/100 brn|[from] brn
+|upkeep
+|turn|62
+|
+|t:|1793503557
+|switch|p1a: Fezandipiti|Fezandipiti, M|56\/100
+|-damage|p1a: Fezandipiti|43\/100|[from] Stealth Rock
+|switch|p2a: Keldeo|Keldeo-Resolute|35\/100
+|
+|upkeep
+|turn|63
+|inactive|wssi has 180 seconds left.
+|
+|t:|1793503590
+|-terastallize|p1a: Fezandipiti|Water
+|move|p2a: Keldeo|Surf|p1a: Fezandipiti
+|-resisted|p1a: Fezandipiti
+|-damage|p1a: Fezandipiti|22\/100
+|-damage|p2a: Keldeo|25\/100|[from] item: Life Orb
+|move|p1a: Fezandipiti|Roost|p1a: Fezandipiti
+|-heal|p1a: Fezandipiti|72\/100
+|
+|upkeep
+|turn|64
+|inactive|wssi has 180 seconds left.
+|
+|t:|1793503603
+|move|p2a: Keldeo|Pain Split|p1a: Fezandipiti
+|-sethp|p1a: Fezandipiti|47\/100|[from] move: Pain Split|[silent]
+|-sethp|p2a: Keldeo|55\/100|[from] move: Pain Split
+|move|p1a: Fezandipiti|Moonblast|p2a: Keldeo
+|-supereffective|p2a: Keldeo
+|-crit|p2a: Keldeo
+|-damage|p2a: Keldeo|0 fnt
+|faint|p2a: Keldeo
+|
+|upkeep
+|inactive|wintminter has 30 seconds left.
+|inactive|wintminter has 20 seconds left.
+|
+|t:|1793503629
+|switch|p2a: Thundurus|Thundurus, M|74\/100
+|turn|65
+|inactive|wintminter has 30 seconds left this turn.
+|inactive|wintminter has 20 seconds left.
+|inactive|wssi has 180 seconds left.
+|inactive|wintminter has 15 seconds left.
+|
+|t:|1793503648
+|switch|p2a: Fezandipiti|Fezandipiti, M|8\/100 brn
+|switch|p1a: Latios|Latios, M|5\/100
+|-damage|p1a: Latios|0 fnt|[from] Stealth Rock
+|faint|p1a: Latios
+|
+|-damage|p2a: Fezandipiti|2\/100 brn|[from] brn
+|upkeep
+|
+|t:|1793503651
+|switch|p1a: Excadrill|Excadrill, F|98\/100
+|-damage|p1a: Excadrill|95\/100|[from] Stealth Rock
+|-ability|p1a: Excadrill|Mold Breaker
+|turn|66
+|inactive|wintminter has 30 seconds left this turn.
+|
+|t:|1793503655
+|switch|p2a: Donphan|Donphan, M|66\/100
+|move|p1a: Excadrill|Rapid Spin|p2a: Donphan
+|-damage|p2a: Donphan|56\/100
+|-boost|p1a: Excadrill|spe|1
+|-sideend|p1: wssi|Stealth Rock|[from] move: Rapid Spin|[of] p1a: Excadrill
+|
+|-heal|p1a: Excadrill|100\/100|[from] item: Leftovers
+|-heal|p2a: Donphan|62\/100|[from] item: Leftovers
+|upkeep
+|turn|67
+|
+|t:|1793503663
+|switch|p1a: Fezandipiti|Fezandipiti, M, tera:Water|47\/100
+|move|p2a: Donphan|Stealth Rock|p1a: Fezandipiti
+|-sidestart|p1: wssi|move: Stealth Rock
+|
+|-heal|p2a: Donphan|68\/100|[from] item: Leftovers
+|upkeep
+|turn|68
+|
+|t:|1793503673
+|switch|p2a: Thundurus|Thundurus, M|74\/100
+|move|p1a: Fezandipiti|Roost|p1a: Fezandipiti
+|-heal|p1a: Fezandipiti|97\/100
+|
+|upkeep
+|turn|69
+|inactive|wintminter has 30 seconds left.
+|inactive|wssi has 210 seconds left.
+|
+|t:|1793503710
+|switch|p1a: Excadrill|Excadrill, F|100\/100
+|-damage|p1a: Excadrill|98\/100|[from] Stealth Rock
+|-ability|p1a: Excadrill|Mold Breaker
+|move|p2a: Thundurus|Thunderbolt|p1a: Excadrill
+|-immune|p1a: Excadrill
+|
+|-heal|p1a: Excadrill|100\/100|[from] item: Leftovers
+|upkeep
+|turn|70
+|
+|t:|1793503717
+|switch|p2a: Donphan|Donphan, M|68\/100
+|move|p1a: Excadrill|Rapid Spin|p2a: Donphan
+|-damage|p2a: Donphan|58\/100
+|-boost|p1a: Excadrill|spe|1
+|-sideend|p1: wssi|Stealth Rock|[from] move: Rapid Spin|[of] p1a: Excadrill
+|
+|-heal|p2a: Donphan|64\/100|[from] item: Leftovers
+|upkeep
+|turn|71
+|inactive|wssi has 210 seconds left.
+|
+|t:|1793503734
+|switch|p1a: Fezandipiti|Fezandipiti, M, tera:Water|97\/100
+|move|p2a: Donphan|Stealth Rock|p1a: Fezandipiti
+|-sidestart|p1: wssi|move: Stealth Rock
+|
+|-heal|p2a: Donphan|70\/100|[from] item: Leftovers
+|upkeep
+|turn|72
+|
+|t:|1793503741
+|switch|p2a: Fezandipiti|Fezandipiti, M|2\/100 brn
+|move|p1a: Fezandipiti|Moonblast|p2a: Fezandipiti
+|-resisted|p2a: Fezandipiti
+|-damage|p2a: Fezandipiti|0 fnt
+|faint|p2a: Fezandipiti
+|
+|upkeep
+|
+|t:|1793503752
+|switch|p2a: Thundurus|Thundurus, M|74\/100
+|turn|73
+|
+|t:|1793503759
+|switch|p1a: Lokix|Lokix, M|23\/100
+|-damage|p1a: Lokix|0 fnt|[from] Stealth Rock
+|faint|p1a: Lokix
+|move|p2a: Thundurus|Nasty Plot|p2a: Thundurus
+|-boost|p2a: Thundurus|spa|2
+|
+|upkeep
+|
+|t:|1793503763
+|switch|p1a: Excadrill|Excadrill, F|100\/100
+|-damage|p1a: Excadrill|98\/100|[from] Stealth Rock
+|-ability|p1a: Excadrill|Mold Breaker
+|turn|74
+|
+|t:|1793503772
+|move|p2a: Thundurus|Dark Pulse|p1a: Excadrill
+|-damage|p1a: Excadrill|46\/100
+|move|p1a: Excadrill|Rapid Spin|p2a: Thundurus
+|-damage|p2a: Thundurus|48\/100
+|-boost|p1a: Excadrill|spe|1
+|-sideend|p1: wssi|Stealth Rock|[from] move: Rapid Spin|[of] p1a: Excadrill
+|
+|-heal|p1a: Excadrill|52\/100|[from] item: Leftovers
+|upkeep
+|turn|75
+|inactive|wssi has 240 seconds left.
+|
+|t:|1793503797
+|switch|p2a: Donphan|Donphan, M|70\/100
+|move|p1a: Excadrill|Earthquake|p2a: Donphan
+|-damage|p2a: Donphan|40\/100
+|
+|-heal|p1a: Excadrill|58\/100|[from] item: Leftovers
+|-heal|p2a: Donphan|46\/100|[from] item: Leftovers
+|upkeep
+|turn|76
+|
+|t:|1793503813
+|switch|p1a: Slowking|Slowking, F|98\/100
+|move|p2a: Donphan|Earthquake|p1a: Slowking
+|-damage|p1a: Slowking|68\/100
+|
+|-heal|p2a: Donphan|52\/100|[from] item: Leftovers
+|upkeep
+|turn|77
+|
+|t:|1793503822
+|move|p2a: Donphan|Stealth Rock|p1a: Slowking
+|-sidestart|p1: wssi|move: Stealth Rock
+|move|p1a: Slowking|Scald|p2a: Donphan
+|-supereffective|p2a: Donphan
+|-damage|p2a: Donphan|0 fnt
+|faint|p2a: Donphan
+|
+|upkeep
+|inactive|wintminter has 60 seconds left.
+|
+|t:|1793503846
+|switch|p2a: Thundurus|Thundurus, M|48\/100
+|turn|78
+|inactive|wintminter has 60 seconds left.
+|
+|t:|1793503852
+|move|p2a: Thundurus|Nasty Plot|p2a: Thundurus
+|-boost|p2a: Thundurus|spa|2
+|move|p1a: Slowking|Scald|p2a: Thundurus
+|-damage|p2a: Thundurus|7\/100
+|
+|upkeep
+|turn|79
+|inactive|wssi has 240 seconds left.
+|inactive|wintminter has 60 seconds left.
+|
+|t:|1793503865
+|move|p2a: Thundurus|Thunderbolt|p1a: Slowking
+|-supereffective|p1a: Slowking
+|-damage|p1a: Slowking|0 fnt
+|faint|p1a: Slowking
+|
+|upkeep
+|
+|t:|1793503869
+|switch|p1a: Excadrill|Excadrill, F|58\/100
+|-damage|p1a: Excadrill|55\/100|[from] Stealth Rock
+|-ability|p1a: Excadrill|Mold Breaker
+|turn|80
+|inactive|wssi has 240 seconds left.
+|
+|t:|1793503887
+|-terastallize|p2a: Thundurus|Dark
+|move|p2a: Thundurus|Dark Pulse|p1a: Excadrill
+|-damage|p1a: Excadrill|0 fnt
+|faint|p1a: Excadrill
+|
+|upkeep
+|inactive|wssi has 240 seconds left.
+|
+|t:|1793503892
+|switch|p1a: Fezandipiti|Fezandipiti, M, tera:Water|97\/100
+|-damage|p1a: Fezandipiti|84\/100|[from] Stealth Rock
+|turn|81
+|
+|t:|1793503895
+|move|p2a: Thundurus|Thunderbolt|p1a: Fezandipiti
+|-supereffective|p1a: Fezandipiti
+|-damage|p1a: Fezandipiti|0 fnt
+|faint|p1a: Fezandipiti
+|
+|upkeep
+|c|☆wssi|gg
+|c|☆wintminter|gg
+|inactive|wssi has 240 seconds left.
+|c|☆wssi|\/log wssi made the replay of this battle unlisted.
+|
+|t:|1793503912
+|switch|p1a: Talonflame|Talonflame, F|19\/100
+|-damage|p1a: Talonflame|0 fnt|[from] Stealth Rock
+|faint|p1a: Talonflame
+|
+|win|wintminter
+|player|p1|
+|player|p2|
+|player|p1|wssi|#uwcivbrazil|
+|player|p1|
+</script>
+</div>
+
+<div class="rb-wrap">
+  <section class="rb-section" id="takeSec"><p class="rb-note">Loading…</p></section>
+  <section class="rb-section" id="diceSec" hidden></section>
+  <section class="rb-section" id="studySec"></section>
+  <p class="rb-license">Replay viewer: <a href="https://github.com/smogon/pokemon-showdown-client" target="_blank" rel="noopener">Pok&eacute;mon Showdown</a> replay embed (MIT; client AGPL-3.0). Branch simulator: <a href="https://github.com/pkmn/ps" target="_blank" rel="noopener">@pkmn/sim</a> (MIT). Usage stats: Smogon. Source of this page: this site's repository.</p>
+</div>
+
+<div class="rb-modal" id="loader" hidden>
+  <section class="rb-section" role="dialog" aria-labelledby="loaderTitle">
+    <h2 id="loaderTitle">Load a replay</h2>
+    <p class="rb-note">Paste a replay link, the battle log, a saved replay file's contents, or a study you exported earlier.</p>
+    <p><input id="replayUrl" class="textbox" type="url" style="width:100%;box-sizing:border-box" placeholder="https://replay.pokemonshowdown.com/…"></p>
+    <p id="logLink" class="rb-note"></p>
+    <textarea id="pasteBox" class="textbox" placeholder="|player|p1|…"></textarea>
+    <p class="rb-row"><input type="file" id="fileIn" accept=".log,.txt,.json,.html,.htm"><span style="flex:1"></span>
+      <button class="button" type="button" id="btnSample">Load the sample</button>
+      <button class="button" type="button" id="btnCancel">Cancel</button>
+      <button class="button" type="button" id="btnDoLoad"><strong>Load</strong></button></p>
+    <p class="rb-err" id="loadErr"></p>
+  </section>
+</div>
+<div class="rb-modal" id="exporter" hidden>
+  <section class="rb-section" role="dialog" aria-labelledby="exportTitle">
+    <h2 id="exportTitle">Export study</h2>
+    <p class="rb-note">This text holds the replay, your sets and every line you played. Paste it into <b>Load replay</b> to open the study again, on any device.</p>
+    <textarea id="exportBox" class="textbox" readonly></textarea>
+    <p class="rb-row" style="justify-content:flex-end"><span class="rb-note" id="copyMsg"></span><button class="button" type="button" id="btnCopy">Copy</button><button class="button" type="button" id="btnCloseExport">Close</button></p>
+  </section>
+</div>
+
+<script>
+// Password gate (keeps casual visitors out; this is a static site, so it is not real security)
+(function () {
+  var H = '5abef6a055ddc385f35f1b3532c64b2a15c8ecb92237c3967c35b35a5a4dea0b';
+  if (!H || H.indexOf('PW_HASH') >= 0) return;
+  var ok = false; try { ok = localStorage.getItem('rb-gate') === H; } catch (e) {}
+  if (ok) return;
+  var g = document.getElementById('gate'); g.hidden = false;
+  document.getElementById('gatePw').focus();
+  document.getElementById('gateForm').onsubmit = async function (e) {
+    e.preventDefault();
+    var pw = document.getElementById('gatePw').value;
+    var buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode('rbv:' + pw));
+    var hex = Array.from(new Uint8Array(buf)).map(function (b) { return b.toString(16).padStart(2, '0'); }).join('');
+    if (hex === H) { try { localStorage.setItem('rb-gate', H); } catch (e2) {} g.hidden = true; }
+    else document.getElementById('gateErr').textContent = 'Wrong password.';
+  };
+})();
+</script>
+<script src="https://play.pokemonshowdown.com/js/replay-embed.js"></script>
+<script type="module">
+let E;
+const $id = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
+const TAKE_SEED = [11, 22, 33, 44];
+const S = {rep: null, key: '', stats: null, base: null, study: null, cur: 'r1', take: null, node: new Map(), takeCache: new Map(), cbEnd: null,
+  sel: {}, tera: {}, tab: 'study', err: '', delArm: null, psb: null, psMode: '', lock: false, p2view: false, speed: 'normal', turnBox: false, atlas: {}, spriteCache: new Map()};
+
+// ------------------------------------------------------------------ the Showdown replay embed + our sim
+// replay-embed.js (Showdown, MIT) builds the replay viewer exactly like a downloaded replay; we drive Replays.battle.
+async function loadEngine() {
+  try { return await import('./engine.js'); }
+  catch { const t = await fetch('engine.js').then(r => r.text()); return await import(URL.createObjectURL(new Blob([t], {type: 'text/javascript'}))); }
+}
+function until(test, ms = 30000) {
+  return new Promise((res, rej) => { const t0 = Date.now(); const tick = () => { let ok = false; try { ok = test(); } catch {} if (ok) res(); else if (Date.now() - t0 > ms) rej(new Error('Showdown did not load (check your connection).')); else setTimeout(tick, 100); }; tick(); });
+}
+async function boot() {
+  try {
+    E = await loadEngine();
+    await until(() => window.Replays && Replays.battle && window.Battle && window.Dex);
+    const txt = await fetch('sample.json').then(r => r.text());
+    S.psb = Replays.battle; S.psMode = 'main';
+    Replays.battle.subscribe(() => onPS());
+    await loadText(txt, true);
+  } catch (e) {
+    $id('takeSec').innerHTML = `<p class="rb-err">Could not start: ${esc(e.message || e)}</p>`;
+    console.error(e);
+  }
+}
+function save() { try { localStorage.setItem('rbv:' + S.key, JSON.stringify(S.study)); } catch {} }
+function loadStored(key) { try { const s = localStorage.getItem('rbv:' + key); return s ? JSON.parse(s) : null; } catch { return null; } }
+const clone = o => JSON.parse(JSON.stringify(o));
+function hash(s) { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(36); }
+
+async function loadText(text, first) {
+  let payload = null;
+  const t = String(text || '').trim();
+  if (t.startsWith('{')) { try { const j = JSON.parse(t); if (j && j.rbv && j.log) payload = j; } catch {} }
+  const rep = E.parseReplayInput(payload ? payload.log : t);
+  S.rep = rep;
+  S.key = rep.meta.id || ('log-' + hash(rep.lines.slice(0, 40).join('\n') + rep.lines.length));
+  S.node.clear(); S.takeCache.clear();
+  S.stats = null;
+  try { const r = await fetch('stats/' + rep.formatid + '.json'); if (r.ok) S.stats = await r.json(); } catch {}
+  S.cbEnd = E.clientAt(rep, rep.lastTurn + 1).cb;
+  S.base = [S.cbEnd.p1, S.cbEnd.p2].map(side => side.team.map(p => E.suggestSet(E.knownOf(p), S.stats, rep.gen)));
+  S.study = (payload && payload.study) || loadStored(S.key) || {rbv: 1, sets: null, nodes: {}, kids: {}, notes: {}, seq: 0};
+  if (!S.study.sets || S.study.sets.length !== 2 || S.study.sets.some((s, i) => s.length !== S.base[i].length)) S.study.sets = clone(S.base);
+  if (payload) save();
+  S.take = null; S.sel = {}; S.tera = {};
+  if (!first) S.psMode = '';
+  S.cur = '';
+  go('r1');
+}
+
+// ------------------------------------------------------------------ study tree model
+const isMain = id => id[0] === 'r';
+const mainT = id => +id.slice(1);
+function parentOf(id) { if (isMain(id)) { const t = mainT(id); return t > 1 ? 'r' + (t - 1) : null; } return S.study.nodes[id]?.parent || null; }
+function kids(id) { return S.study.kids[id] || []; }
+function childrenOf(id) { if (isMain(id)) { const t = mainT(id); const k = kids(id).slice(); if (t <= S.rep.lastTurn) k.unshift('r' + (t + 1)); return k; } return kids(id); }
+function pathTo(id) { const p = []; let n = id; while (n && !isMain(n)) { p.unshift(n); n = S.study.nodes[n].parent; } return p; }
+function takeoverFor(t, sets) {
+  const k = t + ':' + hash(JSON.stringify(sets));
+  if (!S.takeCache.has(k)) { const r = E.takeover(S.rep, t, sets, TAKE_SEED); S.takeCache.set(k, {json: E.serialize(r.battle), battle: r.battle, notes: r.notes}); }
+  return S.takeCache.get(k);
+}
+function compute(id) {
+  if (S.node.has(id)) return S.node.get(id);
+  const n = S.study.nodes[id];
+  const pj = isMain(n.parent) ? takeoverFor(mainT(n.parent), n.sets).json : compute(n.parent).json;
+  const r = E.step(pj, n.choices, n.forced, n.seed);
+  const res = {json: E.serialize(r.battle), battle: r.battle, lines: r.lines, rolls: r.rolls};
+  S.node.set(id, res);
+  return res;
+}
+function invalidate(id) { S.node.delete(id); for (const k of kids(id)) invalidate(k); }
+function newSeed() { return [0, 0, 0, 0].map(() => Math.floor(Math.random() * 65536)); }
+function addNode(parent, choices, forced, seed, sets) {
+  const id = 'n' + (++S.study.seq);
+  S.study.nodes[id] = {id, parent, choices, forced: forced || [], seed: seed || newSeed(), sets: sets || undefined, comment: '', glyph: ''};
+  (S.study.kids[parent] ||= []).push(id);
+  save();
+  return id;
+}
+function deleteNode(id) {
+  for (const k of kids(id).slice()) deleteNode(k);
+  const n = S.study.nodes[id]; if (!n) return;
+  const arr = S.study.kids[n.parent] || []; const i = arr.indexOf(id); if (i >= 0) arr.splice(i, 1);
+  delete S.study.nodes[id]; delete S.study.kids[id]; S.node.delete(id);
+}
+
+// ------------------------------------------------------------------ the Showdown battle view (swapped into the embed)
+const FADE = {hyperfast: 40, fast: 50, normal: 300, slow: 500, reallyslow: 1000}, DELAY = {hyperfast: 1, fast: 1, normal: 1, slow: 1000, reallyslow: 3000};
+function newPS(lines) {
+  const old = Replays.battle;
+  const view = old && old.viewpointSwitched;
+  try { old.destroy(); } catch {}
+  Replays.$('.battle').empty(); Replays.$('.battle-log').empty();
+  const b = new Battle({id: S.key, $frame: Replays.$('.battle'), $logFrame: Replays.$('.battle-log'), log: lines, isReplay: true, paused: true, autoresize: true});
+  const sp = Replays.$('.speedchooser button.sel').val() || 'normal';
+  b.messageShownTime = DELAY[sp]; b.messageFadeTime = FADE[sp];
+  try { b.scene.updateAcceleration(); } catch {}
+  try { b.setMute(!!Replays.muted); } catch {}
+  if (view) b.switchViewpoint();
+  Replays.battle = b;
+  b.subscribe(st => { Replays.update(st); onPS(); });
+  Replays.update();
+  S.psb = b;
+  return b;
+}
+function onPS() {
+  if (S.lock || !S.psb) return;
+  if (S.psMode === 'main' && !S.take) {
+    const b = S.psb;
+    const t = b.ended ? S.rep.lastTurn + 1 : Math.max(1, Math.min(b.turn, S.rep.lastTurn + 1));
+    const id = 'r' + t;
+    if (id !== S.cur) { S.cur = id; S.sel = {}; S.tera = {}; renderPanels(); }
+  }
+}
+function showPosition(animate) {
+  S.lock = true;
+  try {
+    if (isMain(S.cur)) {
+      if (S.psMode !== 'main') { newPS(S.rep.lines); S.psMode = 'main'; }
+      const t = mainT(S.cur);
+      if (t > S.rep.lastTurn) S.psb.seekTurn(Infinity); else S.psb.seekTurn(t);
+    } else {
+      const path = pathTo(S.cur);
+      const t0 = mainT(S.study.nodes[path[0]].parent);
+      const prefix = S.rep.lines.slice(0, S.rep.turnIdx[t0] + 1);
+      const before = path.slice(0, -1).flatMap(id => compute(id).lines);
+      const last = compute(S.cur).lines;
+      S.psMode = 'branch:' + S.cur;
+      if (animate) { newPS(prefix.concat(before)); S.psb.seekTurn(Infinity); for (const l of last) S.psb.add(l); S.psb.play(); }
+      else { newPS(prefix.concat(before, last)); S.psb.seekTurn(Infinity); }
+    }
+  } finally { S.lock = false; }
+  setTitle();
+}
+function setTitle() {
+  const m = S.rep.meta; const ps = m.players || [S.cbEnd.p1.name, S.cbEnd.p2.name];
+  $id('rbTitle').innerHTML = `<strong>${esc(S.rep.tier || S.rep.formatid)}</strong><br>${esc(ps[0] || 'Player 1')} vs. ${esc(ps[1] || 'Player 2')}${!isMain(S.cur) ? ' <span class="rb-mode">Your line</span>' : S.take ? ' <span class="rb-mode">Taking over</span>' : ''}`;
+}
+function ctl(a) {
+  if (a === 'load') { $id('loader').hidden = false; $id('loadErr').textContent = ''; $id('pasteBox').focus(); }
+  else if (a === 'export') { $id('exportBox').value = JSON.stringify({rbv: 1, log: S.rep.lines.join('\n'), study: S.study}); $id('exporter').hidden = false; $id('copyMsg').textContent = ''; }
+}
+function renderControls() { setTitle(); }
+// ------------------------------------------------------------------ take over + move picker
+function iconStyle(species) { try { return Dex.getPokemonIcon(species); } catch { return ''; } }
+function typeTag(t) { return t ? `<span class="rb-type t-${esc(t === '???' ? 'Unknown' : t)}">${esc(t)}</span>` : ''; }
+function guessCount() {
+  let n = 0;
+  S.study.sets.forEach((side, si) => side.forEach((s, k) => { const f = S.base[si][k].fixed; n += Math.max(0, s.moves.filter(Boolean).length - f.moves.length) + (f.item ? 0 : 1) + (f.ability ? 0 : 1); }));
+  return n;
+}
+function posLabel() {
+  if (isMain(S.cur)) {
+    const t = mainT(S.cur);
+    if (S.take && S.take.t === t) return `<b>Taking over</b> at the start of turn ${t}`;
+    return t > S.rep.lastTurn ? 'Replay: end of the battle' : `Replay: start of turn ${t}`;
+  }
+  const r = compute(S.cur); const root = S.study.nodes[pathTo(S.cur)[0]];
+  return `<b>Your line</b> from turn ${mainT(root.parent)}: now turn ${r.battle.turn}${r.battle.ended ? ', battle over' : ''}`;
+}
+function curBattle() {
+  if (S.take && isMain(S.cur) && S.take.t === mainT(S.cur)) { const tk = takeoverFor(S.take.t, S.study.sets); return {kind: 'take', t: S.take.t, battle: tk.battle, notes: tk.notes}; }
+  if (isMain(S.cur)) return {kind: 'main', t: mainT(S.cur)};
+  const r = compute(S.cur); return {kind: 'branch', battle: r.battle, rolls: r.rolls};
+}
+function renderTake(pos) {
+  const el = $id('takeSec');
+  const navBtns = `<span style="float:right"><button class="button" id="tbPrev" title="Back along the study (←)"><i class="fa fa-chevron-left" aria-hidden="true"></i></button> <button class="button" id="tbNext" title="Forward along the study (→)"><i class="fa fa-chevron-right" aria-hidden="true"></i></button></span>`;
+  if (pos.kind === 'main') {
+    const t = pos.t;
+    const doubles = S.rep.lines.some(l => l === '|gametype|doubles' || l === '|gametype|triples');
+    const n = kids(S.cur).length;
+    el.innerHTML = `${navBtns}<h2>${t > S.rep.lastTurn ? 'End of the replay' : `Turn ${t}`}</h2><p class="rb-pos">${posLabel()}</p>
+      ${t > S.rep.lastTurn ? `<p class="rb-note">Go back to any turn to take over from there.</p>` : `<p class="rb-note">Take over to choose both players' moves from here and play out your own line.${n ? ` ${n === 1 ? 'One line starts' : `${n} lines start`} from this turn (see Study below).` : ''}</p>
+      <p class="rb-row"><button class="button" id="btnTake" ${doubles ? 'disabled' : ''}><strong>Take over at turn ${t}</strong></button>
+      <span class="rb-note">${doubles ? 'Taking over works for singles battles only, for now.' : `Unknown moves and items come from the Teams tab (${guessCount()} guessed).`}</span></p>`}`;
+    const b = $id('btnTake'); if (b) b.onclick = () => { S.take = {t}; S.sel = {}; S.tera = {}; renderPanels(); renderControls(); };
+  } else {
+    const battle = pos.battle;
+    if (battle.ended) {
+      el.innerHTML = `${navBtns}<h2>Battle over</h2><p class="rb-pos">${posLabel()}</p><p class="rb-note">${battle.winner ? esc(battle.winner) + ' won this line.' : 'This line ended in a tie.'} Step back to try something else.</p>`;
+    } else {
+      const sides = battle.sides.map((s, si) => ({si, s, req: s.activeRequest}));
+      const need = sides.filter(x => x.req && !x.req.wait);
+      const html = sides.map(({si, s, req}) => {
+        const pid = 'p' + (si + 1);
+        let body = '';
+        if (!req || req.wait) body = `<p class="rb-note">Waiting for the other player.</p>`;
+        else {
+          const act = req.active && req.active[0];
+          const forced = req.forceSwitch && req.forceSwitch[0];
+          if (!forced && act) {
+            body += `<div class="rb-moves">${act.moves.map((m, i) => {
+              const mv = E.Dex.moves.get(m.id || m.move); const ch = `move ${i + 1}`;
+              return `<button type="button" class="rb-mv t-${esc(mv.type || 'Normal')} ${S.sel[pid] === ch ? 'on' : ''}" data-p="${pid}" data-c="${ch}" ${m.disabled || m.pp === 0 ? 'disabled' : ''}
+                title="${esc(`${mv.category}${mv.basePower ? ', ' + mv.basePower + ' BP' : ''}, ${mv.accuracy === true ? 'never misses' : mv.accuracy + '% accuracy'}${mv.shortDesc ? '\n' + mv.shortDesc : ''}`)}"><b>${esc(m.move)}</b><small><span>${esc(mv.type || '')}</span><span>${m.maxpp ? `${m.pp}/${m.maxpp}` : ''}</span></small></button>`;
+            }).join('')}</div>`;
+            if (act.canTerastallize) body += `<p class="rb-row" style="margin-top:6px"><label><input type="checkbox" data-tera="${pid}" ${S.tera[pid] ? 'checked' : ''}> Terastallize</label> ${typeTag(act.canTerastallize)}</p>`;
+          }
+          const trapped = act && act.trapped && !forced;
+          body += `<div class="rb-switches">${req.side.pokemon.map((p, k) => {
+            if (p.active && !forced) return '';
+            const name = p.ident.replace(/^p\d: /, ''); const fnt = /fnt/.test(p.condition);
+            const hp = p.condition.split(' ')[0].split('/'); const pct = fnt ? 0 : Math.round(+hp[0] / +hp[1] * 100);
+            const ch = `switch ${k + 1}`;
+            return `<button type="button" class="button rb-sw ${S.sel[pid] === ch ? 'on' : ''}" data-p="${pid}" data-c="${ch}" ${fnt || p.active || trapped ? 'disabled' : ''}><span class="rb-picon" style="${iconStyle(p.details.split(',')[0])}"></span>${esc(name)} <small>${pct}%</small></button>`;
+          }).join('')}</div>`;
+          if (forced) body = `<p class="rb-note" style="margin:0 0 4px">Choose a Pok&eacute;mon to send in.</p>` + body;
+          else if (trapped) body += `<p class="rb-note">Trapped: it can't switch out.</p>`;
+        }
+        return `<div class="rb-pside"><h3><span>${esc(s.name)}</span><span class="rb-note">${esc(S.sel[pid] ? describeChoice(s, S.sel[pid]) : '')}</span></h3>${body}</div>`;
+      }).join('');
+      const ready = need.every(x => S.sel['p' + (x.si + 1)]);
+      el.innerHTML = `${navBtns}<h2>${pos.kind === 'take' ? `Your line from turn ${pos.t}` : 'Next choice'}</h2><p class="rb-pos">${posLabel()}</p>
+        <div class="rb-choose">${html}</div>
+        <p class="rb-row"><button class="button" id="btnPlay" ${ready ? '' : 'disabled'}><strong>Play turn</strong></button>
+        ${pos.kind === 'take' ? `<button class="button" id="btnBack">Back to the replay</button>` : ''}
+        <span class="rb-note">${ready ? 'Ready.' : 'Pick a move or a switch for each player.'}</span></p>
+        ${pos.kind === 'take' && pos.notes && pos.notes.length ? `<p class="rb-note">${pos.notes.map(esc).join('<br>')}</p>` : ''}
+        ${S.err ? `<p class="rb-err">${esc(S.err)}</p>` : ''}`;
+      for (const b of el.querySelectorAll('[data-c]')) b.onclick = () => { S.sel[b.dataset.p] = b.dataset.c; S.err = ''; renderTake(curBattle()); };
+      for (const c of el.querySelectorAll('[data-tera]')) c.onchange = () => { S.tera[c.dataset.tera] = c.checked; };
+      $id('btnPlay').onclick = () => playTurn(pos);
+      const bb = $id('btnBack'); if (bb) bb.onclick = () => { S.take = null; renderPanels(); renderControls(); };
+    }
+  }
+  $id('tbPrev').onclick = () => nav('prev'); $id('tbNext').onclick = () => nav('next');
+}
+function describeChoice(side, c) {
+  const [kind, n] = c.split(' '); const req = side.activeRequest;
+  if (kind === 'move') return req.active[0].moves[+n - 1].move;
+  if (kind === 'switch') return '→ ' + req.side.pokemon[+n - 1].ident.replace(/^p\d: /, '');
+  return c;
+}
+function playTurn(pos) {
+  const choices = {};
+  pos.battle.sides.forEach((s, si) => {
+    const pid = 'p' + (si + 1);
+    if (s.activeRequest && !s.activeRequest.wait) { let c = S.sel[pid]; if (c && c.startsWith('move') && S.tera[pid]) c += ' terastallize'; choices[pid] = c; }
+  });
+  const parent = pos.kind === 'take' ? 'r' + pos.t : S.cur;
+  let id = kids(parent).find(k => JSON.stringify(S.study.nodes[k].choices) === JSON.stringify(choices) && !(S.study.nodes[k].forced || []).length);
+  const existed = !!id;
+  try {
+    if (!id) { id = addNode(parent, choices, [], newSeed(), pos.kind === 'take' ? clone(S.study.sets) : undefined); compute(id); }
+  } catch (e) { if (id && !existed) { deleteNode(id); save(); } S.err = e.message || String(e); renderTake(pos); return; }
+  S.take = null; S.sel = {}; S.tera = {}; S.err = '';
+  go(id, true);
+}
+
+// ------------------------------------------------------------------ dice
+function renderDice(pos) {
+  const el = $id('diceSec');
+  if (pos.kind !== 'branch') { el.hidden = true; return; }
+  el.hidden = false;
+  const rolls = pos.rolls || []; const node = S.study.nodes[S.cur];
+  const branchy = kids(S.cur).length > 0;
+  el.innerHTML = `<h2>Dice for this turn</h2>
+    <p class="rb-note">Every random outcome of the step that led here. Change any of them and the step plays again${branchy ? ' as a new line (this one already continues, so it is kept)' : ''}.</p>
+    ${rolls.length ? `<div class="rb-rolls">${rolls.map(rollRow).join('')}</div>` : `<p class="rb-note">Nothing random happened on this step.</p>`}
+    <p class="rb-row"><button class="button" id="btnReroll"><i class="fa fa-random" aria-hidden="true"></i> Reroll everything</button>
+    <button class="button" id="btnDefaults" ${node.forced && node.forced.length ? '' : 'disabled'}>Most likely outcomes</button></p>`;
+  for (const c of el.querySelectorAll('[data-roll]')) {
+    c[c.tagName === 'SELECT' ? 'onchange' : 'onclick'] = () => {
+      const i = +c.dataset.roll; const r = rolls[i];
+      const v = r.kind === 'chance' ? c.dataset.v === '1' : r.kind === 'order' ? JSON.parse(c.dataset.v || c.value) : +c.value;
+      const forced = rolls.map(x => ({key: x.key, value: x.value})); forced[i] = {key: r.key, value: v};
+      setForced(forced, node.seed);
+    };
+  }
+  $id('btnReroll').onclick = () => setForced([], newSeed());
+  $id('btnDefaults').onclick = () => setForced([], node.seed);
+}
+function rollRow(r) {
+  const who = r.who ? `<small> · ${esc(r.who)}${r.target ? ' → ' + esc(r.target) : ''}</small>` : '';
+  let ctl = '';
+  if (r.kind === 'chance') {
+    const p = Math.round(r.p * 1000) / 10;
+    ctl = `<span class="rb-seg"><button type="button" class="button ${r.value ? 'on' : ''}" data-roll="${r.i}" data-v="1">${esc(r.yes)} ${p}%</button><button type="button" class="button ${!r.value ? 'on' : ''}" data-roll="${r.i}" data-v="0">${esc(r.no)}</button></span>`;
+  } else if (r.kind === 'roll') {
+    ctl = `<select class="button" data-roll="${r.i}" aria-label="Damage roll">${Array.from({length: 16}, (_, v) => `<option value="${v}" ${v === r.value ? 'selected' : ''}>${100 - v}%${v === 0 ? ' (max)' : v === 15 ? ' (min)' : ''}</option>`).join('')}</select>`;
+  } else if (r.kind === 'int') {
+    const n = r.hi - r.lo;
+    ctl = n <= 40 ? `<select class="button" data-roll="${r.i}">${Array.from({length: n}, (_, k) => `<option value="${r.lo + k}" ${r.lo + k === r.value ? 'selected' : ''}>${r.lo + k}</option>`).join('')}</select>` : `<span class="rb-note">${r.value}</span>`;
+  } else if (r.kind === 'pick') {
+    ctl = `<select class="button" data-roll="${r.i}">${r.options.map((o, k) => `<option value="${k}" ${k === r.value ? 'selected' : ''}>${esc(o)}</option>`).join('')}</select>`;
+  } else if (r.kind === 'order') {
+    const perms = permutations(r.options.length).slice(0, 24);
+    ctl = r.options.length === 2
+      ? `<span class="rb-seg">${perms.map(pm => `<button type="button" class="button ${JSON.stringify(pm) === JSON.stringify(r.value) ? 'on' : ''}" data-roll="${r.i}" data-v="${esc(JSON.stringify(pm))}">${esc(r.options[pm[0]])} first</button>`).join('')}</span>`
+      : `<select class="button" data-roll="${r.i}">${perms.map(pm => `<option value="${esc(JSON.stringify(pm))}" ${JSON.stringify(pm) === JSON.stringify(r.value) ? 'selected' : ''}>${esc(pm.map(k => r.options[k]).join(' > '))}</option>`).join('')}</select>`;
+  }
+  return `<div class="rb-roll"><div>${esc(r.label)}${who}</div><div>${ctl}</div></div>`;
+}
+function permutations(n) { const out = []; const rec = (a, rest) => { if (!rest.length) out.push(a); rest.forEach((x, i) => rec([...a, x], rest.filter((_, j) => j !== i))); }; rec([], [...Array(n).keys()]); return out; }
+function setForced(forced, seed) {
+  const node = S.study.nodes[S.cur];
+  if (kids(S.cur).length) {
+    const id = addNode(node.parent, clone(node.choices), forced, seed, node.sets ? clone(node.sets) : undefined);
+    try { compute(id); } catch (e) { deleteNode(id); save(); S.err = e.message; renderPanels(); return; }
+    go(id, true);
+  } else {
+    node.forced = forced; node.seed = seed; invalidate(S.cur); save();
+    try { compute(S.cur); } catch (e) { S.err = e.message; }
+    go(S.cur, true, true);
+  }
+}
+
+// ------------------------------------------------------------------ study tree + teams
+function mainSummary(t) { const a = S.rep.turnIdx[t], b = S.rep.turnIdx[t + 1] ?? S.rep.lines.length; return E.summarize(S.rep.lines.slice(a + 1, b)); }
+function nodeNote(id) { return isMain(id) ? (S.study.notes[id] || {}) : S.study.nodes[id]; }
+function tokenHTML(id) {
+  let r; try { r = compute(id); } catch { return `<span class="rb-tok rb-err" data-go="${id}">(error)</span>`; }
+  const s = E.summarize(r.lines); const n = S.study.nodes[id];
+  const pt = isMain(n.parent) ? mainT(n.parent) : compute(n.parent).battle.turn;
+  return `<span class="rb-tok ${id === S.cur ? 'cur' : ''}" data-go="${id}"><span class="tn">${pt}.</span>${esc(s.p1 || '…')} <span class="tn">|</span> ${esc(s.p2 || '…')}${(n.forced || []).length ? ' <i class="fa fa-cube" title="Dice set by you" aria-hidden="true"></i>' : ''}${n.glyph ? `<span class="rb-glyph">${esc(n.glyph)}</span>` : ''}${n.comment ? ` <i class="rb-cmt">${esc(n.comment.slice(0, 60))}</i>` : ''}</span>`;
+}
+function varHTML(first) {
+  let html = ''; let id = first;
+  while (id) { html += tokenHTML(id) + ' '; const k = kids(id); if (k.length > 1) html += k.slice(1).map(x => `<div class="rb-var">${varHTML(x)}</div>`).join(''); id = k[0]; }
+  return html;
+}
+function renderStudySec() {
+  const el = $id('studySec');
+  el.innerHTML = `<div class="rb-tabs"><button class="button ${S.tab === 'study' ? 'cur' : ''}" id="tabStudy">Study</button><button class="button ${S.tab === 'teams' ? 'cur' : ''}" id="tabTeams">Teams</button></div><div id="tabBody"></div>`;
+  $id('tabStudy').onclick = () => { S.tab = 'study'; renderStudySec(); };
+  $id('tabTeams').onclick = () => { S.tab = 'teams'; renderStudySec(); };
+  if (S.tab === 'study') renderStudy(); else renderTeams();
+}
+function renderStudy() {
+  const body = $id('tabBody'); const rows = [];
+  rows.push(`<div class="rb-mrow start ${S.cur === 'r1' ? 'cur' : ''}" data-go="r1"><div class="no">0</div><div class="a">Start: leads sent out</div></div>`);
+  if (kids('r1').length) rows.push(`<div class="rb-vars">${kids('r1').map(k => `<div class="rb-var">${varHTML(k)}</div>`).join('')}</div>`);
+  for (let t = 1; t <= S.rep.lastTurn; t++) {
+    const s = mainSummary(t); const id = 'r' + (t + 1); const nn = S.study.notes[id];
+    rows.push(`<div class="rb-mrow ${S.cur === id ? 'cur' : ''}" data-go="${id}"><div class="no">${t}</div><div class="a">${esc(s.p1 || '—')}${nn && nn.glyph ? `<span class="rb-glyph">${esc(nn.glyph)}</span>` : ''}</div><div class="a">${esc(s.p2 || '—')}</div></div>`);
+    if (nn && nn.comment) rows.push(`<div class="rb-vars" style="background:transparent"><span class="rb-cmt">${esc(nn.comment)}</span></div>`);
+    const k = kids(id); if (k.length) rows.push(`<div class="rb-vars">${k.map(x => `<div class="rb-var">${varHTML(x)}</div>`).join('')}</div>`);
+  }
+  const note = nodeNote(S.cur) || {}; const isBranch = !isMain(S.cur);
+  body.innerHTML = `<p class="rb-note">Each row is one turn of the replay. Your lines show in green under the turn they start from. Keys: ← → move along a line, ↑ ↓ switch lines.</p>
+    <div class="rb-movelist">${rows.join('')}</div>
+    <div class="rb-notes"><div class="rb-glyphs">${['!!', '!', '!?', '?!', '?', '??'].map(g => `<button class="button ${note.glyph === g ? 'on' : ''}" data-glyph="${g}">${g}</button>`).join(' ')}</div>
+      <textarea id="comment" class="textbox" rows="2" placeholder="Note on this position">${esc(note.comment || '')}</textarea>
+      ${isBranch ? `<p class="rb-row" style="margin:0"><button class="button" id="btnPromote" ${kids(S.study.nodes[S.cur].parent)[0] === S.cur ? 'disabled' : ''}>Make this the first line</button>
+        <button class="button" id="btnDelete">${S.delArm === S.cur ? 'Click again to delete' : 'Delete from here'}</button></p>` : ''}</div>`;
+  for (const el of body.querySelectorAll('[data-go]')) el.onclick = () => go(el.dataset.go, false);
+  for (const b of body.querySelectorAll('[data-glyph]')) b.onclick = () => { const n = isMain(S.cur) ? (S.study.notes[S.cur] ||= {}) : S.study.nodes[S.cur]; n.glyph = n.glyph === b.dataset.glyph ? '' : b.dataset.glyph; save(); renderStudy(); };
+  $id('comment').oninput = e => { const n = isMain(S.cur) ? (S.study.notes[S.cur] ||= {}) : S.study.nodes[S.cur]; n.comment = e.target.value; save(); };
+  $id('comment').onchange = () => renderStudy();
+  const bpr = $id('btnPromote'); if (bpr) bpr.onclick = () => { const p = S.study.nodes[S.cur].parent; const a = S.study.kids[p]; a.splice(a.indexOf(S.cur), 1); a.unshift(S.cur); save(); renderStudy(); };
+  const bdel = $id('btnDelete'); if (bdel) bdel.onclick = () => { if (S.delArm !== S.cur) { S.delArm = S.cur; renderStudy(); return; } const p = S.study.nodes[S.cur].parent; deleteNode(S.cur); S.delArm = null; save(); go(p, false); };
+  const cur = body.querySelector('.cur'); if (cur) { const list = body.querySelector('.rb-movelist'); list.scrollTop = Math.max(0, cur.offsetTop - list.offsetTop - 60); }
+}
+let dl = false;
+function datalists() {
+  if (dl) return; dl = true;
+  const d = document.createElement('div'); d.hidden = true;
+  d.innerHTML = `<datalist id="dl-items">${E.Dex.items.all().filter(i => !i.isNonstandard || i.isNonstandard === 'Past').map(i => `<option value="${esc(i.name)}">`).join('')}</datalist>
+    <datalist id="dl-natures">${E.Dex.natures.all().map(n => `<option value="${esc(n.name)}">`).join('')}</datalist>`;
+  document.body.appendChild(d);
+}
+function speciesMoves(species) {
+  const id = 'dl-mv-' + E.toID(species); if ($id(id)) return id;
+  const opts = E.setOptions(species, S.stats, S.rep.gen); const seen = new Set(); const list = [];
+  for (const [m, p] of opts.moves) if (!seen.has(m)) { seen.add(m); list.push(`<option value="${esc(m)}" label="${Math.round(p * 100)}% usage">`); }
+  const learn = [];
+  try { let sp = E.Dex.species.get(species); for (let g = 0; sp && sp.exists && g < 4; g++) { const ls = E.Dex.data.Learnsets[sp.id] || E.Dex.data.Learnsets[E.toID(sp.baseSpecies)]; if (ls && ls.learnset) learn.push(...Object.keys(ls.learnset)); sp = sp.prevo ? E.Dex.species.get(sp.prevo) : null; } } catch {}
+  const names = (learn.length ? [...new Set(learn)].map(m => E.Dex.moves.get(m).name) : E.Dex.moves.all().map(m => m.name)).sort();
+  for (const m of names) if (!seen.has(m)) { seen.add(m); list.push(`<option value="${esc(m)}">`); }
+  const d = document.createElement('datalist'); d.id = id; d.innerHTML = list.join(''); document.body.appendChild(d);
+  return id;
+}
+function renderTeams() {
+  datalists();
+  const body = $id('tabBody'); const gen = S.rep.gen;
+  const types = E.Dex.types.all().map(t => t.name).filter(t => t !== '???' && (gen >= 9 || t !== 'Stellar'));
+  const side = si => {
+    const cs = S.cbEnd[si ? 'p2' : 'p1'];
+    return `<div class="rb-teamhead"><b>${esc(cs.name || 'Player ' + (si + 1))}</b><button class="button" data-resetside="${si}">Reset to suggestions</button></div>
+      <div class="rb-mons">${S.study.sets[si].map((s, k) => monCard(si, k, s, types)).join('')}</div>`;
+  };
+  body.innerHTML = `<p class="rb-note">Plain = seen in the replay. <i>Dashed</i> = guess from Smogon usage stats (${S.stats ? esc(S.rep.formatid) : `<span class="rb-err">none for ${esc(S.rep.formatid)}, fill in the sets yourself</span>`}). Changes apply to lines you start after this; lines you already played keep their sets.</p>
+    ${side(0)}${side(1)}`;
+  for (const inp of body.querySelectorAll('[data-f]')) inp.onchange = () => {
+    const si = +inp.dataset.si, k = +inp.dataset.k, f = inp.dataset.f; const set = S.study.sets[si][k];
+    if (f.startsWith('move')) set.moves[+f.slice(4)] = inp.value.trim();
+    else if (f.startsWith('ev_')) set.evs[f.slice(3)] = Math.max(0, Math.min(252, +inp.value || 0));
+    else if (f === 'level') set.level = Math.max(1, Math.min(100, +inp.value || 100));
+    else set[f] = inp.value.trim();
+    save(); inp.classList.remove('guess'); renderTake(curBattle());
+  };
+  for (const b of body.querySelectorAll('[data-resetmon]')) b.onclick = () => { const [si, k] = b.dataset.resetmon.split(',').map(Number); S.study.sets[si][k] = clone(S.base[si][k]); save(); renderTeams(); };
+  for (const b of body.querySelectorAll('[data-resetside]')) b.onclick = () => { const si = +b.dataset.resetside; S.study.sets[si] = clone(S.base[si]); save(); renderTeams(); };
+}
+function monCard(si, k, s, types) {
+  const f = S.base[si][k].fixed, base = S.base[si][k];
+  const sp = E.Dex.species.get(s.species); const opts = E.setOptions(s.species, S.stats, S.rep.gen);
+  const pct = (list, v) => { const e = list.find(([n]) => E.toID(n) === E.toID(v)); return e ? ` (${Math.round(e[1] * 100)}% usage)` : ''; };
+  const g = (fx, cur, b) => (!fx && cur === b) ? 'guess' : '';
+  const dlid = speciesMoves(s.species);
+  const mv = [0, 1, 2, 3].map(i => { const v = s.moves[i] || ''; const seen = f.moves.some(m => E.toID(m) === E.toID(v));
+    return `<input class="textbox ${seen ? '' : (v === base.moves[i] ? 'guess' : '')}" data-si="${si}" data-k="${k}" data-f="move${i}" list="${dlid}" value="${esc(v)}" title="${seen ? 'Seen in the replay' : 'Guess' + pct(opts.moves, v)}" aria-label="Move ${i + 1}">`; }).join('');
+  const ev = ['hp', 'atk', 'def', 'spa', 'spd', 'spe'].map(st => `<input class="textbox" data-si="${si}" data-k="${k}" data-f="ev_${st}" type="number" min="0" max="252" step="4" value="${s.evs[st] || 0}" aria-label="${st} EVs">`).join('');
+  return `<div class="rb-mon"><div class="hd"><span class="rb-picon" style="${iconStyle(s.species)}"></span><span class="nm">${esc(s.name)}${s.name !== s.species ? ` <span class="rb-note">(${esc(s.species)})</span>` : ''}</span> ${(sp.types || []).map(typeTag).join('')}</div>
+    <label>Item<input class="textbox ${g(f.item, s.item, base.item)}" data-si="${si}" data-k="${k}" data-f="item" list="dl-items" value="${esc(s.item)}" title="${f.item ? 'Seen in the replay' : 'Guess' + pct(opts.items, s.item)}"></label>
+    <label>Ability<select class="button ${g(f.ability, s.ability, base.ability)}" data-si="${si}" data-k="${k}" data-f="ability">${[...new Set([...Object.values(sp.abilities || {}), s.ability])].filter(Boolean).map(a => `<option ${a === s.ability ? 'selected' : ''}>${esc(a)}</option>`).join('')}</select></label>
+    ${S.rep.gen >= 9 ? `<label>Tera<select class="button ${g(f.tera, s.teraType, base.teraType)}" data-si="${si}" data-k="${k}" data-f="teraType">${types.map(t => `<option ${t === s.teraType ? 'selected' : ''}>${esc(t)}</option>`).join('')}</select></label>` : ''}
+    <div class="rb-mvgrid">${mv}</div>
+    ${S.rep.gen >= 3 ? `<label>Nature<input class="textbox" data-si="${si}" data-k="${k}" data-f="nature" list="dl-natures" value="${esc(s.nature)}"></label>
+    <div class="rb-evs">${['HP', 'Atk', 'Def', 'SpA', 'SpD', 'Spe'].map(x => `<span>${x}</span>`).join('')}${ev}</div>` : ''}
+    <label>Level<input class="textbox" data-si="${si}" data-k="${k}" data-f="level" type="number" min="1" max="100" value="${s.level}"></label>
+    <p style="margin:0;text-align:right"><button class="button" data-resetmon="${si},${k}">Reset</button></p></div>`;
+}
+
+// ------------------------------------------------------------------ navigation
+function renderPanels() {
+  let pos;
+  try { pos = curBattle(); } catch (e) { S.err = e.message; console.error(e); S.take = null; pos = {kind: 'main', t: isMain(S.cur) ? mainT(S.cur) : 1}; }
+  renderTake(pos); renderDice(pos); renderStudySec();
+}
+function go(id, animate, force) {
+  if (!id) return;
+  if (!isMain(id) && !S.study.nodes[id]) return;
+  if (isMain(id) && (mainT(id) < 1 || mainT(id) > S.rep.lastTurn + 1)) return;
+  const changed = S.cur !== id || force;
+  if (S.cur !== id) { S.sel = {}; S.tera = {}; S.err = ''; }
+  if (S.take && !(isMain(id) && mainT(id) === S.take.t)) S.take = null;
+  S.cur = id; S.delArm = null;
+  if (changed || !S.psMode) showPosition(animate);
+  renderPanels();
+}
+function siblings(id) { const p = parentOf(id); return p ? childrenOf(p) : [id]; }
+function nav(dir) {
+  if (dir === 'prev') { if (S.take) { S.take = null; renderPanels(); renderControls(); return; } go(parentOf(S.cur), false); }
+  else if (dir === 'next') go(childrenOf(S.cur)[0], !isMain(S.cur) || kids(S.cur).length && !isMain(childrenOf(S.cur)[0]));
+  else if (dir === 'up' || dir === 'down') { const sib = siblings(S.cur); const i = sib.indexOf(S.cur); const j = i + (dir === 'up' ? -1 : 1); if (j >= 0 && j < sib.length) go(sib[j], false); }
+}
+document.addEventListener('keydown', e => {
+  if (!S.rep || e.ctrlKey || e.metaKey || e.altKey || e.target.closest('input, textarea, select') || !$id('loader').hidden || !$id('exporter').hidden) return;
+  const k = {ArrowLeft: 'prev', ArrowRight: 'next', ArrowUp: 'up', ArrowDown: 'down'}[e.key];
+  if (k) { e.preventDefault(); nav(k); return; }
+});
+
+// ------------------------------------------------------------------ load / export dialogs
+$id('btnCancel').onclick = () => { $id('loader').hidden = true; };
+$id('replayUrl').oninput = () => {
+  const u = $id('replayUrl').value.trim().replace(/[?#].*$/, '').replace(/\.(json|log)$/, '');
+  const m = u.match(/^(?:https?:\/\/)?replay\.pokemonshowdown\.com\/(.+)$/);
+  $id('logLink').textContent = m ? `Press Load to open ${m[1]}.` : '';
+};
+$id('fileIn').onchange = async () => { const f = $id('fileIn').files[0]; if (f) $id('pasteBox').value = await f.text(); };
+function replayIdFrom(s) {
+  const m = String(s || '').trim().replace(/[?#].*$/, '').replace(/\.(json|log|html)$/, '').match(/^(?:https?:\/\/)?(?:replay\.pokemonshowdown\.com|psim\.us\/r)\/([a-z0-9-]+)$/i);
+  return m ? m[1] : null;
+}
+async function fetchReplay(id) {
+  const r = await fetch(`https://replay.pokemonshowdown.com/${id}.json`);
+  if (!r.ok) throw new Error(r.status === 404 ? 'Replay not found (it may be private or deleted).' : `Could not load the replay (${r.status}).`);
+  return r.text();
+}
+$id('btnDoLoad').onclick = async () => {
+  $id('loadErr').textContent = '';
+  try {
+    const id = replayIdFrom($id('replayUrl').value) || replayIdFrom($id('pasteBox').value);
+    const text = id ? await fetchReplay(id) : $id('pasteBox').value;
+    await loadText(text); $id('loader').hidden = true; $id('pasteBox').value = ''; $id('replayUrl').value = '';
+  } catch (e) { $id('loadErr').textContent = e.message || String(e); }
+};
+$id('btnSample').onclick = async () => { try { await loadText(await fetch('sample.json').then(r => r.text())); $id('loader').hidden = true; } catch (e) { $id('loadErr').textContent = e.message; } };
+$id('btnCopy').onclick = async () => { try { await navigator.clipboard.writeText($id('exportBox').value); $id('copyMsg').textContent = 'Copied'; } catch { $id('exportBox').select(); $id('copyMsg').textContent = 'Press Ctrl+C to copy'; } };
+$id('btnCloseExport').onclick = () => { $id('exporter').hidden = true; };
+for (const m of ['loader', 'exporter']) $id(m).addEventListener('click', e => { if (e.target === $id(m)) $id(m).hidden = true; });
+
+async function selftest() {
+  const out = []; const wait = ms => new Promise(r => setTimeout(r, ms));
+  try {
+    out.push('loaded: turn ' + S.psb.turn + ' cur ' + S.cur + ' sprite ' + ((document.querySelector('.battle img') || {}).src || 'none').slice(0, 70));
+    go('r20', false); await wait(500);
+    out.push('seek 20: ps turn ' + S.psb.turn + ' | ' + $('.battle-log').text().slice(-70));
+    $id('btnTake').click();
+    [...document.querySelectorAll('.rb-mv:not(:disabled)')].find(b => b.dataset.p === 'p1').click();
+    [...document.querySelectorAll('.rb-mv:not(:disabled)')].find(b => b.dataset.p === 'p2').click();
+    $id('btnPlay').click(); await wait(6000);
+    out.push('after play: ' + S.cur + ' rolls ' + document.querySelectorAll('.rb-roll').length + ' err ' + S.err + ' | ' + $('.battle-log').text().slice(-160));
+    out.push('sprites: ' + [...document.querySelectorAll('.battle img')].map(i => (i.src || '').split('/').slice(-2).join('/')).slice(0, 6).join(' , '));
+    const seg = document.querySelector('.rb-roll .rb-seg .button:not(.on)');
+    if (seg) { seg.click(); await wait(5000); out.push('flipped -> ' + $('.battle-log').text().slice(-120)); }
+    out.push('controls: ' + $('.replay-controls').text().slice(0, 120));
+  } catch (e) { out.push('ERROR ' + e.stack); }
+  const pre = document.createElement('pre'); pre.id = 'selftest'; pre.textContent = out.join('\n'); document.body.appendChild(pre);
+}
+window.addEventListener('error', e => { const p = document.getElementById('errlog') || Object.assign(document.body.appendChild(document.createElement('pre')), {id: 'errlog', hidden: true}); p.textContent += (e.message || e) + '\n'; });
+boot().then(() => { if (location.hash === '#selftest') selftest(); });
+
+window.ctl = ctl;
+</script>

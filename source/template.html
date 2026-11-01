@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Replay Branch</title>
+<style>
+html,body {font-family:Verdana, sans-serif;font-size:10pt;margin:0;padding:0;}body{padding:12px 0;}
+.battle-log {font-family:Verdana, sans-serif;font-size:10pt;}
+.battle-log .inner {padding:4px 8px 0px 8px;} .battle-log .inner-preempt {padding:0 8px 4px 8px;} .battle-log .inner-after {margin-top:0.5em;}
+.battle-log h2 {margin:0.5em -8px;padding:4px 8px;border:1px solid #AAAAAA;background:#E0E7EA;border-left:0;border-right:0;font-family:Verdana, sans-serif;font-size:13pt;}
+.battle-log .chat {vertical-align:middle;padding:3px 0 3px 0;font-size:8pt;} .battle-log .chat strong {color:#40576A;} .battle-log .chat em {padding:1px 4px 1px 3px;color:#000000;font-style:normal;}
+.subtle {color:#3A4A66;}
+
+/* ---- Replay Branch panel ---- */
+[hidden] { display: none !important; }
+:root { --rb-panel: #fff; --rb-panel2: #f0f3f6; --rb-line: #aaa; --rb-fg: #222; --rb-muted: #5b6570; --rb-sel: #ffe9a0; --rb-selline: #c99a17;
+  --rb-cur: #cde0fb; --rb-curline: #5b8fd6; --rb-branch: #1d7a39; --rb-branchbg: #e9f6ed; --rb-bad: #b3261e; --rb-btn1: #fff; --rb-btn2: #e1e6ea; --rb-btnline: #aaa; }
+body.dark { --rb-panel: #26292e; --rb-panel2: #31353b; --rb-line: #50565e; --rb-fg: #ddd; --rb-muted: #a0a9b3; --rb-sel: #5a4713; --rb-selline: #d2a42c;
+  --rb-cur: #24406a; --rb-curline: #6c9ce0; --rb-branch: #6fd68c; --rb-branchbg: #1c2e22; --rb-bad: #ff8a80; --rb-btn1: #4a4f56; --rb-btn2: #3a3e44; --rb-btnline: #666; }
+body.dark { background: #1b1d21; color: #ddd; }
+.rb-wrap { max-width: 1180px; margin: 0 auto; padding: 0 16px; box-sizing: border-box; color: var(--rb-fg); }
+.rb-section { background: var(--rb-panel); border: 1px solid var(--rb-line); border-radius: 6px; padding: 12px; margin: 12px 0 0; }
+.rb-section h2 { margin: 0 0 8px; font-size: 13pt; font-weight: normal; }
+.button { font: inherit; font-size: 9pt; padding: 3px 9px; border: 1px solid var(--rb-btnline); border-radius: 5px; background: linear-gradient(var(--rb-btn1), var(--rb-btn2)); color: var(--rb-fg); cursor: pointer; vertical-align: middle; }
+.button:hover { border-color: var(--rb-curline); }
+.button:disabled { opacity: .5; cursor: default; }
+.textbox { font: inherit; font-size: 9pt; border: 1px solid var(--rb-btnline); border-radius: 4px; background: var(--rb-panel); color: var(--rb-fg); padding: 3px 5px; }
+.rb-note { font-size: 8.5pt; color: var(--rb-muted); }
+.rb-err { font-size: 9pt; color: var(--rb-bad); }
+.rb-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 8px; }
+.rb-pos { font-size: 9pt; } .rb-pos b { color: var(--rb-branch); }
+.rb-mode { display: inline-block; background: #1d7a39; color: #fff; border-radius: 4px; padding: 1px 8px; font-size: 9pt; margin-left: 4px; vertical-align: middle; font-weight: normal; }
+.rb-choose { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+@media (max-width: 560px) { .rb-choose { grid-template-columns: minmax(0, 1fr); } }
+.rb-pside { border: 1px solid var(--rb-line); border-radius: 6px; padding: 8px; background: var(--rb-panel2); min-width: 0; }
+.rb-pside h3 { margin: 0 0 6px; font-size: 9.5pt; display: flex; justify-content: space-between; gap: 6px; }
+.rb-moves { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; }
+.t-Normal { --t: #a8a878; } .t-Fire { --t: #f08030; } .t-Water { --t: #6890f0; } .t-Electric { --t: #f8d030; } .t-Grass { --t: #78c850; }
+.t-Ice { --t: #98d8d8; } .t-Fighting { --t: #c03028; } .t-Poison { --t: #a040a0; } .t-Ground { --t: #e0c068; } .t-Flying { --t: #a890f0; }
+.t-Psychic { --t: #f85888; } .t-Bug { --t: #a8b820; } .t-Rock { --t: #b8a038; } .t-Ghost { --t: #705898; } .t-Dragon { --t: #7038f8; }
+.t-Dark { --t: #705848; } .t-Steel { --t: #b8b8d0; } .t-Fairy { --t: #ee99ac; } .t-Stellar { --t: #40b5a5; } .t-Unknown { --t: #68a090; }
+.rb-mv { font: inherit; text-align: left; border-radius: 5px; padding: 4px 7px; cursor: pointer; border: 1px solid color-mix(in srgb, var(--t, #999) 60%, #333);
+  background: linear-gradient(color-mix(in srgb, var(--t, #ccc) 15%, #fff), color-mix(in srgb, var(--t, #ccc) 40%, #fff)); color: #222; min-width: 0; font-size: 9pt; }
+body.dark .rb-mv { background: linear-gradient(color-mix(in srgb, var(--t, #ccc) 25%, #2a2f36), color-mix(in srgb, var(--t, #ccc) 45%, #2a2f36)); color: #eee; }
+.rb-mv b { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rb-mv small { font-size: 7.5pt; opacity: .8; display: flex; justify-content: space-between; gap: 4px; }
+.rb-mv:disabled { opacity: .4; cursor: default; }
+.rb-mv.on, .rb-sw.on { outline: 3px solid var(--rb-selline); outline-offset: -1px; }
+.rb-switches { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+.rb-sw { display: inline-flex; align-items: center; gap: 2px; padding: 0 6px 0 0; }
+.rb-picon { width: 40px; height: 30px; display: inline-block; vertical-align: middle; }
+.rb-rolls { display: flex; flex-direction: column; gap: 5px; }
+.rb-roll { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; padding: 4px 6px; border-radius: 4px; background: var(--rb-panel2); font-size: 9pt; }
+.rb-roll small { color: var(--rb-muted); }
+.rb-seg { display: inline-flex; }
+.rb-seg .button { border-radius: 0; margin: 0; }
+.rb-seg .button:first-child { border-radius: 5px 0 0 5px; } .rb-seg .button:last-child { border-radius: 0 5px 5px 0; }
+.rb-seg .button.on, .rb-glyphs .button.on { background: var(--rb-sel); font-weight: bold; }
+.rb-tabs { display: flex; gap: 4px; margin-bottom: 8px; }
+.rb-tabs .button.cur { font-weight: bold; background: var(--rb-cur); }
+.rb-movelist { font-size: 9pt; max-height: 420px; overflow: auto; border: 1px solid var(--rb-line); border-radius: 4px; background: var(--rb-panel); }
+.rb-mrow { display: grid; grid-template-columns: 36px minmax(0, 1fr) minmax(0, 1fr); border-bottom: 1px solid var(--rb-line); cursor: pointer; }
+.rb-mrow .no { background: var(--rb-panel2); color: var(--rb-muted); text-align: center; padding: 3px 0; }
+.rb-mrow .a { padding: 3px 6px; min-width: 0; overflow-wrap: anywhere; }
+.rb-mrow:hover .a { background: var(--rb-panel2); }
+.rb-mrow.cur .a { background: var(--rb-cur); }
+.rb-mrow.start .a { grid-column: 2 / 4; color: var(--rb-muted); }
+.rb-glyph { font-weight: bold; color: var(--rb-branch); margin-left: 3px; }
+.rb-vars { padding: 4px 6px 6px 18px; border-bottom: 1px solid var(--rb-line); background: var(--rb-branchbg); line-height: 1.75; }
+.rb-var { border-left: 2px solid var(--rb-branch); padding-left: 6px; margin: 2px 0; }
+.rb-tok { cursor: pointer; padding: 1px 3px; border-radius: 3px; }
+.rb-tok:hover { background: var(--rb-panel2); }
+.rb-tok.cur { background: var(--rb-cur); outline: 1px solid var(--rb-curline); }
+.rb-tok .tn { color: var(--rb-muted); margin-right: 2px; }
+.rb-cmt { color: var(--rb-muted); font-style: italic; }
+.rb-notes { margin-top: 8px; display: flex; flex-direction: column; gap: 6px; }
+.rb-section textarea { width: 100%; box-sizing: border-box; }
+.rb-teamhead { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; margin: 4px 0 8px; flex-wrap: wrap; }
+.rb-mons { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 8px; margin-bottom: 14px; }
+.rb-mon { border: 1px solid var(--rb-line); border-radius: 6px; padding: 8px; background: var(--rb-panel2); display: flex; flex-direction: column; gap: 4px; min-width: 0; font-size: 9pt; }
+.rb-mon .hd { display: flex; align-items: center; gap: 4px; font-weight: bold; min-width: 0; }
+.rb-mon .hd .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rb-mon label { display: grid; grid-template-columns: 54px minmax(0, 1fr); align-items: center; gap: 4px; color: var(--rb-muted); }
+.rb-mon input, .rb-mon select { min-width: 0; width: 100%; box-sizing: border-box; }
+.rb-mon .guess { font-style: italic; border-style: dashed !important; }
+.rb-mvgrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 3px; }
+.rb-evs { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 2px; }
+.rb-evs input { text-align: center; padding: 2px 0; }
+.rb-evs span { font-size: 7.5pt; text-align: center; color: var(--rb-muted); }
+.rb-type { display: inline-block; font-size: 7.5pt; font-weight: bold; color: #fff; text-shadow: 0 1px 0 #0006; background: var(--t); border-radius: 3px; padding: 0 4px; line-height: 14px; }
+.rb-modal { position: fixed; inset: 0; background: rgba(0,0,0,.55); display: flex; align-items: center; justify-content: center; padding: 16px; z-index: 50; }
+.rb-modal .rb-section { width: min(640px, 100%); max-height: 90vh; overflow: auto; box-sizing: border-box; margin: 0; }
+.rb-modal textarea { min-height: 160px; font-family: Consolas, monospace; font-size: 8.5pt; width: 100%; box-sizing: border-box; }
+.rb-topbar { display: flex; justify-content: flex-end; gap: 6px; max-width: 1180px; margin: 0 auto 8px; padding: 0 16px; box-sizing: border-box; }
+.rb-license { font-size: 7.5pt; color: #999; text-align: center; margin: 18px 0 8px; }
+#gate { position: fixed; inset: 0; z-index: 100; background: #2a3a4f; display: flex; align-items: center; justify-content: center; padding: 16px; }
+#gate form { background: #fff; color: #222; border-radius: 8px; padding: 20px; width: min(320px, 100%); box-sizing: border-box; display: flex; flex-direction: column; gap: 10px; }
+#gate h1 { margin: 0; font-size: 14pt; font-weight: normal; }
+</style>
+
+<div id="gate" hidden>
+  <form id="gateForm"><h1>Replay Branch</h1><label for="gatePw" class="rb-note" style="color:#555">Password</label>
+    <input id="gatePw" type="password" class="textbox" autocomplete="current-password" style="background:#fff;color:#222">
+    <button class="button" type="submit"><strong>Enter</strong></button><span id="gateErr" class="rb-err"></span></form>
+</div>
+
+<div class="rb-topbar"><button class="button" type="button" onclick="ctl('load')">Load replay</button> <button class="button" type="button" onclick="ctl('export')">Export study</button></div>
+
+<div class="wrapper replay-wrapper" style="max-width:1180px;margin:0 auto">
+<input type="hidden" name="replayid" value="/*REPLAY_ID*/" />
+<div class="battle"></div><div class="battle-log"></div><div class="replay-controls"></div><div class="replay-controls-2"></div>
+<h1 style="font-weight:normal;text-align:center" id="rbTitle"></h1>
+<script type="text/plain" class="battle-log-data">/*REPLAY_LOG*/</script>
+</div>
+
+<div class="rb-wrap">
+  <section class="rb-section" id="takeSec"><p class="rb-note">Loading…</p></section>
+  <section class="rb-section" id="diceSec" hidden></section>
+  <section class="rb-section" id="studySec"></section>
+  <p class="rb-license">Replay viewer: <a href="https://github.com/smogon/pokemon-showdown-client" target="_blank" rel="noopener">Pok&eacute;mon Showdown</a> replay embed (MIT; client AGPL-3.0). Branch simulator: <a href="https://github.com/pkmn/ps" target="_blank" rel="noopener">@pkmn/sim</a> (MIT). Usage stats: Smogon. Source of this page: this site's repository.</p>
+</div>
+
+<div class="rb-modal" id="loader" hidden>
+  <section class="rb-section" role="dialog" aria-labelledby="loaderTitle">
+    <h2 id="loaderTitle">Load a replay</h2>
+    <p class="rb-note">Paste a replay link, the battle log, a saved replay file's contents, or a study you exported earlier.</p>
+    <p><input id="replayUrl" class="textbox" type="url" style="width:100%;box-sizing:border-box" placeholder="https://replay.pokemonshowdown.com/…"></p>
+    <p id="logLink" class="rb-note"></p>
+    <textarea id="pasteBox" class="textbox" placeholder="|player|p1|…"></textarea>
+    <p class="rb-row"><input type="file" id="fileIn" accept=".log,.txt,.json,.html,.htm"><span style="flex:1"></span>
+      <button class="button" type="button" id="btnSample">Load the sample</button>
+      <button class="button" type="button" id="btnCancel">Cancel</button>
+      <button class="button" type="button" id="btnDoLoad"><strong>Load</strong></button></p>
+    <p class="rb-err" id="loadErr"></p>
+  </section>
+</div>
+<div class="rb-modal" id="exporter" hidden>
+  <section class="rb-section" role="dialog" aria-labelledby="exportTitle">
+    <h2 id="exportTitle">Export study</h2>
+    <p class="rb-note">This text holds the replay, your sets and every line you played. Paste it into <b>Load replay</b> to open the study again, on any device.</p>
+    <textarea id="exportBox" class="textbox" readonly></textarea>
+    <p class="rb-row" style="justify-content:flex-end"><span class="rb-note" id="copyMsg"></span><button class="button" type="button" id="btnCopy">Copy</button><button class="button" type="button" id="btnCloseExport">Close</button></p>
+  </section>
+</div>
+
+<script>
+// Password gate (keeps casual visitors out; this is a static site, so it is not real security)
+(function () {
+  var H = '/*PW_HASH*/';
+  if (!H || H.indexOf('PW_HASH') >= 0) return;
+  var ok = false; try { ok = localStorage.getItem('rb-gate') === H; } catch (e) {}
+  if (ok) return;
+  var g = document.getElementById('gate'); g.hidden = false;
+  document.getElementById('gatePw').focus();
+  document.getElementById('gateForm').onsubmit = async function (e) {
+    e.preventDefault();
+    var pw = document.getElementById('gatePw').value;
+    var buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode('rbv:' + pw));
+    var hex = Array.from(new Uint8Array(buf)).map(function (b) { return b.toString(16).padStart(2, '0'); }).join('');
+    if (hex === H) { try { localStorage.setItem('rb-gate', H); } catch (e2) {} g.hidden = true; }
+    else document.getElementById('gateErr').textContent = 'Wrong password.';
+  };
+})();
+</script>
+<script src="https://play.pokemonshowdown.com/js/replay-embed.js"></script>
+<script type="module">
+/*APP_JS*/
+window.ctl = ctl;
+</script>
