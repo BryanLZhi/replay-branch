@@ -1,4 +1,4 @@
-// ------------------------------------------------------------------ the Showdown replay embed + our sim
+﻿// ------------------------------------------------------------------ the Showdown replay embed + our sim
 // replay-embed.js (Showdown, MIT) builds the replay viewer exactly like a downloaded replay; we drive Replays.battle.
 async function loadEngine() {
   try { return await import('./engine.js'); }
@@ -13,7 +13,7 @@ async function boot() {
     await until(() => window.Replays && Replays.battle && window.Battle && window.Dex);
     const txt = await fetch('sample.json').then(r => r.text());
     S.psb = Replays.battle; S.psMode = 'main';
-    Replays.battle.subscribe(() => onPS());
+    Replays.battle.subscribe(st => { Replays.update(st); onPS(); });   // Battle keeps one listener: feed the embed's controls too
     await loadText(txt, true);
   } catch (e) {
     $id('takeSec').innerHTML = `<p class="rb-err">Could not start: ${esc(e.message || e)}</p>`;
