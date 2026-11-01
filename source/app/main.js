@@ -3,6 +3,7 @@ import {$id, esc, setEngine} from './state.js';
 import {attachToEmbed} from './viewer.js';
 import {onKey} from './navigation.js';
 import {loadText, wireDialogs} from './load.js';
+import {listenForTooltips} from './tooltips.js';
 
 // Hover tooltips for older generations use Showdown's teambuilder tables (16 MB); fetch them once the page is usable.
 const TEAMBUILDER_TABLES = 'https://play.pokemonshowdown.com/data/teambuilder-tables.js?a7';
@@ -12,6 +13,7 @@ async function boot() {
     setEngine(await import('./engine.js'));
     await until(() => window.Replays && Replays.battle && window.Battle && window.Dex);
     attachToEmbed();
+    listenForTooltips($id('pickSec'));
     wireDialogs();
     document.addEventListener('keydown', onKey);
     await loadText(await fetch('sample.json').then(r => r.text()), {shown: true});

@@ -6,6 +6,7 @@ import {playedChoice, matchesPlayed, teamIndex} from './replay.js';
 import {showPickerSetting, showPosition} from './viewer.js';
 import {renderPanels, go} from './navigation.js';
 import {movesDatalist} from './panels.js';
+import {setTooltipRequest} from './tooltips.js';
 
 export const pickerOn = () => stored('rb-picker', 'on') !== 'off';
 export function setPicker(on) { store('rb-picker', on ? 'on' : 'off'); S.sel = {}; S.tera = {}; renderPanels(); }
@@ -23,12 +24,14 @@ export function renderPicker(pos) {
   const el = $id('pickSec');
   const turn = pos.battle && !pos.battle.ended && pickerOn() && whoChooses(pos.battle);
   if (!turn || !turn.next) {
+    setTooltipRequest(null);
     el.innerHTML = S.err ? `<p class="rb-err">${esc(S.err)}</p>` : '';
     el.hidden = !S.err;
     showPickerSetting();
     return;
   }
   const {need, next: {si, side, req}} = turn;
+  setTooltipRequest(si, req);
   const played = pos.kind === 'line' ? null : playedChoice(pos.t, si);
   const forced = req.forceSwitch && req.forceSwitch[0];
   const active = nameOf((req.side.pokemon.find(p => p.active) || {ident: ''}).ident);
@@ -56,7 +59,7 @@ export function renderPicker(pos) {
 function leadButtons(req, played) {
   return `<div class="rb-switches">${req.side.pokemon.map((p, n) => {
     const name = nameOf(p.ident); const was = played && played.name === name;
-    return `<button type="button" class="button rb-sw ${was ? 'played' : ''}" data-pick="team ${n + 1}" ${was ? 'title="Lead in the replay"' : ''}><span class="rb-picon" style="${icon(p.details.split(',')[0])}"></span>${esc(name)}</button>`;
+    return `<button type="button" class="button rb-sw has-tooltip ${was ? 'played' : ''}" data-pick="team ${n + 1}" data-tooltip="switchpokemon|${n}" ${was ? 'data-note="Lead in the replay"' : ''}><span class="rb-picon" style="${icon(p.details.split(',')[0])}"></span>${esc(name)}</button>`;
   }).join('')}</div>`;
 }
 
@@ -65,13 +68,13 @@ function moveButtons(pos, si, req, active, played) {
   const k = teamIndex(si, active);
   const known = k >= 0 ? S.base[si][k].fixed.moves.map(E.toID) : [];
   const moves = act.moves.map((m, i) => {
-    const mv = E.Dex.moves.get(m.id || m.move);
+    const type = E.Dex.moves.get(m.id || m.move).type || 'Normal';
     const was = played && played.kind === 'move' && E.toID(played.name) === E.toID(m.move);
     const guessed = k >= 0 && !known.includes(E.toID(m.move)) && !['struggle', 'recharge'].includes(E.toID(m.move));
-    const info = [`${mv.category}${mv.basePower ? ', ' + mv.basePower + ' BP' : ''}, ${mv.accuracy === true ? 'never misses' : mv.accuracy + '% accuracy'}`,
-      mv.shortDesc, guessed && 'Guessed from usage stats', was && 'Used in the replay'].filter(Boolean).join('\n');
-    return `<div class="rb-mvwrap"><button type="button" class="rb-mv t-${esc(mv.type || 'Normal')} ${was ? 'played' : ''} ${guessed ? 'guess' : ''}" data-pick="move ${i + 1}" ${m.disabled || m.pp === 0 ? 'disabled' : ''} title="${esc(info)}">` +
-      `<b>${esc(m.move)}</b><small><span>${esc(mv.type || '')}</span><span>${m.maxpp ? `${m.pp}/${m.maxpp}` : ''}</span></small></button>` +
+    const note = guessed ? 'Guessed' : was ? 'Used in the replay' : '';
+    return `<div class="rb-mvwrap"><button type="button" class="rb-mv has-tooltip t-${esc(type)} ${was ? 'played' : ''} ${guessed ? 'guess' : ''}" data-pick="move ${i + 1}" ` +
+      `data-tooltip="move|${i}" ${note ? `data-note="${note}"` : ''} ${m.disabled || m.pp === 0 ? 'disabled' : ''}>` +
+      `<b>${esc(m.move)}</b><small><span>${esc(type)}</span><span>${m.maxpp ? `${m.pp}/${m.maxpp}` : ''}</span></small></button>` +
       (guessed ? `<button type="button" class="rb-edit" data-edit="${esc(m.move)}" title="Change this guessed move" aria-label="Change ${esc(m.move)}"><i class="fa fa-pencil" aria-hidden="true"></i></button>` : '') + `</div>`;
   });
   const tera = act.canTerastallize ? `<p class="rb-row" style="margin-top:6px"><label><input type="checkbox" id="teraBox" ${S.tera[pid(si)] ? 'checked' : ''}> Terastallize</label> ${typeTag(act.canTerastallize)}</p>` : '';
@@ -85,7 +88,8 @@ function switchButtons(req, forced, played) {
     const name = nameOf(p.ident); const fainted = /fnt/.test(p.condition);
     const [hp, max] = p.condition.split(' ')[0].split('/');
     const was = played && played.kind === 'switch' && played.name === name;
-    return `<button type="button" class="button rb-sw ${was ? 'played' : ''}" data-pick="switch ${n + 1}" ${fainted || p.active || trapped ? 'disabled' : ''} ${was ? 'title="Used in the replay"' : ''}>` +
+    return `<button type="button" class="button rb-sw has-tooltip ${was ? 'played' : ''}" data-pick="switch ${n + 1}" data-tooltip="switchpokemon|${n}" ` +
+      `${was ? 'data-note="Used in the replay"' : ''} ${fainted || p.active || trapped ? 'disabled' : ''}>` +
       `<span class="rb-picon" style="${icon(p.details.split(',')[0])}"></span>${esc(name)} <small>${fainted ? 0 : Math.round(hp / max * 100)}%</small></button>`;
   }).join('')}</div>`;
 }

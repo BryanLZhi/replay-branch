@@ -296,7 +296,8 @@ export function takeover(rep, t, sets, seed) {
       sp.clearVolatile && sp.clearVolatile(false);
       sp.volatiles = {};
       sp.boosts = {atk: 0, def: 0, spa: 0, spd: 0, spe: 0, accuracy: 0, evasion: 0};
-      if (cp.fainted || cp.hp <= 0) {
+      // (a Pokemon not seen in battle yet has hp = maxhp = 0: it is at full HP, not fainted)
+      if (cp.fainted || (cp.maxhp > 0 && cp.hp <= 0)) {
         sp.hp = 0; sp.fainted = true; sp.status = 'fnt'; sp.statusState = effState(battle, {id: 'fnt', target: sp}); sp.isActive = sp.isActive && false;
       } else {
         left++;

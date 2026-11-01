@@ -100,6 +100,12 @@ try {
   check(!await inLine(), 'picking the played leads follows the replay');
   await pickerReady();
   check(/what will .+ do\?/.test(await question()), 'then asks for turn 1', await question());
+  const bench = await page.$$eval('#pickSec .rb-sw', b => [b.length, b.filter(x => !x.disabled).length]);
+  check(bench[0] === 5 && bench[1] === 5, 'every Pokemon on the bench can be switched in on turn 1', `${bench[1]} of ${bench[0]}`);
+  await page.hover('#pickSec .rb-mv');
+  check(/Accuracy/.test(await text('#tooltipwrapper')), "hovering a move shows Showdown's move tooltip");
+  await page.hover('#pickSec .rb-sw');
+  check(/HP/.test(await text('#tooltipwrapper')), "hovering a Pokemon shows Showdown's Pokemon tooltip");
 
   // ---------------------------------------------------------------- play / pause and the turn buttons
   await control('play'); await sleep(4000);

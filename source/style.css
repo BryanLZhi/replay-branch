@@ -71,7 +71,8 @@ body.dark .rb-mv { color: #eee; background: linear-gradient(color-mix(in srgb, v
 /* a guessed move (not seen in the replay) */
 .rb-mv.guess { border-style: dashed; border-width: 2px; opacity: .62; filter: grayscale(.45); }
 .rb-mv.guess:hover { opacity: .85; }
-.rb-edit { position: absolute; left: 2px; bottom: 2px; font-size: 8pt; line-height: 1; padding: 2px 3px; border: 0; border-radius: 3px; background: rgba(0,0,0,.08); color: inherit; cursor: pointer; }
+.rb-mv.guess b { padding-right: 16px; }   /* room for the pencil */
+.rb-edit { position: absolute; right: 3px; top: 3px; font-size: 8pt; line-height: 1; padding: 2px 3px; border: 0; border-radius: 3px; background: rgba(0,0,0,.08); color: inherit; cursor: pointer; }
 body.dark .rb-edit { background: rgba(255,255,255,.12); }
 .rb-mvinput { width: 100%; box-sizing: border-box; font-size: 9pt; }
 .rb-switches { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
