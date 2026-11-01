@@ -169,7 +169,8 @@ export class RngControl {
     let lo = 0, hi = from; if (to !== undefined) { lo = from; hi = to; }
     const c = this.top();
     if (c && c.kind === 'dmg' && lo === 0 && hi === 16) {
-      return this.rec({key: 'roll:' + c.move, kind: 'roll', label: `${c.move}: damage roll`, who: c.user, target: c.target, lo, hi}, r);
+      // most likely = the middle of the 85-100% range (every roll is equally likely; 93% is the median)
+      return this.rec({key: 'roll:' + c.move, kind: 'roll', label: `${c.move}: damage roll`, who: c.user, target: c.target, lo, hi}, 7);
     }
     if (c && c.kind === 'sec' && lo === 0 && hi === 100) {
       const s = c.list[c.n++] || {};
@@ -182,13 +183,17 @@ export class RngControl {
     }
     const e = this.effectLabel();
     const label = e.name ? `${e.name}: number` : 'Random number';
-    return this.rec({key: 'int:' + (e.id || '') + ':' + lo + '-' + hi, kind: 'int', label, who: e.holder, lo, hi}, r);
+    return this.rec({key: 'int:' + (e.id || '') + ':' + lo + '-' + hi, kind: 'int', label, who: e.holder, lo, hi}, lo + Math.floor((hi - 1 - lo) / 2));
   }
   sample(items) {
-    const r = this.base.sample(items);
+    this.base.sample(items);
     const e = this.effectLabel();
-    const idx = this.rec({key: 'pick:' + (e.id || '') + ':' + items.length, kind: 'pick', label: e.name ? `${e.name}: pick` : 'Random pick', who: e.holder,
-      options: items.map(x => (x && x.name) ? x.name : String(x))}, items.indexOf(r));
+    // most likely = the most common entry (e.g. 2 or 3 hits from [2,2,3,3,4,5]); first one on a tie
+    const counts = new Map(); items.forEach(x => counts.set(x, (counts.get(x) || 0) + 1));
+    let best = 0; items.forEach((x, k) => { if (counts.get(x) > counts.get(items[best])) best = k; });
+    const label = e.name ? `${e.name}: pick` : (items.every(x => typeof x === 'number') ? 'Number of hits' : 'Random pick');
+    const idx = this.rec({key: 'pick:' + (e.id || '') + ':' + items.length, kind: 'pick', label, who: e.holder,
+      options: items.map(x => (x && x.name) ? x.name : String(x))}, best);
     return items[idx < 0 ? 0 : idx];
   }
   shuffle(items, start = 0, end = items.length) {
@@ -198,9 +203,9 @@ export class RngControl {
       const o = x && (x.effectHolder || x.pokemon || x);
       return (o && o.name) ? o.name : (x && x.effect && x.effect.name) || '?';
     });
-    // default order: the base PRNG's shuffle
-    const copy = items.slice(); this.base.shuffle(copy, start, end);
-    const defOrder = copy.slice(start, end).map(x => seg.indexOf(x));
+    // default order: as listed (ties are 50/50, so no order is more likely); keep the base PRNG in step
+    this.base.shuffle(items.slice(), start, end);
+    const defOrder = seg.map((_, k) => k);
     if (seg.length < 2) return;
     const label = c && c.kind === 'speed' ? `Speed tie: ${names.join(' vs ')}` : `Order: ${names.join(', ')}`;
     const order = this.rec({key: 'order:' + names.join('|'), kind: 'order', label, options: names}, defOrder);

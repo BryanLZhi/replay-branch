@@ -91,6 +91,17 @@ body.dark .rb-mv { background: linear-gradient(color-mix(in srgb, var(--t, #ccc)
 .rb-modal .rb-section { width: min(640px, 100%); max-height: 90vh; overflow: auto; box-sizing: border-box; margin: 0; }
 .rb-modal textarea { min-height: 160px; font-family: Consolas, monospace; font-size: 8.5pt; width: 100%; box-sizing: border-box; }
 .rb-topbar { display: flex; justify-content: flex-end; gap: 6px; max-width: 1180px; margin: 0 auto 8px; padding: 0 16px; box-sizing: border-box; }
+.rb-toggle { font-size: 9pt; display: inline-flex; align-items: center; gap: 4px; margin-right: 6px; cursor: pointer; }
+.rb-mv.played, .rb-sw.played { position: relative; }
+.rb-mv.played::after, .rb-sw.played::after { content: ''; position: absolute; top: 4px; right: 4px; width: 6px; height: 6px; border-radius: 50%; background: var(--rb-branch); }
+.rb-mvwrap { position: relative; min-width: 0; display: flex; }
+.rb-mvwrap .rb-mv { flex: 1; }
+.rb-mv.guess { border-style: dashed; border-width: 2px; opacity: .62; filter: grayscale(.45); }
+.rb-mv.guess:hover { opacity: .85; }
+.rb-edit { position: absolute; left: 2px; bottom: 2px; font-size: 8pt; line-height: 1; padding: 2px 3px; border: 0; border-radius: 3px; background: rgba(0,0,0,.08); color: inherit; cursor: pointer; }
+body.dark .rb-edit { background: rgba(255,255,255,.12); }
+.rb-mvinput { width: 100%; box-sizing: border-box; font-size: 9pt; }
+.rb-pside h3 .button { font-weight: normal; }
 .rb-license { font-size: 7.5pt; color: #999; text-align: center; margin: 18px 0 8px; }
 #gate { position: fixed; inset: 0; z-index: 100; background: #2a3a4f; display: flex; align-items: center; justify-content: center; padding: 16px; }
 #gate form { background: #fff; color: #222; border-radius: 8px; padding: 20px; width: min(320px, 100%); box-sizing: border-box; display: flex; flex-direction: column; gap: 10px; }
@@ -1328,11 +1339,15 @@ function newPS(lines) {
 }
 function onPS() {
   if (S.lock || !S.psb) return;
-  if (S.psMode === 'main' && !S.take) {
-    const b = S.psb;
+  const b = S.psb;
+  if (S.psMode === 'main') {
+    if (S.stopAt && b.turn >= S.stopAt) { S.stopAt = null; b.pause(); }
     const t = b.ended ? S.rep.lastTurn + 1 : Math.max(1, Math.min(b.turn, S.rep.lastTurn + 1));
     const id = 'r' + t;
+    const playing = isPlaying();
     if (id !== S.cur) { S.cur = id; S.sel = {}; S.tera = {}; renderPanels(); }
+    else if (playing !== S.wasPlaying) renderTake(curBattle());
+    S.wasPlaying = playing;
   }
 }
 function showPosition(animate) {
@@ -1372,80 +1387,123 @@ function guessCount() {
   S.study.sets.forEach((side, si) => side.forEach((s, k) => { const f = S.base[si][k].fixed; n += Math.max(0, s.moves.filter(Boolean).length - f.moves.length) + (f.item ? 0 : 1) + (f.ability ? 0 : 1); }));
   return n;
 }
-function posLabel() {
+function pickerOn() { try { return localStorage.getItem('rb-picker') !== 'off'; } catch { return true; } }
+function setPicker(on) { try { localStorage.setItem('rb-picker', on ? 'on' : 'off'); } catch {} S.sel = {}; S.tera = {}; renderPanels(); }
+const isDoubles = () => S.rep.lines.some(l => l === '|gametype|doubles' || l === '|gametype|triples');
+const isPlaying = () => !!(S.psb && !S.psb.paused && !S.psb.atQueueEnd);
+function curBattle() {
   if (isMain(S.cur)) {
     const t = mainT(S.cur);
-    if (S.take && S.take.t === t) return `<b>Taking over</b> at the start of turn ${t}`;
-    return t > S.rep.lastTurn ? 'Replay: end of the battle' : `Replay: start of turn ${t}`;
+    if (pickerOn() && t <= S.rep.lastTurn && !isDoubles() && !isPlaying()) {
+      const tk = takeoverFor(t, S.study.sets);
+      return {kind: 'take', t, battle: tk.battle};
+    }
+    return {kind: 'main', t};
   }
-  const r = compute(S.cur); const root = S.study.nodes[pathTo(S.cur)[0]];
-  return `<b>Your line</b> from turn ${mainT(root.parent)}: now turn ${r.battle.turn}${r.battle.ended ? ', battle over' : ''}`;
-}
-function curBattle() {
-  if (S.take && isMain(S.cur) && S.take.t === mainT(S.cur)) { const tk = takeoverFor(S.take.t, S.study.sets); return {kind: 'take', t: S.take.t, battle: tk.battle, notes: tk.notes}; }
-  if (isMain(S.cur)) return {kind: 'main', t: mainT(S.cur)};
   const r = compute(S.cur); return {kind: 'branch', battle: r.battle, rolls: r.rolls};
+}
+// What a player actually did on replay turn t: their first action that turn.
+function replayChoice(t, si) {
+  const a = S.rep.turnIdx[t], b = S.rep.turnIdx[t + 1] ?? S.rep.lines.length;
+  const p = 'p' + (si + 1); let tera = false; let first = null;
+  for (const l of S.rep.lines.slice(a + 1, b)) {
+    const x = l.split('|');
+    if (!x[2] || !x[2].startsWith(p)) continue;
+    if (x[1] === '-terastallize') tera = true;
+    if (first) continue;
+    if (x[1] === 'move' && !/\[from\]/.test(l)) first = {kind: 'move', name: x[3]};
+    else if (x[1] === 'switch') first = {kind: 'switch', name: x[2].replace(/^p\d[a-d]?: /, '')};
+    else if (x[1] === 'cant') first = {kind: 'cant'};
+  }
+  return first ? {...first, tera} : null;
+}
+function choiceMatches(side, sel, tera, played) {
+  if (!played || !sel) return false;
+  const [kind, n] = sel.split(' '); const req = side.activeRequest;
+  if (played.kind === 'cant') return kind === 'move';
+  if (kind !== played.kind) return false;
+  if (kind === 'move') return E.toID(req.active[0].moves[+n - 1].move) === E.toID(played.name) && !!tera === !!played.tera;
+  return req.side.pokemon[+n - 1].ident.replace(/^p\d: /, '') === played.name;
+}
+// Sets in force at this position: the study's sets on the replay, the line's own sets inside a line.
+function setsAt(pos) { return pos.kind === 'take' ? S.study.sets : S.study.nodes[pathTo(S.cur)[0]].sets; }
+function teamIndex(si, name) { return S.cbEnd[si ? 'p2' : 'p1'].team.findIndex(p => p.name === name); }
+function editMove(pos, si, k, oldMove, newMove) {
+  const mv = E.Dex.moves.get(newMove);
+  if (!mv.exists) { S.err = `"${newMove}" is not a move.`; renderTake(pos); return; }
+  const fix = sets => { const s = sets[si][k]; const j = s.moves.findIndex(m => E.toID(m) === E.toID(oldMove)); if (j >= 0) s.moves[j] = mv.name; };
+  fix(S.study.sets);
+  if (pos.kind !== 'take') { const root = pathTo(S.cur)[0]; fix(S.study.nodes[root].sets); invalidate(root); }
+  save(); S.err = ''; S.sel = {}; S.tera = {};
+  if (pos.kind !== 'take') showPosition(false);
+  renderPanels();
+}
+// Whose turn it is to choose: Player 1 first, then Player 2 (only players with a decision to make).
+function chooser(battle) {
+  const need = battle.sides.map((s, si) => ({si, s, req: s.activeRequest})).filter(x => x.req && !x.req.wait);
+  return {need, cur: need.find(x => !S.sel['p' + (x.si + 1)])};
 }
 function renderTake(pos) {
   const el = $id('takeSec');
-  const navBtns = `<span style="float:right"><button class="button" id="tbPrev" title="Back along the study (←)"><i class="fa fa-chevron-left" aria-hidden="true"></i></button> <button class="button" id="tbNext" title="Forward along the study (→)"><i class="fa fa-chevron-right" aria-hidden="true"></i></button></span>`;
-  if (pos.kind === 'main') {
-    const t = pos.t;
-    const doubles = S.rep.lines.some(l => l === '|gametype|doubles' || l === '|gametype|triples');
-    const n = kids(S.cur).length;
-    el.innerHTML = `${navBtns}<h2>${t > S.rep.lastTurn ? 'End of the replay' : `Turn ${t}`}</h2>
-      ${t > S.rep.lastTurn ? '' : `
-      <p class="rb-row"><button class="button" id="btnTake" ${doubles ? 'disabled' : ''}><strong>Take over at turn ${t}</strong></button>
-      ${doubles ? '<span class="rb-note">Singles only for now.</span>' : ''}</p>`}`;
-    const b = $id('btnTake'); if (b) b.onclick = () => { S.take = {t}; S.sel = {}; S.tera = {}; renderPanels(); renderControls(); };
-  } else {
-    const battle = pos.battle;
-    if (battle.ended) {
-      el.innerHTML = `${navBtns}<h2>${battle.winner ? esc(battle.winner) + ' won' : 'Tie'}</h2>`;
-    } else {
-      const sides = battle.sides.map((s, si) => ({si, s, req: s.activeRequest}));
-      const need = sides.filter(x => x.req && !x.req.wait);
-      const html = sides.map(({si, s, req}) => {
-        const pid = 'p' + (si + 1);
-        let body = '';
-        if (!req || req.wait) body = '';
-        else {
-          const act = req.active && req.active[0];
-          const forced = req.forceSwitch && req.forceSwitch[0];
-          if (!forced && act) {
-            body += `<div class="rb-moves">${act.moves.map((m, i) => {
-              const mv = E.Dex.moves.get(m.id || m.move); const ch = `move ${i + 1}`;
-              return `<button type="button" class="rb-mv t-${esc(mv.type || 'Normal')} ${S.sel[pid] === ch ? 'on' : ''}" data-p="${pid}" data-c="${ch}" ${m.disabled || m.pp === 0 ? 'disabled' : ''}
-                title="${esc(`${mv.category}${mv.basePower ? ', ' + mv.basePower + ' BP' : ''}, ${mv.accuracy === true ? 'never misses' : mv.accuracy + '% accuracy'}${mv.shortDesc ? '\n' + mv.shortDesc : ''}`)}"><b>${esc(m.move)}</b><small><span>${esc(mv.type || '')}</span><span>${m.maxpp ? `${m.pp}/${m.maxpp}` : ''}</span></small></button>`;
-            }).join('')}</div>`;
-            if (act.canTerastallize) body += `<p class="rb-row" style="margin-top:6px"><label><input type="checkbox" data-tera="${pid}" ${S.tera[pid] ? 'checked' : ''}> Terastallize</label> ${typeTag(act.canTerastallize)}</p>`;
-          }
-          const trapped = act && act.trapped && !forced;
-          body += `<div class="rb-switches">${req.side.pokemon.map((p, k) => {
-            if (p.active && !forced) return '';
-            const name = p.ident.replace(/^p\d: /, ''); const fnt = /fnt/.test(p.condition);
-            const hp = p.condition.split(' ')[0].split('/'); const pct = fnt ? 0 : Math.round(+hp[0] / +hp[1] * 100);
-            const ch = `switch ${k + 1}`;
-            return `<button type="button" class="button rb-sw ${S.sel[pid] === ch ? 'on' : ''}" data-p="${pid}" data-c="${ch}" ${fnt || p.active || trapped ? 'disabled' : ''}><span class="rb-picon" style="${iconStyle(p.details.split(',')[0])}"></span>${esc(name)} <small>${pct}%</small></button>`;
-          }).join('')}</div>`;
-          
-        }
-        return `<div class="rb-pside"><h3><span>${esc(s.name)}</span><span class="rb-note">${esc(S.sel[pid] ? describeChoice(s, S.sel[pid]) : '')}</span></h3>${body}</div>`;
-      }).join('');
-      const ready = need.every(x => S.sel['p' + (x.si + 1)]);
-      el.innerHTML = `${navBtns}<h2>Turn ${pos.battle.turn}</h2>
-        <div class="rb-choose">${html}</div>
-        <p class="rb-row"><button class="button" id="btnPlay" ${ready ? '' : 'disabled'}><strong>Play turn</strong></button>
-        ${pos.kind === 'take' ? `<button class="button" id="btnBack">Back to the replay</button>` : ''}
-        </p>
-        ${S.err ? `<p class="rb-err">${esc(S.err)}</p>` : ''}`;
-      for (const b of el.querySelectorAll('[data-c]')) b.onclick = () => { S.sel[b.dataset.p] = b.dataset.c; S.err = ''; renderTake(curBattle()); };
-      for (const c of el.querySelectorAll('[data-tera]')) c.onchange = () => { S.tera[c.dataset.tera] = c.checked; };
-      $id('btnPlay').onclick = () => playTurn(pos);
-      const bb = $id('btnBack'); if (bb) bb.onclick = () => { S.take = null; renderPanels(); renderControls(); };
-    }
+  const head = (title) => `<span style="float:right" class="rb-row" role="group"><label class="rb-toggle"><input type="checkbox" id="pickTog" ${pickerOn() ? 'checked' : ''}> Move picker</label>
+    <button class="button" id="tbPrev" title="Back (←)" aria-label="Back"><i class="fa fa-chevron-left" aria-hidden="true"></i></button><button class="button" id="tbNext" title="Forward (→)" aria-label="Forward"><i class="fa fa-chevron-right" aria-hidden="true"></i></button></span><h2>${title}</h2>`;
+  const wire = () => { $id('tbPrev').onclick = () => nav('prev'); $id('tbNext').onclick = () => nav('next'); $id('pickTog').onchange = e => setPicker(e.target.checked); };
+  if (pos.kind === 'main') { el.innerHTML = head(pos.t > S.rep.lastTurn ? 'End of the replay' : `Turn ${pos.t}`); wire(); return; }
+  const battle = pos.battle;
+  if (battle.ended) { el.innerHTML = head(battle.winner ? esc(battle.winner) + ' won' : 'Tie'); wire(); return; }
+  if (!pickerOn()) { el.innerHTML = head(`Turn ${battle.turn}`); wire(); return; }
+  const {need, cur} = chooser(battle);
+  if (!cur) { el.innerHTML = head(`Turn ${battle.turn}`); wire(); return; }
+  const {si, s, req} = cur; const pid = 'p' + (si + 1);
+  const played = pos.kind === 'take' ? replayChoice(pos.t, si) : null;
+  const act = req.active && req.active[0];
+  const forced = req.forceSwitch && req.forceSwitch[0];
+  const activeMon = req.side.pokemon.find(p => p.active);
+  const activeName = activeMon ? activeMon.ident.replace(/^p\d: /, '') : '';
+  const k = teamIndex(si, activeName);
+  const sets = setsAt(pos);
+  const known = k >= 0 ? S.base[si][k].fixed.moves.map(m => E.toID(m)) : [];
+  const species = k >= 0 ? sets[si][k].species : '';
+  let body = '';
+  if (!forced && act) {
+    body += `<div class="rb-moves">${act.moves.map((m, i) => {
+      const mv = E.Dex.moves.get(m.id || m.move); const ch = `move ${i + 1}`;
+      const was = played && played.kind === 'move' && E.toID(played.name) === E.toID(m.move);
+      const guess = k >= 0 && !known.includes(E.toID(m.move)) && !['struggle', 'recharge'].includes(E.toID(m.move));
+      return `<div class="rb-mvwrap"><button type="button" class="rb-mv t-${esc(mv.type || 'Normal')} ${was ? 'played' : ''} ${guess ? 'guess' : ''}" data-c="${ch}" ${m.disabled || m.pp === 0 ? 'disabled' : ''}
+        title="${esc(`${mv.category}${mv.basePower ? ', ' + mv.basePower + ' BP' : ''}, ${mv.accuracy === true ? 'never misses' : mv.accuracy + '% accuracy'}${mv.shortDesc ? '\n' + mv.shortDesc : ''}${guess ? '\nGuessed from usage stats' : ''}${was ? '\nUsed in the replay' : ''}`)}"><b>${esc(m.move)}</b><small><span>${esc(mv.type || '')}</span><span>${m.maxpp ? `${m.pp}/${m.maxpp}` : ''}</span></small></button>${
+        guess ? `<button type="button" class="rb-edit" data-edit="${esc(m.move)}" title="Change this guessed move" aria-label="Change ${esc(m.move)}"><i class="fa fa-pencil" aria-hidden="true"></i></button>` : ''}</div>`;
+    }).join('')}</div>`;
+    if (act.canTerastallize) body += `<p class="rb-row" style="margin-top:6px"><label><input type="checkbox" id="teraBox" ${S.tera[pid] ? 'checked' : ''}> Terastallize</label> ${typeTag(act.canTerastallize)}</p>`;
   }
-  $id('tbPrev').onclick = () => nav('prev'); $id('tbNext').onclick = () => nav('next');
+  const trapped = act && act.trapped && !forced;
+  body += `<div class="rb-switches">${req.side.pokemon.map((p, n) => {
+    if (p.active && !forced) return '';
+    const name = p.ident.replace(/^p\d: /, ''); const fnt = /fnt/.test(p.condition);
+    const hp = p.condition.split(' ')[0].split('/'); const pct = fnt ? 0 : Math.round(+hp[0] / +hp[1] * 100);
+    const was = played && played.kind === 'switch' && played.name === name;
+    return `<button type="button" class="button rb-sw ${was ? 'played' : ''}" data-c="switch ${n + 1}" ${fnt || p.active || trapped ? 'disabled' : ''} ${was ? 'title="Used in the replay"' : ''}><span class="rb-picon" style="${iconStyle(p.details.split(',')[0])}"></span>${esc(name)} <small>${pct}%</small></button>`;
+  }).join('')}</div>`;
+  const prev = need.filter(x => S.sel['p' + (x.si + 1)]);
+  const q = forced ? `${esc(s.name)}: switch in a Pok&eacute;mon` : `${esc(s.name)}: what will ${esc(activeName)} do?`;
+  el.innerHTML = `${head(`Turn ${battle.turn}`)}<div class="rb-pside"><h3><span>${q}</span>${prev.length ? `<button class="button" id="btnUndo"><i class="fa fa-undo" aria-hidden="true"></i> Back</button>` : ''}</h3>${body}</div>
+    ${S.err ? `<p class="rb-err">${esc(S.err)}</p>` : ''}`;
+  wire();
+  const tb = $id('teraBox'); if (tb) tb.onchange = () => { S.tera[pid] = tb.checked; };
+  const bu = $id('btnUndo'); if (bu) bu.onclick = () => { const last = prev[prev.length - 1]; delete S.sel['p' + (last.si + 1)]; delete S.tera['p' + (last.si + 1)]; renderTake(pos); };
+  for (const b of el.querySelectorAll('[data-c]')) b.onclick = () => {
+    S.sel[pid] = b.dataset.c; S.err = '';
+    if (chooser(battle).cur) renderTake(pos); else playTurn(pos);
+  };
+  for (const b of el.querySelectorAll('[data-edit]')) b.onclick = () => {
+    const old = b.dataset.edit; const wrap = b.parentElement;
+    wrap.innerHTML = `<input class="textbox rb-mvinput" list="${speciesMoves(species)}" value="${esc(old)}" aria-label="Move instead of ${esc(old)}">`;
+    const inp = wrap.querySelector('input'); inp.focus(); inp.select();
+    let done = false;
+    const commit = () => { if (done) return; done = true; const v = inp.value.trim(); if (v && E.toID(v) !== E.toID(old)) editMove(pos, si, k, old, v); else renderTake(pos); };
+    inp.onkeydown = e => { if (e.key === 'Enter') commit(); else if (e.key === 'Escape') { done = true; renderTake(pos); } };
+    inp.onchange = commit; inp.onblur = commit;
+  };
 }
 function describeChoice(side, c) {
   const [kind, n] = c.split(' '); const req = side.activeRequest;
@@ -1459,13 +1517,19 @@ function playTurn(pos) {
     const pid = 'p' + (si + 1);
     if (s.activeRequest && !s.activeRequest.wait) { let c = S.sel[pid]; if (c && c.startsWith('move') && S.tera[pid]) c += ' terastallize'; choices[pid] = c; }
   });
+  // Same choices as the replay: play the replay's own turn.
+  if (pos.kind === 'take' && pos.battle.sides.every((s, si) => {
+    const pid = 'p' + (si + 1);
+    if (!s.activeRequest || s.activeRequest.wait) return true;
+    return choiceMatches(s, S.sel[pid], S.tera[pid], replayChoice(pos.t, si));
+  })) { S.sel = {}; S.tera = {}; S.err = ''; S.stopAt = pos.t + 1; S.psb.seekTurn(pos.t); S.psb.play(); renderPanels(); return; }
   const parent = pos.kind === 'take' ? 'r' + pos.t : S.cur;
   let id = kids(parent).find(k => JSON.stringify(S.study.nodes[k].choices) === JSON.stringify(choices) && !(S.study.nodes[k].forced || []).length);
   const existed = !!id;
   try {
     if (!id) { id = addNode(parent, choices, [], newSeed(), pos.kind === 'take' ? clone(S.study.sets) : undefined); compute(id); }
-  } catch (e) { if (id && !existed) { deleteNode(id); save(); } S.err = e.message || String(e); renderTake(pos); return; }
-  S.take = null; S.sel = {}; S.tera = {}; S.err = '';
+  } catch (e) { if (id && !existed) { deleteNode(id); save(); } S.sel = {}; S.tera = {}; S.err = e.message || String(e); renderTake(pos); return; }
+  S.sel = {}; S.tera = {}; S.err = '';
   go(id, true);
 }
 
@@ -1478,7 +1542,7 @@ function renderDice(pos) {
   const branchy = kids(S.cur).length > 0;
   el.innerHTML = `<h2>Dice</h2>
     ${rolls.length ? `<div class="rb-rolls">${rolls.map(rollRow).join('')}</div>` : ''}
-    <p class="rb-row"><button class="button" id="btnReroll"><i class="fa fa-random" aria-hidden="true"></i> Reroll everything</button>
+    <p class="rb-row"><button class="button" id="btnReroll"><i class="fa fa-random" aria-hidden="true"></i> Randomize</button>
     <button class="button" id="btnDefaults" ${node.forced && node.forced.length ? '' : 'disabled'}>Most likely outcomes</button></p>`;
   for (const c of el.querySelectorAll('[data-roll]')) {
     c[c.tagName === 'SELECT' ? 'onchange' : 'onclick'] = () => {
@@ -1488,8 +1552,17 @@ function renderDice(pos) {
       setForced(forced, node.seed);
     };
   }
-  $id('btnReroll').onclick = () => setForced([], newSeed());
+  $id('btnReroll').onclick = () => setForced(rolls.map(r => ({key: r.key, value: randomOutcome(r)})), node.seed);
   $id('btnDefaults').onclick = () => setForced([], node.seed);
+}
+function randomOutcome(r) {
+  const ri = n => Math.floor(Math.random() * n);
+  if (r.kind === 'chance') return Math.random() < r.p;
+  if (r.kind === 'roll') return ri(16);
+  if (r.kind === 'int') return r.lo + ri(r.hi - r.lo);
+  if (r.kind === 'pick') return ri(r.options.length);
+  if (r.kind === 'order') { const o = r.options.map((_, k) => k); for (let k = o.length - 1; k > 0; k--) { const j = ri(k + 1); [o[k], o[j]] = [o[j], o[k]]; } return o; }
+  return r.value;
 }
 function rollRow(r) {
   const who = r.who ? `<small> · ${esc(r.who)}${r.target ? ' → ' + esc(r.target) : ''}</small>` : '';
@@ -1701,15 +1774,30 @@ async function selftest() {
     out.push('loaded: turn ' + S.psb.turn + ' cur ' + S.cur + ' sprite ' + ((document.querySelector('.battle img') || {}).src || 'none').slice(0, 70));
     go('r20', false); await wait(500);
     out.push('seek 20: ps turn ' + S.psb.turn + ' | ' + $('.battle-log').text().slice(-70));
-    $id('btnTake').click();
-    [...document.querySelectorAll('.rb-mv:not(:disabled)')].find(b => b.dataset.p === 'p1').click();
-    [...document.querySelectorAll('.rb-mv:not(:disabled)')].find(b => b.dataset.p === 'p2').click();
-    $id('btnPlay').click(); await wait(6000);
+    out.push('picker at 20: buttons ' + document.querySelectorAll('.rb-mv').length + ' played marks ' + [...document.querySelectorAll('.played')].map(b => b.dataset.p + ':' + b.textContent.trim().slice(0, 14)).join(', '));
+    // follow the replay: each player picks what was played, one at a time
+    for (let i = 0; i < 2; i++) { const b = document.querySelector('#takeSec .played'); if (b) b.click(); }
+    await wait(6000);
+    out.push('followed replay: cur ' + S.cur + ' psMode ' + S.psMode + ' paused ' + S.psb.paused + ' nodes ' + Object.keys(S.study.nodes).length);
+    go('r20', false); await wait(500);
+    out.push('guessed moves at 20: ' + [...document.querySelectorAll('#takeSec .rb-mv.guess')].map(b => b.textContent.trim().slice(0, 14)).join(', ') + ' | q: ' + $('#takeSec h3 span').first().text());
+    // inline edit of a guessed move
+    const ed = document.querySelector('#takeSec [data-edit]');
+    if (ed) { const old = ed.dataset.edit; ed.click(); const inp = document.querySelector('.rb-mvinput'); inp.value = 'Low Kick'; inp.dispatchEvent(new Event('change')); await wait(300);
+      out.push('edited ' + old + ' -> ' + [...document.querySelectorAll('#takeSec .rb-mv')].map(b => b.querySelector('b').textContent).join('/') + ' err ' + S.err); }
+    // branch: player 1 picks something not played, then player 2 anything
+    [...document.querySelectorAll('#takeSec .rb-mv:not(:disabled):not(.played)')][0].click(); await wait(100);
+    out.push('after p1 pick, q: ' + $('#takeSec h3 span').first().text());
+    [...document.querySelectorAll('#takeSec .rb-mv:not(:disabled)')][0].click(); await wait(6000);
     out.push('after play: ' + S.cur + ' rolls ' + document.querySelectorAll('.rb-roll').length + ' err ' + S.err + ' | ' + $('.battle-log').text().slice(-160));
     out.push('sprites: ' + [...document.querySelectorAll('.battle img')].map(i => (i.src || '').split('/').slice(-2).join('/')).slice(0, 6).join(' , '));
     const seg = document.querySelector('.rb-roll .rb-seg .button:not(.on)');
     if (seg) { seg.click(); await wait(5000); out.push('flipped -> ' + $('.battle-log').text().slice(-120)); }
     out.push('controls: ' + $('.replay-controls').text().slice(0, 120));
+    $id('pickTog').click(); await wait(200);
+    out.push('toggle off: buttons ' + document.querySelectorAll('.rb-mv').length + ' header ' + $('#takeSec h2').text());
+    $id('pickTog').click(); await wait(200);
+    out.push('toggle on: buttons ' + document.querySelectorAll('.rb-mv').length);
   } catch (e) { out.push('ERROR ' + e.stack); }
   const pre = document.createElement('pre'); pre.id = 'selftest'; pre.textContent = out.join('\n'); document.body.appendChild(pre);
 }
