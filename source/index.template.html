@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Replay Branch</title>
+<link rel="icon" href="https://play.pokemonshowdown.com/favicon.ico" />
+<link rel="stylesheet" href="style.css" />
+
+<div id="gate" hidden>
+  <form id="gateForm"><h1>Replay Branch</h1>
+    <label for="gatePw" class="rb-note">Password</label>
+    <input id="gatePw" type="password" class="textbox" autocomplete="current-password">
+    <button class="button" type="submit"><strong>Enter</strong></button><span id="gateErr" class="rb-err"></span></form>
+</div>
+
+<div class="rb-topbar"><button class="button" type="button" id="btnLoad">Load replay</button> <button class="button" type="button" id="btnExport">Export study</button></div>
+
+<!-- Showdown's replay viewer (built by js/replay-embed.js from the log below), with our move picker and dice under its controls -->
+<div class="wrapper replay-wrapper">
+<input type="hidden" name="replayid" value="{{REPLAY_ID}}" />
+<div class="battle"></div><div class="battle-log"></div><div class="replay-controls"></div><div class="replay-controls-2"></div>
+<div class="rb-under">
+  <section class="rb-section" id="diceSec" hidden></section>
+  <section class="rb-section" id="pickSec" hidden></section>
+</div>
+<h1 id="rbTitle"></h1>
+<script type="text/plain" class="battle-log-data">{{REPLAY_LOG}}</script>
+</div>
+
+<div class="rb-wrap">
+  <section class="rb-section" id="studySec"></section>
+</div>
+
+<div class="rb-modal" id="loader" hidden>
+  <section class="rb-section" role="dialog" aria-labelledby="loaderTitle">
+    <h2 id="loaderTitle">Load a replay</h2>
+    <p class="rb-note">Paste a replay link, the battle log, a saved replay file's contents, or a study you exported earlier.</p>
+    <p><input id="replayUrl" class="textbox" type="url" placeholder="https://replay.pokemonshowdown.com/…"></p>
+    <textarea id="pasteBox" class="textbox" placeholder="|player|p1|…"></textarea>
+    <p class="rb-row"><input type="file" id="fileIn" accept=".log,.txt,.json,.html,.htm"><span style="flex:1"></span>
+      <button class="button" type="button" id="btnSample">Load the sample</button>
+      <button class="button" type="button" id="btnCancel">Cancel</button>
+      <button class="button" type="button" id="btnDoLoad"><strong>Load</strong></button></p>
+    <p class="rb-err" id="loadErr"></p>
+  </section>
+</div>
+<div class="rb-modal" id="exporter" hidden>
+  <section class="rb-section" role="dialog" aria-labelledby="exportTitle">
+    <h2 id="exportTitle">Export study</h2>
+    <p class="rb-note">This text holds the replay, your sets and every line you played. Paste it into <b>Load replay</b> to open the study again, on any device.</p>
+    <textarea id="exportBox" class="textbox" readonly></textarea>
+    <p class="rb-row" style="justify-content:flex-end"><span class="rb-note" id="copyMsg"></span><button class="button" type="button" id="btnCopy">Copy</button><button class="button" type="button" id="btnCloseExport">Close</button></p>
+  </section>
+</div>
+
+<script>
+// Password gate: keeps casual visitors out (a static site cannot do real access control).
+(function () {
+  var H = '{{PW_HASH}}';
+  if (!H) return;
+  var ok = false; try { ok = localStorage.getItem('rb-gate') === H; } catch (e) {}
+  if (ok) return;
+  var gate = document.getElementById('gate'); gate.hidden = false;
+  document.getElementById('gatePw').focus();
+  document.getElementById('gateForm').onsubmit = async function (e) {
+    e.preventDefault();
+    var pw = document.getElementById('gatePw').value;
+    var buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode('rbv:' + pw));
+    var hex = Array.from(new Uint8Array(buf)).map(function (b) { return b.toString(16).padStart(2, '0'); }).join('');
+    if (hex === H) { try { localStorage.setItem('rb-gate', H); } catch (e2) {} gate.hidden = true; }
+    else document.getElementById('gateErr').textContent = 'Wrong password.';
+  };
+})();
+</script>
+<script src="js/replay-embed.js"></script>
+<script type="module" src="app.js"></script>

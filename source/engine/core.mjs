@@ -98,11 +98,11 @@ export function suggestSet(known, stats, gen) {
   const sp = Dex.species.get(known.species);
   const fixed = {moves: known.moves.map(m => m.name), item: !!(known.item || known.lastItem), ability: !!known.ability, tera: !!known.tera};
   const moves = known.moves.map(m => m.name);
-  const learnable = null;
   for (const [mv] of (e && e.m) || []) {
     if (moves.length >= 4) break;
     if (!moves.some(x => toID(x) === toID(mv))) moves.push(mv);
   }
+  if (!moves.length) moves.push('Tackle');   // never seen moving and no stats: a placeholder to edit (the sim needs a move)
   let item = known.item || known.lastItem || (e && e.i && e.i[0] ? itemName(e.i[0][0]) : '');
   let ability = known.ability || (e && e.a && e.a[0] ? e.a[0][0] : (sp.abilities ? sp.abilities[0] : ''));
   let tera = known.tera || (e && e.t && e.t[0] ? e.t[0][0] : (sp.types ? sp.types[0] : ''));
