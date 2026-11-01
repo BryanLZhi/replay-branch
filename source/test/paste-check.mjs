@@ -57,21 +57,24 @@ function play(teams) {
 const paste = sets => sets.map(s => `${s.name} (${s.species}) @ ${s.item}\nAbility: ${s.ability}\nLevel: ${s.level}\nTera Type: ${s.teraType}\n` +
   `EVs: ${Object.entries(s.evs).map(([k, v]) => `${v} ${k}`).join(' / ')}\n${s.nature} Nature\n${s.moves.map(m => '- ' + m).join('\n')}`).join('\n\n');
 
-let falseAlarms = 0, caught = 0, wrongTried = 0, hits = 0;
+let falseAlarms = 0, caught = 0, wrongTried = 0, hits = 0, calcWorded = 0;
+// the other side's sets as the page holds them: imported (known) or guesses
+const asKnown = (sets, known) => sets.map(s => ({...s, pasted: known}));
 for (let b = 0; b < battles; b++) {
   const teams = [team(), team()];
   const rep = E.parseReplayInput(play(teams));
   for (const si of [0, 1]) {
-    const right = E.matchTeam(rep, si, E.parseTeam(paste(teams[si])), teams[1 - si], b % 2 === 0);
+    const right = E.matchTeam(rep, si, E.parseTeam(paste(teams[si])), asKnown(teams[1 - si], b % 2 === 0));
     if (right.problems.length && process.env.DUMP) fs.writeFileSync(path.join(process.env.DUMP, `battle${b}.log`), rep.lines.join('\n'));
     if (right.problems.length) { falseAlarms++; console.log(`battle ${b} side ${si}: true sets flagged:\n  ` + right.problems.join('\n  ')); }
     // the same team with every Pokemon's spread flipped (offence to bulk) and items swapped around
     const wrong = teams[si].map((s, k) => ({...s, item: teams[si][(k + 1) % 6].item,
       evs: s.evs.atk + s.evs.spa > 300 ? {hp: 252, atk: 0, def: 252, spa: 0, spd: 4, spe: 0} : {hp: 0, atk: 252, def: 0, spa: 252, spd: 0, spe: 4}}));
-    const r = E.matchTeam(rep, si, E.parseTeam(paste(wrong)), teams[1 - si], true);
+    const r = E.matchTeam(rep, si, E.parseTeam(paste(wrong)), asKnown(teams[1 - si], true));
     wrongTried++; if (r.problems.length) caught++;
+    if (r.problems.some(p => / vs\. .+, the replay shows /.test(p))) calcWorded++;
     hits += rep.lines.filter(l => l.startsWith('|-damage|') && !l.includes('[from]')).length;
   }
 }
-console.log(`${battles} battles (${hits} hits): true sets flagged ${falseAlarms} times; wrong sets caught ${caught} of ${wrongTried}`);
+console.log(`${battles} battles (${hits} hits): true sets flagged ${falseAlarms} times; wrong sets caught ${caught} of ${wrongTried} (${calcWorded} with calc-worded hits)`);
 process.exit(falseAlarms ? 1 : 0);

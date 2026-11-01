@@ -246,6 +246,33 @@ try {
     return card && {item: card.querySelector('[data-field=item]').value, guesses: card.querySelectorAll('.guess').length};
   });
   check(!await visible('#importer') && imported?.item === 'Choice Band' && imported.guesses === 0, 'Import anyway uses the set (no longer shown as a guess)');
+  // the Teams tab keeps listing the mismatches, and follows edits
+  await until(() => !document.querySelector('#teamCheck').hidden, null, 30000);
+  const live = await page.$$eval('#teamCheck li', l => l.map(x => x.textContent));
+  check(live.some(p => /no Roost/.test(p)) && live.some(p => /Talonflame/.test(p) && / vs\. | the sets allow /.test(p)),
+    'the Teams tab lists what the imported sets cannot be', live.join(' | '));
+  await page.$$eval('#studySec .rb-mon', cards => {
+    const card = cards.find(c => c.querySelector('.nm').textContent.includes('Talonflame'));
+    const box = card.querySelector('[data-field=move3]');
+    box.value = 'Roost'; box.dispatchEvent(new Event('change'));
+  });
+  await sleep(1500);
+  const after = await page.$$eval('#teamCheck li', l => l.map(x => x.textContent));
+  check(!after.some(p => /no Roost/.test(p)), 'fixing the set clears its line', after.join(' | '));
+  // importing the other side too: hits between two known sets read like the damage calc, spreads included
+  await page.click('[data-import="1"]'); await sleep(200);
+  await page.$eval('#importText', el => {
+    el.value = ['Donphan @ Leftovers', 'Ability: Sturdy', 'EVs: 252 HP / 4 Atk / 252 Def', 'Impish Nature',
+      '- Earthquake', '- Ice Shard', '- Knock Off', '- Rapid Spin'].join('\n');
+    el.dispatchEvent(new Event('input'));
+  });
+  await page.click('#btnImport');
+  await until(() => !document.querySelector('#importProblems').hidden || document.querySelector('#importer').hidden, null, 30000);
+  if (await visible('#importer')) await page.click('#btnImport');
+  await sleep(1500);
+  const both = await page.$$eval('#teamCheck li', l => l.map(x => x.textContent));
+  check(both.some(p => /Talonflame U-turn vs\. 252 HP \/ 252\+ Def .*Donphan: .+, the replay shows 7%/.test(p)),
+    'with both sides imported, a hit reads like the damage calc', both.filter(p => /Donphan/.test(p)).join(' | '));
   await page.click('[data-tab=study]'); await sleep(200);
 
   // ---------------------------------------------------------------- other formats, loaded by link

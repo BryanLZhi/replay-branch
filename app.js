@@ -256,8 +256,9 @@ function renderTeams(body) {
   const types = E.Dex.types.all().map((t) => t.name).filter((t) => t !== "???" && (S.rep.gen >= 9 || t !== "Stellar"));
   const side = (si) => `<div class="rb-teamhead"><b>${esc(playerName(si))}</b><span><button class="button" data-import="${si}">Import</button> <button class="button" data-reset-side="${si}">Reset to suggestions</button></span></div>
     <div class="rb-mons">${S.study.sets[si].map((set, k) => monCard(si, k, set, types)).join("")}</div>`;
-  body.innerHTML = (S.stats ? "" : `<p class="rb-err">No usage stats for ${esc(S.rep.formatid)}.</p>`) + side(0) + side(1);
+  body.innerHTML = (S.stats ? "" : `<p class="rb-err">No usage stats for ${esc(S.rep.formatid)}.</p>`) + `<ul id="teamCheck" class="rb-problems" hidden></ul>` + side(0) + side(1);
   const rerender = () => renderTeams(body);
+  showMismatches();
   for (const input of body.querySelectorAll("[data-field]")) input.onchange = () => {
     const set = S.study.sets[input.dataset.side][input.dataset.k];
     const f = input.dataset.field;
@@ -274,6 +275,7 @@ function renderTeams(body) {
     input.classList.remove("guess");
     renderPicker(position());
     if (changedNature) rerender();
+    else showMismatches();
   };
   for (const b of body.querySelectorAll("[data-reset-mon]")) b.onclick = () => {
     const [si, k] = b.dataset.resetMon.split(",").map(Number);
@@ -288,6 +290,17 @@ function renderTeams(body) {
     rerender();
   };
   for (const b of body.querySelectorAll("[data-import]")) b.onclick = () => openImport(+b.dataset.import, rerender);
+}
+var pending = 0;
+function showMismatches() {
+  const ticket = ++pending;
+  setTimeout(() => {
+    const list = $id("teamCheck");
+    if (ticket !== pending || !list) return;
+    const problems = S.study.sets.some((side) => side.some((s) => s.pasted)) ? E.checkSets(S.rep, S.study.sets) : [];
+    list.innerHTML = problems.map((p) => `<li>${esc(p.text)}</li>`).join("");
+    list.hidden = !problems.length;
+  });
 }
 function setEv(set, stat, text) {
   const m = /^(\d*)\s*([+-])?$/.exec(text.replace("\u2212", "-"));
@@ -379,8 +392,7 @@ function openImport(si, rerender) {
         err.textContent = "No Pok\xE9mon found.";
         return;
       }
-      const other = S.study.sets[1 - si];
-      const { sets, problems } = E.matchTeam(S.rep, si, team, other, other.every((s) => s.pasted));
+      const { sets, problems } = E.matchTeam(S.rep, si, team, S.study.sets[1 - si]);
       if (!problems.length) {
         apply(si, sets);
         dialog.hidden = true;
@@ -402,7 +414,7 @@ function openImport(si, rerender) {
 }
 function apply(si, sets) {
   sets.forEach((set, k) => {
-    if (set) S.study.sets[si][k] = { ...set, name: S.base[si][k].name, itemGone: S.base[si][k].itemGone, pasted: true };
+    if (set) S.study.sets[si][k] = { ...set, itemGone: S.base[si][k].itemGone };
   });
   save();
   renderPicker(position());

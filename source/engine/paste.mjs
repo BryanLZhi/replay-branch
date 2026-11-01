@@ -20,9 +20,9 @@ export function parseTeam(text) {
 }
 
 // Put a pasted team in the order of side si's team in the replay. Returns {sets: per replay team member (null if not in the
-// paste), problems: what the replay shows that these sets cannot be}. otherSets: the other side's sets, otherExact: whether
-// they are known (else a hit is only called impossible if no set of the other Pokemon could explain it).
-export function matchTeam(rep, si, pasted, otherSets, otherExact) {
+// paste), problems: what the replay shows that these sets cannot be}. otherSets: the other side's current sets (those marked
+// pasted are taken as known; for the rest a hit is only called impossible if no set of that Pokemon could explain it).
+export function matchTeam(rep, si, pasted, otherSets) {
   const end = clientAt(rep, rep.lastTurn + 1);
   const team = end.sides[si].team;
   const base = s => Dex.species.get(s).baseSpecies;
@@ -30,16 +30,26 @@ export function matchTeam(rep, si, pasted, otherSets, otherExact) {
   const take = test => { const i = free.findIndex(test); return i < 0 ? null : free.splice(i, 1)[0]; };
   const found = team.map(p => take(s => toID(s.species) === toID(p.speciesForme)));
   team.forEach((p, k) => { found[k] ||= take(s => base(s.species) === base(p.speciesForme)); });
-  const sets = found.map((s, k) => s && {...s, name: team[k].name});
+  const sets = found.map((s, k) => s && {...s, name: team[k].name, pasted: true});
 
   const problems = [];
   const missing = team.filter((p, k) => !sets[k]).map(p => p.name);
   if (missing.length) problems.push(`Not in the paste: ${missing.join(', ')}`);
   if (free.length && team.length >= 6) problems.push(`Not on this team in the replay: ${free.map(s => s.species).join(', ')}`);
-  team.forEach((p, k) => { if (sets[k]) problems.push(...revealedProblems(knownOf(p), sets[k], rep.gen)); });
   const both = si === 0 ? [sets, otherSets] : [otherSets, sets];
-  problems.push(...logProblems(rep, si, both, otherExact));
+  problems.push(...checkSets(rep, both).filter(p => p.sides.includes(si)).map(p => p.text));
   return {sets, problems};
+}
+
+// What the replay shows that the known sets (those marked pasted) cannot be: [{text, sides: the sides whose sets it is about}].
+export function checkSets(rep, sets) {
+  const end = clientAt(rep, rep.lastTurn + 1);
+  const problems = [];
+  end.sides.forEach((side, si) => side.team.forEach((p, k) => {
+    const set = sets[si]?.[k];
+    if (set?.pasted) problems.push(...revealedProblems(knownOf(p), set, rep.gen).map(text => ({text, sides: [si]})));
+  }));
+  return problems.concat(logProblems(rep, sets));
 }
 
 // Revealed facts the set contradicts.
@@ -54,7 +64,6 @@ function revealedProblems(known, set, gen) {
 }
 
 const CHOICE = ['choiceband', 'choicespecs', 'choicescarf'];
-const CHANGED_HANDS = ['tricked', 'stolen', 'bestowed', 'harvested', 'found'];
 // Moves whose damage depends on things a replay does not show (or that the calc models differently): not checked.
 const UNCHECKED_MOVES = ['beatup', 'bodypress', 'fling', 'foulplay', 'hardpress', 'lastrespects', 'magnitude', 'naturalgift', 'present',
   'psywave', 'punishment', 'ragefist', 'storedpower', 'powertrip', 'crushgrip', 'wringout', 'eruption', 'waterspout', 'dragonenergy',
@@ -62,15 +71,15 @@ const UNCHECKED_MOVES = ['beatup', 'bodypress', 'fling', 'foulplay', 'hardpress'
 const UNCHECKED_VOLATILES = /^(ability:)?(protosynthesis|quarkdrive|flashfire|typechange|typeadd|transform|dynamax|substitute|charge|helpinghand|roost)/;
 
 // Walk the replay: what the held items allow, and whether each direct hit's damage fits the sets.
-function logProblems(rep, si, sets, otherExact) {
+function logProblems(rep, sets) {
   const problems = new Map();   // one line per kind of problem and Pokemon
-  const add = (key, text) => { if (!problems.has(key)) problems.set(key, text); };
+  const add = (key, text, ...pokes) => { if (!problems.has(key)) problems.set(key, {text, sides: [...new Set(pokes.filter(known).map(sideOf))]}); };
   const cb = new ClientBattle(gens);
   const sideOf = poke => cb.sides.indexOf(poke.side);
   const setOf = poke => { const s = sets[sideOf(poke)]; const k = poke.side.team.indexOf(poke); return s && k >= 0 ? s[k] : null; };
-  const ours = poke => poke && sideOf(poke) === si && setOf(poke);
-  // the item the paste gives it, while it still holds it
-  const pastedItem = poke => ours(poke) && !poke.itemEffect && !poke.lastItemEffect ? toID(setOf(poke).item) : '';
+  const known = poke => !!(poke && setOf(poke)?.pasted);
+  // the item its known set gives it, while it still holds it
+  const pastedItem = poke => known(poke) && !poke.itemEffect && !poke.lastItemEffect ? toID(setOf(poke).item) : '';
   const lastMove = new Map();
   let hit = null;   // the move being resolved: {attacker, defender, move, crit, before, damaged, checked}
 
@@ -78,7 +87,7 @@ function logProblems(rep, si, sets, otherExact) {
   const finishHit = boundary => {
     if (hit && hit.damaged && boundary !== 'switch' && boundary !== 'drag' && pastedItem(hit.attacker) === 'lifeorb' && !hit.recoil && !hit.attacker.fainted &&
         !['magicguard', 'sheerforce'].includes(toID(setOf(hit.attacker).ability))) {
-      add('lo' + hit.attacker.name, `${hit.attacker.name} hit with ${hit.move.name} and took no Life Orb recoil`);
+      add('lo' + hit.attacker.name, `${hit.attacker.name} hit with ${hit.move.name} and took no Life Orb recoil`, hit.attacker);
     }
     hit = null;
   };
@@ -96,9 +105,9 @@ function logProblems(rep, si, sets, otherExact) {
     if (kind === 'move' && poke && !kwArgs.from && toID(args[2]) !== 'struggle') {
       const move = Dex.moves.get(args[2]);
       const item = pastedItem(poke);
-      if (item === 'assaultvest' && move.category === 'Status') add('av' + poke.name, `${poke.name} used ${move.name}, which Assault Vest does not allow`);
+      if (item === 'assaultvest' && move.category === 'Status') add('av' + poke.name, `${poke.name} used ${move.name}, which Assault Vest does not allow`, poke);
       if (CHOICE.includes(item) && lastMove.has(poke) && lastMove.get(poke) !== move.id) {
-        add('choice' + poke.name, `${poke.name} used ${Dex.moves.get(lastMove.get(poke)).name} then ${move.name} without switching, which ${Dex.items.get(item).name} does not allow`);
+        add('choice' + poke.name, `${poke.name} used ${Dex.moves.get(lastMove.get(poke)).name} then ${move.name} without switching, which ${Dex.items.get(item).name} does not allow`, poke);
       }
       lastMove.set(poke, move.id);
       const target = args[3] ? cb.getPokemon(args[3]) : null;
@@ -110,16 +119,16 @@ function logProblems(rep, si, sets, otherExact) {
     if (kind === '-enditem' && hit && poke === hit.defender && /Berry/.test(args[2] || '')) hit.skip = true;   // resist berries: checked without them
     if (kind === '-damage' && poke) {
       const from = String(kwArgs.from || '');
-      if (/^(Stealth Rock|Spikes)$/.test(from) && pastedItem(poke) === 'heavydutyboots') add('boots' + poke.name, `${poke.name} took ${from} damage, which Heavy-Duty Boots prevents`);
+      if (/^(Stealth Rock|Spikes)$/.test(from) && pastedItem(poke) === 'heavydutyboots') add('boots' + poke.name, `${poke.name} took ${from} damage, which Heavy-Duty Boots prevents`, poke);
       if (hit && poke === hit.attacker && /Life Orb/.test(from)) hit.recoil = true;
       if (hit && !from && poke === hit.defender && !hit.damaged) {
         hit.damaged = true;
-        if (!hit.skip && (ours(hit.attacker) || ours(hit.defender))) {
+        if (!hit.skip && (known(hit.attacker) || known(hit.defender))) {
           const [h, m] = String(args[2]).split(' ')[0].split('/').map(Number);
           const before = poke.maxhp ? poke.hp / poke.maxhp * 100 : 100;
           const after = m ? h / m * 100 : 0;
-          const problem = checkHit(rep.gen, cb, hit, before, after, setOf, otherExact, si);
-          if (problem) add('dmg' + hit.attacker.name + hit.defender.name + hit.move.id, `Turn ${cb.turn}: ${problem}`);
+          const problem = checkHit(rep.gen, cb, hit, before, after, setOf);
+          if (problem) add('dmg' + hit.attacker.name + hit.defender.name + hit.move.id, `Turn ${cb.turn}: ${problem}`, hit.attacker, hit.defender);
         }
       }
     }
@@ -129,22 +138,23 @@ function logProblems(rep, si, sets, otherExact) {
   return [...problems.values()];
 }
 
-// Can the sets explain this hit? The other side's Pokemon (if its set is not known) may have any spread, ability and item.
-function checkHit(genNum, cb, hit, before, after, setOf, otherExact, si) {
+// Can the sets explain this hit? A Pokemon whose set is not known may have any spread, ability and item. When both sets are
+// known the problem reads like the damage calc, spreads included.
+function checkHit(genNum, cb, hit, before, after, setOf) {
   const {attacker, defender, move} = hit;
   if (UNCHECKED_MOVES.includes(move.id) || move.multihit || move.damage || move.ohko) return null;
   if ([attacker, defender].some(p => Object.keys(p.volatiles).some(v => UNCHECKED_VOLATILES.test(v)))) return null;
   const gen = gens.get(genNum);
   const field = calcField({weather: cb.field.weather, terrain: cb.field.terrain, pseudo: Object.keys(cb.field.pseudoWeather || {}),
     attacker: conditions(attacker.side), defender: conditions(defender.side)});
-  const exact = p => cb.sides.indexOf(p.side) === si || otherExact;
-  let min = Infinity, max = -Infinity;
+  let min = Infinity, max = -Infinity, only = null;
   try {
-    const atk = variants(gen, attacker, setOf(attacker), exact(attacker), 'attack', move, before);
-    const def = variants(gen, defender, setOf(defender), exact(defender), 'defend', move, before);
+    const atk = variants(gen, attacker, setOf(attacker), 'attack', move, before);
+    const def = variants(gen, defender, setOf(defender), 'defend', move, before);
     for (const a of atk) for (const d of def) {
       const r = calcDamage(gen, a, d, move.name, field, hit.crit);
       min = Math.min(min, r.min); max = Math.max(max, r.max);
+      if (atk.length === 1 && def.length === 1) only = r.result;
     }
   } catch { return null; }
   const dealt = before - after;
@@ -152,11 +162,10 @@ function checkHit(genNum, cb, hit, before, after, setOf, otherExact, si) {
   const atLeast = after <= 1;
   const TOLERANCE = 1.5;   // replays show HP in whole percent
   const fmt = x => Math.round(x * 10) / 10;
-  if (atLeast ? max + TOLERANCE < dealt : dealt < min - TOLERANCE || dealt > max + TOLERANCE) {
-    return `${attacker.name}'s ${move.name} did ${after <= 0 ? 'a KO from ' + fmt(before) + '%' : fmt(dealt) + '%'} to ${defender.name}, ` +
-      `the sets allow ${fmt(min)} - ${fmt(max)}%`;
-  }
-  return null;
+  const shown = after <= 0 ? 'a KO from ' + fmt(before) + '%' : fmt(dealt) + '%';
+  if (!(atLeast ? max + TOLERANCE < dealt : dealt < min - TOLERANCE || dealt > max + TOLERANCE)) return null;
+  if (only && max > 0) return `${only.fullDesc('%', false).split(' -- ')[0]}, the replay shows ${shown}`;
+  return `${attacker.name}'s ${move.name} did ${shown} to ${defender.name}, the sets allow ${fmt(min)} - ${fmt(max)}%`;
 }
 
 function conditions(side) {
@@ -166,14 +175,14 @@ function conditions(side) {
 }
 
 // Calc Pokemon for one side of a hit: the set itself if known, else the extremes it could be.
-function variants(gen, poke, set, exact, role, move, hpPercent) {
+function variants(gen, poke, set, role, move, hpPercent) {
   const species = poke.speciesForme;
   const common = {level: poke.level, boosts: {...poke.boosts}, status: poke.status, teraType: poke.terastallized || undefined,
     hpPercent: role === 'defend' ? hpPercent : (poke.maxhp ? poke.hp / poke.maxhp * 100 : 100),
     alliesFainted: poke.side.team.filter(p => p.fainted).length};
   const heldNow = poke.item ? itemName(poke.item) : (poke.lastItemEffect ? '' : null);   // null: not known
   const abilityNow = poke.ability && poke.ability !== poke.baseAbility ? Dex.abilities.get(poke.ability).name : null;
-  if (exact && set) {
+  if (set?.pasted) {
     const item = poke.itemEffect || poke.lastItemEffect ? heldNow || undefined : set.item || undefined;
     return [calcPokemon(gen, species, {...common, ability: abilityNow || set.ability || undefined, item, nature: set.nature || undefined, evs: set.evs, ivs: set.ivs})];
   }

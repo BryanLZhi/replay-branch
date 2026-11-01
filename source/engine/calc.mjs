@@ -56,6 +56,7 @@ export function damageCalcs(battle, si) {
     if (move.category === 'Status') return null;
     try {
       const {result} = calcDamage(gen, a, d, move.name, field);
+      if (!result.range()[1]) return {range: '0 - 0%', desc: ''};   // (the calc logs a complaint when describing no damage)
       const range = /^[\d.]+ - [\d.]+%/.exec(result.moveDesc('%'));
       return range ? {range: range[0], desc: result.fullDesc('%', false)} : null;
     } catch { return null; }
