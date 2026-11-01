@@ -3,7 +3,6 @@ import {Battle as SimBattle, Dex, PRNG, toID} from '@pkmn/sim';
 import {Battle as ClientBattle} from '@pkmn/client';
 import {Generations} from '@pkmn/data';
 import {Protocol} from '@pkmn/protocol';
-import {LogFormatter} from '@pkmn/view';
 
 export {Dex, toID};
 export const gens = new Generations(Dex);
@@ -42,22 +41,29 @@ export function parseReplayInput(text) {
 }
 
 // A client-side battle (what a spectator knows) after the replay's lines up to the start of turn t (t = lastTurn + 1 means the end).
-export function clientAt(rep, t, withLog = false) {
+export function clientAt(rep, t) {
   const cb = new ClientBattle(gens);
-  const fmt = withLog ? new LogFormatter('p1', cb) : null;
-  const html = [];
   const end = t > rep.lastTurn ? rep.lines.length - 1 : rep.turnIdx[t];
   for (let i = 0; i <= end; i++) {
     const line = rep.lines[i];
     if (!line || !line.startsWith('|')) continue;
     let parsed;
     try { parsed = Protocol.parseBattleLine(line); } catch { continue; }
-    const {args, kwArgs} = parsed;
-    if (fmt) { try { const h = fmt.formatHTML(args, kwArgs); if (h) html.push(h); } catch {} }
-    try { cb.add(args, kwArgs); } catch {}
+    addLine(cb, parsed.args, parsed.kwArgs);
   }
   try { cb.upkeep && cb.upkeep(); } catch {}
-  return {cb, html};
+  return cb;
+}
+// Feed one protocol line to a client battle. On a forme change (|detailschange|, which Terastallizing also sends) the client
+// takes the new forme's first ability as known; keep what was actually known unless the new forme has only one ability.
+export function addLine(cb, args, kwArgs) {
+  const poke = args[0] === 'detailschange' ? cb.getPokemon(args[1]) : null;
+  const before = poke && {ability: poke.ability, baseAbility: poke.baseAbility};
+  try { cb.add(args, kwArgs); } catch {}
+  if (poke) {
+    const abilities = Object.values(Dex.species.get(String(args[2]).split(',')[0]).abilities || {});
+    if (abilities.length !== 1) Object.assign(poke, before);
+  }
 }
 
 // ---------------------------------------------------------------- sets: what is known, plus usage-stat suggestions
@@ -238,7 +244,7 @@ const VOLATILES = ['substitute', 'confusion', 'leechseed', 'taunt', 'encore', 'y
 
 // sets[side][k] are full sets in the order of client side.team; returns {battle, ctl, notes}
 export function takeover(rep, t, sets, seed) {
-  const {cb} = clientAt(rep, t);
+  const cb = clientAt(rep, t);
   const notes = [];
   const battle = new SimBattle(seed ? {formatid: rep.formatid, seed} : {formatid: rep.formatid});
   const sides = [cb.p1, cb.p2];
@@ -361,7 +367,7 @@ export function takeover(rep, t, sets, seed) {
 // Team preview: a fresh battle with both teams (in the replay's team order), waiting for each player's lead choice ("team N").
 // Returns null when the format has no team preview.
 export function previewBattle(rep, sets, seed) {
-  const {cb} = clientAt(rep, rep.lastTurn + 1);
+  const cb = clientAt(rep, rep.lastTurn + 1);
   const battle = new SimBattle(seed ? {formatid: rep.formatid, seed} : {formatid: rep.formatid});
   [cb.p1, cb.p2].forEach((cs, si) => {
     const team = sets[si].map(s => ({name: s.name, species: s.species, item: s.item || '', ability: s.ability || '', moves: s.moves.filter(Boolean),
@@ -418,78 +424,7 @@ export function omniscient(lines) {
   return out;
 }
 
-// ---------------------------------------------------------------- view models for drawing
-const BOOSTS = ['atk', 'def', 'spa', 'spd', 'spe', 'accuracy', 'evasion'];
-export function viewFromClient(cb) {
-  const side = cs => ({
-    name: cs.name, id: cs.id,
-    active: cs.active[0] ? monFromClient(cs.active[0]) : null,
-    team: cs.team.map(monFromClient),
-    total: cs.totalPokemon || 6,
-    conds: Object.entries(cs.sideConditions || {}).map(([id, c]) => ({id, name: c.name, layers: c.level || 1, turns: c.minDuration || 0})),
-  });
-  const f = cb.field;
-  return {
-    turn: cb.turn, exact: false,
-    sides: [side(cb.p1), side(cb.p2)],
-    weather: f.weatherState && f.weatherState.id ? {id: f.weatherState.id, turns: f.weatherState.minDuration || 0} : null,
-    terrain: f.terrainState && f.terrainState.id ? {id: f.terrainState.id, turns: f.terrainState.minDuration || 0} : null,
-    pseudo: Object.entries(f.pseudoWeather || {}).map(([id, s]) => ({id, turns: s.minDuration || 0})),
-  };
-}
-function monFromClient(p) {
-  const boosts = {}; for (const k of BOOSTS) if (p.boosts && p.boosts[k]) boosts[k] = p.boosts[k];
-  return {name: p.name, species: p.speciesForme, level: p.level, gender: p.gender, hp: p.hp, maxhp: p.maxhp || 100, fainted: p.fainted || p.hp <= 0,
-    status: p.status || '', boosts, volatiles: Object.keys(p.volatiles || {}), tera: p.terastallized || '',
-    item: p.item ? itemName(p.item) : '', ability: (p.ability || p.baseAbility) ? Dex.abilities.get(p.ability || p.baseAbility).name : '',
-    moves: p.moveSlots.filter(m => !m.virtual).map(m => ({name: m.name, pp: null, maxpp: null})), types: p.types};
-}
-export function viewFromSim(battle) {
-  const side = ss => ({
-    name: ss.name, id: ss.id,
-    active: ss.active[0] ? monFromSim(ss.active[0]) : null,
-    team: ss.pokemon.map(monFromSim),
-    total: ss.pokemon.length,
-    conds: Object.entries(ss.sideConditions || {}).map(([id, c]) => ({id, name: Dex.conditions.get(id).name || id, layers: c.layers || 1, turns: c.duration || 0})),
-  });
-  const f = battle.field;
-  return {
-    turn: battle.turn, exact: true, ended: battle.ended, winner: battle.winner,
-    sides: [side(battle.sides[0]), side(battle.sides[1])],
-    weather: f.weather ? {id: f.weather, turns: f.weatherState.duration || 0} : null,
-    terrain: f.terrain ? {id: f.terrain, turns: f.terrainState.duration || 0} : null,
-    pseudo: Object.entries(f.pseudoWeather || {}).map(([id, s]) => ({id, turns: s.duration || 0})),
-  };
-}
-function monFromSim(p) {
-  const boosts = {}; for (const k of BOOSTS) if (p.boosts && p.boosts[k]) boosts[k] = p.boosts[k];
-  return {name: p.name, species: p.species.name, level: p.level, gender: p.gender, hp: p.hp, maxhp: p.maxhp, fainted: p.fainted || p.hp <= 0,
-    status: p.status === 'fnt' ? '' : (p.status || ''), boosts, volatiles: Object.keys(p.volatiles || {}), tera: p.terastallized || '',
-    teraType: p.teraType, item: p.item ? Dex.items.get(p.item).name : '', ability: p.ability ? Dex.abilities.get(p.ability).name : '',
-    moves: p.moveSlots.map(m => ({name: m.move, pp: m.pp, maxpp: m.maxpp})), types: p.getTypes ? p.getTypes() : p.types,
-    stats: p.storedStats ? {...p.storedStats} : null, nature: p.set && p.set.nature, evs: p.set && p.set.evs};
-}
-
-// ---------------------------------------------------------------- battle log text (Showdown wording)
-// Formats replay lines [0..end] and then any extra (branch) lines; returns an array of HTML strings.
-export function formatLog(rep, end, extra = []) {
-  const cb = new ClientBattle(gens);
-  const fmt = new LogFormatter('p1', cb);
-  const html = [];
-  const feed = (line, mark) => {
-    if (!line || line[0] !== '|') return;
-    let parsed; try { parsed = Protocol.parseBattleLine(line); } catch { return; }
-    const {args, kwArgs} = parsed;
-    if (args[0] === 'c' || args[0] === 'inactive' || args[0] === 'inactiveoff' || args[0] === 'j' || args[0] === 'l' || args[0] === 'raw' && false) { try { cb.add(args, kwArgs); } catch {} return; }
-    try { const h = fmt.formatHTML(args, kwArgs); if (h) html.push(mark ? `<div class="branchline">${h}</div>` : h); } catch {}
-    try { cb.add(args, kwArgs); } catch {}
-  };
-  for (let i = 0; i <= end && i < rep.lines.length; i++) feed(rep.lines[i], false);
-  if (extra.length) html.push('<div class="branchmark">Your line starts here</div>');
-  for (const l of extra) feed(l, true);
-  return html;
-}
-
+// ---------------------------------------------------------------- move list
 // Short per-side action summary of a run of protocol lines (for the move list).
 export function summarize(lines) {
   const out = {p1: [], p2: []};
@@ -508,11 +443,4 @@ export function summarize(lines) {
     else if (kind === 'faint') out[who].push(name + ' fainted');
   }
   return {p1: out.p1.join(', '), p2: out.p2.join(', ')};
-}
-
-// What a player can do right now, for the move / switch buttons.
-export function requestFor(battle, si) {
-  const side = battle.sides[si]; const req = side.activeRequest;
-  if (!req) return null;
-  return req;
 }

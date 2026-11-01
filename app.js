@@ -4,6 +4,8 @@ var S = {
   // the parsed replay (engine.parseReplayInput)
   key: "",
   // storage key for this replay's study
+  replayId: null,
+  // replay.pokemonshowdown.com/<replayId>, when it came from there
   stats: null,
   // usage stats for the format, or null
   base: null,
@@ -210,8 +212,9 @@ function matchesPlayed(side, pick, tera, played) {
   return nameOf(req.side.pokemon[n - 1].ident) === played.name;
 }
 
-// source/app/panels.js
-var GLYPHS = ["!!", "!", "!?", "?!", "?", "??"];
+// source/app/teams.js
+var STATS = ["hp", "atk", "def", "spa", "spd", "spe"];
+var STAT_NAMES = { hp: "HP", atk: "Atk", def: "Def", spa: "SpA", spd: "SpD", spe: "Spe" };
 var typeTag = (t) => t ? `<span class="rb-type t-${esc(t === "???" ? "Unknown" : t)}">${esc(t)}</span>` : "";
 var icon = (species) => {
   try {
@@ -220,108 +223,14 @@ var icon = (species) => {
     return "";
   }
 };
-function renderStudyPanel() {
-  const el = $id("studySec");
-  el.innerHTML = `<div class="rb-tabs"><button class="button ${S.tab === "study" ? "cur" : ""}" data-tab="study">Study</button><button class="button ${S.tab === "teams" ? "cur" : ""}" data-tab="teams">Teams</button></div><div id="tabBody"></div>`;
-  for (const b of el.querySelectorAll("[data-tab]")) b.onclick = () => {
-    S.tab = b.dataset.tab;
-    renderStudyPanel();
-  };
-  if (S.tab === "study") renderStudy();
-  else renderTeams();
-}
-function lineToken(id) {
-  let line;
-  try {
-    line = compute(id);
-  } catch {
-    return `<span class="rb-tok rb-err" data-go="${id}">(error)</span>`;
-  }
-  const n = S.study.nodes[id];
-  const s = E.summarize(line.lines);
-  const turn = isReplayPos(n.parent) ? replayTurn(n.parent) : compute(n.parent).battle.turn;
-  return `<span class="rb-tok ${id === S.cur ? "cur" : ""}" data-go="${id}"><span class="tn">${turn}.</span>${esc(s.p1 || "\u2026")} <span class="tn">|</span> ${esc(s.p2 || "\u2026")}` + (n.forced.length ? ' <i class="fa fa-cube" title="Dice set by you" aria-hidden="true"></i>' : "") + (n.glyph ? `<span class="rb-glyph">${esc(n.glyph)}</span>` : "") + (n.comment ? ` <i class="rb-cmt">${esc(n.comment.slice(0, 60))}</i>` : "") + `</span>`;
-}
-function lineHTML(first) {
-  let html = "";
-  for (let id = first; id; id = kids(id)[0]) {
-    html += lineToken(id) + " ";
-    html += kids(id).slice(1).map((k) => `<div class="rb-var">${lineHTML(k)}</div>`).join("");
-  }
-  return html;
-}
-var linesFrom = (id) => kids(id).length ? `<div class="rb-vars">${kids(id).map((k) => `<div class="rb-var">${lineHTML(k)}</div>`).join("")}</div>` : "";
-function renderStudy() {
-  const body = $id("tabBody");
-  const leads = E.replayLeads(S.rep);
-  const row = (id, no, cells, extra = "") => `<div class="rb-mrow ${extra} ${S.cur === id ? "cur" : ""}" data-go="${id}"><div class="no">${no}</div>${cells}</div>`;
-  const rows = [
-    row("r0", "", `<div class="a">Team preview</div>`, "start"),
-    linesFrom("r0"),
-    row("r1", 0, `<div class="a">\u2192 ${esc(leads.p1 || "?")}</div><div class="a">\u2192 ${esc(leads.p2 || "?")}</div>`),
-    linesFrom("r1")
-  ];
-  for (let t = 1; t <= S.rep.lastTurn; t++) {
-    const id = "r" + (t + 1);
-    const s = turnSummary(t);
-    const note2 = S.study.notes[id] || {};
-    rows.push(row(id, t, `<div class="a">${esc(s.p1 || "\u2014")}${note2.glyph ? `<span class="rb-glyph">${esc(note2.glyph)}</span>` : ""}</div><div class="a">${esc(s.p2 || "\u2014")}</div>`));
-    if (note2.comment) rows.push(`<div class="rb-vars rb-plain"><span class="rb-cmt">${esc(note2.comment)}</span></div>`);
-    rows.push(linesFrom(id));
-  }
-  const note = noteOf(S.cur);
-  const inLine = !isReplayPos(S.cur);
-  const isFirst = inLine && kids(S.study.nodes[S.cur].parent)[0] === S.cur;
-  body.innerHTML = `<div class="rb-movelist">${rows.join("")}</div>
-    <div class="rb-notes">
-      <div class="rb-glyphs">${GLYPHS.map((g) => `<button class="button ${note.glyph === g ? "on" : ""}" data-glyph="${g}">${g}</button>`).join(" ")}</div>
-      <textarea id="comment" class="textbox" rows="2" placeholder="Note on this position">${esc(note.comment || "")}</textarea>
-      ${inLine ? `<p class="rb-row" style="margin:0"><button class="button" id="btnPromote" ${isFirst ? "disabled" : ""}>Make this the first line</button>
-        <button class="button" id="btnDelete">${S.deleteArmed === S.cur ? "Click again to delete" : "Delete from here"}</button></p>` : ""}
-    </div>`;
-  for (const el of body.querySelectorAll("[data-go]")) el.onclick = () => go(el.dataset.go);
-  for (const b of body.querySelectorAll("[data-glyph]")) b.onclick = () => {
-    const n = noteOf(S.cur, true);
-    n.glyph = n.glyph === b.dataset.glyph ? "" : b.dataset.glyph;
-    save();
-    renderStudy();
-  };
-  $id("comment").oninput = (e) => {
-    noteOf(S.cur, true).comment = e.target.value;
-    save();
-  };
-  $id("comment").onchange = renderStudy;
-  if (inLine) {
-    $id("btnPromote").onclick = () => {
-      promote(S.cur);
-      renderStudy();
-    };
-    $id("btnDelete").onclick = () => {
-      if (S.deleteArmed !== S.cur) {
-        S.deleteArmed = S.cur;
-        renderStudy();
-        return;
-      }
-      const parent = S.study.nodes[S.cur].parent;
-      deleteNode(S.cur);
-      S.deleteArmed = null;
-      save();
-      go(parent);
-    };
-  }
-  const cur = body.querySelector(".cur");
-  if (cur) {
-    const list = body.querySelector(".rb-movelist");
-    list.scrollTop = Math.max(0, cur.offsetTop - list.offsetTop - 60);
-  }
-}
 var staticLists = false;
 function ensureStaticLists() {
   if (staticLists) return;
   staticLists = true;
+  const natureLabel = (n) => n.plus ? `+${STAT_NAMES[n.plus]} \u2212${STAT_NAMES[n.minus]}` : "";
   const d = document.createElement("div");
   d.hidden = true;
-  d.innerHTML = `<datalist id="dl-items">${E.Dex.items.all().filter((i) => !i.isNonstandard || i.isNonstandard === "Past").map((i) => `<option value="${esc(i.name)}">`).join("")}</datalist><datalist id="dl-natures">${E.Dex.natures.all().map((n) => `<option value="${esc(n.name)}">`).join("")}</datalist>`;
+  d.innerHTML = `<datalist id="dl-items">${E.Dex.items.all().filter((i) => !i.isNonstandard || i.isNonstandard === "Past").map((i) => `<option value="${esc(i.name)}">`).join("")}</datalist><datalist id="dl-natures">${E.Dex.natures.all().map((n) => `<option value="${esc(n.name)}" label="${natureLabel(n)}">`).join("")}</datalist>`;
   document.body.appendChild(d);
 }
 function movesDatalist(species) {
@@ -342,37 +251,62 @@ function movesDatalist(species) {
   document.body.appendChild(d);
   return id;
 }
-function renderTeams() {
+function renderTeams(body) {
   ensureStaticLists();
-  const body = $id("tabBody");
   const types = E.Dex.types.all().map((t) => t.name).filter((t) => t !== "???" && (S.rep.gen >= 9 || t !== "Stellar"));
-  const side = (si) => `<div class="rb-teamhead"><b>${esc(playerName(si))}</b><button class="button" data-reset-side="${si}">Reset to suggestions</button></div>
+  const side = (si) => `<div class="rb-teamhead"><b>${esc(playerName(si))}</b><span><button class="button" data-import="${si}">Import</button> <button class="button" data-reset-side="${si}">Reset to suggestions</button></span></div>
     <div class="rb-mons">${S.study.sets[si].map((set, k) => monCard(si, k, set, types)).join("")}</div>`;
   body.innerHTML = (S.stats ? "" : `<p class="rb-err">No usage stats for ${esc(S.rep.formatid)}.</p>`) + side(0) + side(1);
+  const rerender = () => renderTeams(body);
   for (const input of body.querySelectorAll("[data-field]")) input.onchange = () => {
     const set = S.study.sets[input.dataset.side][input.dataset.k];
     const f = input.dataset.field;
     const v = input.value.trim();
+    let changedNature = false;
     if (f.startsWith("move")) set.moves[+f.slice(4)] = v;
-    else if (f.startsWith("ev_")) set.evs[f.slice(3)] = Math.max(0, Math.min(252, +v || 0));
+    else if (f.startsWith("ev_")) changedNature = setEv(set, f.slice(3), v);
     else if (f === "level") set.level = Math.max(1, Math.min(100, +v || 100));
-    else set[f] = v;
+    else {
+      set[f] = v;
+      changedNature = f === "nature";
+    }
     save();
     input.classList.remove("guess");
     renderPicker(position());
+    if (changedNature) rerender();
   };
   for (const b of body.querySelectorAll("[data-reset-mon]")) b.onclick = () => {
     const [si, k] = b.dataset.resetMon.split(",").map(Number);
     S.study.sets[si][k] = clone(S.base[si][k]);
     save();
-    renderTeams();
+    rerender();
   };
   for (const b of body.querySelectorAll("[data-reset-side]")) b.onclick = () => {
     const si = +b.dataset.resetSide;
     S.study.sets[si] = clone(S.base[si]);
     save();
-    renderTeams();
+    rerender();
   };
+  for (const b of body.querySelectorAll("[data-import]")) b.onclick = () => openImport(+b.dataset.import, rerender);
+}
+function setEv(set, stat, text) {
+  const m = /^(\d*)\s*([+-])?$/.exec(text.replace("\u2212", "-"));
+  if (!m) return false;
+  if (m[1] !== "") set.evs[stat] = Math.max(0, Math.min(252, +m[1]));
+  if (!m[2] || stat === "hp") return false;
+  const cur = E.Dex.natures.get(set.nature || "Serious");
+  let plus = cur.plus, minus = cur.minus;
+  if (m[2] === "+") {
+    plus = stat;
+    if (minus === stat || !minus) minus = stat === "spa" ? "atk" : "spa";
+  } else {
+    minus = stat;
+    if (plus === stat || !plus) plus = stat === "atk" ? "spa" : "atk";
+  }
+  const nature = E.Dex.natures.all().find((n) => n.plus === plus && n.minus === minus);
+  if (!nature || nature.name === set.nature) return false;
+  set.nature = nature.name;
+  return true;
 }
 function monCard(si, k, set, types) {
   const base = S.base[si][k], seen = base.fixed;
@@ -382,14 +316,16 @@ function monCard(si, k, set, types) {
     const e = list.find(([n]) => E.toID(n) === E.toID(v));
     return e ? ` (${Math.round(e[1] * 100)}% usage)` : "";
   };
-  const guess = (known, value, suggested) => !known && value === suggested ? "guess" : "";
+  const guess = (known, value, suggested) => !set.pasted && !known && value === suggested ? "guess" : "";
   const attrs = (field) => `data-side="${si}" data-k="${k}" data-field="${field}"`;
   const moves = [0, 1, 2, 3].map((i) => {
     const v = set.moves[i] || "";
     const known = seen.moves.some((m) => E.toID(m) === E.toID(v));
     return `<input class="textbox ${known ? "" : guess(false, v, base.moves[i])}" ${attrs("move" + i)} list="${movesDatalist(set.species)}" value="${esc(v)}" title="${known ? "Seen in the replay" : "Guess" + pct(usage.moves, v)}" aria-label="Move ${i + 1}">`;
   }).join("");
-  const evs = ["hp", "atk", "def", "spa", "spd", "spe"].map((st) => `<input class="textbox" ${attrs("ev_" + st)} type="number" min="0" max="252" step="4" value="${set.evs[st] || 0}" aria-label="${st} EVs">`).join("");
+  const nature = E.Dex.natures.get(set.nature || "Serious");
+  const mark = (st) => st === nature.plus ? '<b class="rb-plus">+</b>' : st === nature.minus ? '<b class="rb-minus">\u2212</b>' : "";
+  const evs = STATS.map((st) => `<span>${STAT_NAMES[st]}${mark(st)}</span>`).join("") + STATS.map((st) => `<input class="textbox" ${attrs("ev_" + st)} inputmode="numeric" value="${set.evs[st] || 0}" aria-label="${STAT_NAMES[st]} EVs">`).join("");
   const abilities = [.../* @__PURE__ */ new Set([...Object.values(sp.abilities || {}), set.ability])].filter(Boolean);
   return `<div class="rb-mon">
     <div class="hd"><span class="rb-picon" style="${icon(set.species)}"></span><span class="nm">${esc(set.name)}${set.name !== set.species ? ` <span class="rb-note">(${esc(set.species)})</span>` : ""}</span> ${(sp.types || []).map(typeTag).join("")}</div>
@@ -398,10 +334,78 @@ function monCard(si, k, set, types) {
     ${S.rep.gen >= 9 ? `<label>Tera<select class="button ${guess(seen.tera, set.teraType, base.teraType)}" ${attrs("teraType")}>${types.map((t) => `<option ${t === set.teraType ? "selected" : ""}>${esc(t)}</option>`).join("")}</select></label>` : ""}
     <div class="rb-mvgrid">${moves}</div>
     ${S.rep.gen >= 3 ? `<label>Nature<input class="textbox" ${attrs("nature")} list="dl-natures" value="${esc(set.nature)}"></label>
-    <div class="rb-evs">${["HP", "Atk", "Def", "SpA", "SpD", "Spe"].map((x) => `<span>${x}</span>`).join("")}${evs}</div>` : ""}
+    <div class="rb-evs">${evs}</div>` : ""}
     <label>Level<input class="textbox" ${attrs("level")} type="number" min="1" max="100" value="${set.level}"></label>
     <p style="margin:0;text-align:right"><button class="button" data-reset-mon="${si},${k}">Reset</button></p>
   </div>`;
+}
+async function pasteText(input) {
+  const link = /^(?:https?:\/\/)?pokepast\.es\/([0-9a-f]+)/i.exec(input.trim());
+  if (!link) return input;
+  const r = await fetch(`https://pokepast.es/${link[1]}/json`);
+  if (!r.ok) throw new Error(r.status === 404 ? "Pok\xE9Paste not found." : `Could not load the Pok\xE9Paste (${r.status}).`);
+  return (await r.json()).paste;
+}
+function openImport(si, rerender) {
+  const dialog = $id("importer"), text = $id("importText"), err = $id("importErr"), list = $id("importProblems"), ok = $id("btnImport");
+  let checked = null;
+  const reset = () => {
+    checked = null;
+    err.textContent = "";
+    list.innerHTML = "";
+    list.hidden = true;
+    ok.innerHTML = "<strong>Import</strong>";
+  };
+  $id("importTitle").textContent = `Import ${playerName(si)}'s team`;
+  text.value = "";
+  reset();
+  dialog.hidden = false;
+  text.focus();
+  text.oninput = reset;
+  $id("btnImportCancel").onclick = () => {
+    dialog.hidden = true;
+  };
+  ok.onclick = async () => {
+    if (checked) {
+      apply(si, checked);
+      dialog.hidden = true;
+      rerender();
+      return;
+    }
+    err.textContent = "";
+    try {
+      const team = E.parseTeam(await pasteText(text.value));
+      if (!team.length) {
+        err.textContent = "No Pok\xE9mon found.";
+        return;
+      }
+      const other = S.study.sets[1 - si];
+      const { sets, problems } = E.matchTeam(S.rep, si, team, other, other.every((s) => s.pasted));
+      if (!problems.length) {
+        apply(si, sets);
+        dialog.hidden = true;
+        rerender();
+        return;
+      }
+      list.innerHTML = problems.map((p) => `<li>${esc(p)}</li>`).join("");
+      list.hidden = false;
+      if (!sets.some(Boolean)) {
+        err.textContent = "None of these Pok\xE9mon are on this team.";
+        return;
+      }
+      checked = sets;
+      ok.innerHTML = "<strong>Import anyway</strong>";
+    } catch (e) {
+      err.textContent = e.message || String(e);
+    }
+  };
+}
+function apply(si, sets) {
+  sets.forEach((set, k) => {
+    if (set) S.study.sets[si][k] = { ...set, name: S.base[si][k].name, itemGone: S.base[si][k].itemGone, pasted: true };
+  });
+  save();
+  renderPicker(position());
 }
 
 // source/app/tooltips.js
@@ -441,6 +445,7 @@ function showTooltip(elem) {
     console.error(e);
     return false;
   }
+  if (elem.dataset.calc) html += `<p class="tooltip-section">${esc(elem.dataset.calc)}</p>`;
   if (elem.dataset.note) html += `<p class="tooltip-section">${esc(elem.dataset.note)}</p>`;
   tips.placeTooltip(html, elem, false, type === "move" ? "move" : "pokemon");
   return true;
@@ -516,12 +521,14 @@ function moveButtons(pos, si, req, active, played) {
   const act = req.active[0];
   const k = teamIndex(si, active);
   const known = k >= 0 ? S.base[si][k].fixed.moves.map(E.toID) : [];
+  const pasted = k >= 0 && (pos.kind === "line" ? lineSets(S.cur) : S.study.sets)[si][k].pasted;
+  const calcs = E.damageCalcs(pos.battle, si);
   const moves = act.moves.map((m, i) => {
     const type = E.Dex.moves.get(m.id || m.move).type || "Normal";
     const was = played && played.kind === "move" && E.toID(played.name) === E.toID(m.move);
-    const guessed = k >= 0 && !known.includes(E.toID(m.move)) && !["struggle", "recharge"].includes(E.toID(m.move));
+    const guessed = k >= 0 && !pasted && !known.includes(E.toID(m.move)) && !["struggle", "recharge"].includes(E.toID(m.move));
     const note = guessed ? "Guessed" : was ? "Used in the replay" : "";
-    return `<div class="rb-mvwrap"><button type="button" class="rb-mv has-tooltip t-${esc(type)} ${was ? "played" : ""} ${guessed ? "guess" : ""}" data-pick="move ${i + 1}" data-tooltip="move|${i}" ${note ? `data-note="${note}"` : ""} ${m.disabled || m.pp === 0 ? "disabled" : ""}><b>${esc(m.move)}</b><small><span>${esc(type)}</span><span>${m.maxpp ? `${m.pp}/${m.maxpp}` : ""}</span></small></button>` + (guessed ? `<button type="button" class="rb-edit" data-edit="${esc(m.move)}" title="Change this guessed move" aria-label="Change ${esc(m.move)}"><i class="fa fa-pencil" aria-hidden="true"></i></button>` : "") + `</div>`;
+    return `<div class="rb-mvwrap"><button type="button" class="rb-mv has-tooltip t-${esc(type)} ${was ? "played" : ""} ${guessed ? "guess" : ""}" data-pick="move ${i + 1}" data-tooltip="move|${i}" ${note ? `data-note="${note}"` : ""} ${calcs[i] ? `data-calc="${esc(calcs[i].desc)}"` : ""} ${m.disabled || m.pp === 0 ? "disabled" : ""}><b>${esc(m.move)}</b><small><span>${esc(type)}</span>${calcs[i] ? `<span class="rb-dmg">${esc(calcs[i].range)}</span>` : ""}<span>${m.maxpp ? `${m.pp}/${m.maxpp}` : ""}</span></small></button>` + (guessed ? `<button type="button" class="rb-edit" data-edit="${esc(m.move)}" title="Change this guessed move" aria-label="Change ${esc(m.move)}"><i class="fa fa-pencil" aria-hidden="true"></i></button>` : "") + `</div>`;
   });
   const tera = act.canTerastallize ? `<p class="rb-row" style="margin-top:6px"><label><input type="checkbox" id="teraBox" ${S.tera[pid(si)] ? "checked" : ""}> Terastallize</label> ${typeTag2(act.canTerastallize)}</p>` : "";
   return `<div class="rb-moves">${moves.join("")}</div>${tera}`;
@@ -763,6 +770,104 @@ function permutations(n) {
   return out;
 }
 
+// source/app/panels.js
+var GLYPHS = ["!!", "!", "!?", "?!", "?", "??"];
+function renderStudyPanel() {
+  const el = $id("studySec");
+  el.innerHTML = `<div class="rb-tabs"><button class="button ${S.tab === "study" ? "cur" : ""}" data-tab="study">Study</button><button class="button ${S.tab === "teams" ? "cur" : ""}" data-tab="teams">Teams</button></div><div id="tabBody"></div>`;
+  for (const b of el.querySelectorAll("[data-tab]")) b.onclick = () => {
+    S.tab = b.dataset.tab;
+    renderStudyPanel();
+  };
+  if (S.tab === "study") renderStudy();
+  else renderTeams($id("tabBody"));
+}
+function lineToken(id) {
+  let line;
+  try {
+    line = compute(id);
+  } catch {
+    return `<span class="rb-tok rb-err" data-go="${id}">(error)</span>`;
+  }
+  const n = S.study.nodes[id];
+  const s = E.summarize(line.lines);
+  const turn = isReplayPos(n.parent) ? replayTurn(n.parent) : compute(n.parent).battle.turn;
+  return `<span class="rb-tok ${id === S.cur ? "cur" : ""}" data-go="${id}"><span class="tn">${turn}.</span>${esc(s.p1 || "\u2026")} <span class="tn">|</span> ${esc(s.p2 || "\u2026")}` + (n.forced.length ? ' <i class="fa fa-cube" title="Dice set by you" aria-hidden="true"></i>' : "") + (n.glyph ? `<span class="rb-glyph">${esc(n.glyph)}</span>` : "") + (n.comment ? ` <i class="rb-cmt">${esc(n.comment.slice(0, 60))}</i>` : "") + `</span>`;
+}
+function lineHTML(first) {
+  let html = "";
+  for (let id = first; id; id = kids(id)[0]) {
+    html += lineToken(id) + " ";
+    html += kids(id).slice(1).map((k) => `<div class="rb-var">${lineHTML(k)}</div>`).join("");
+  }
+  return html;
+}
+var linesFrom = (id) => kids(id).length ? `<div class="rb-vars">${kids(id).map((k) => `<div class="rb-var">${lineHTML(k)}</div>`).join("")}</div>` : "";
+function renderStudy() {
+  const body = $id("tabBody");
+  const leads = E.replayLeads(S.rep);
+  const row = (id, no, cells, extra = "") => `<div class="rb-mrow ${extra} ${S.cur === id ? "cur" : ""}" data-go="${id}"><div class="no">${no}</div>${cells}</div>`;
+  const rows = [
+    row("r0", "", `<div class="a">Team preview</div>`, "start"),
+    linesFrom("r0"),
+    row("r1", 0, `<div class="a">\u2192 ${esc(leads.p1 || "?")}</div><div class="a">\u2192 ${esc(leads.p2 || "?")}</div>`),
+    linesFrom("r1")
+  ];
+  for (let t = 1; t <= S.rep.lastTurn; t++) {
+    const id = "r" + (t + 1);
+    const s = turnSummary(t);
+    const note2 = S.study.notes[id] || {};
+    rows.push(row(id, t, `<div class="a">${esc(s.p1 || "\u2014")}${note2.glyph ? `<span class="rb-glyph">${esc(note2.glyph)}</span>` : ""}</div><div class="a">${esc(s.p2 || "\u2014")}</div>`));
+    if (note2.comment) rows.push(`<div class="rb-vars rb-plain"><span class="rb-cmt">${esc(note2.comment)}</span></div>`);
+    rows.push(linesFrom(id));
+  }
+  const note = noteOf(S.cur);
+  const inLine = !isReplayPos(S.cur);
+  const isFirst = inLine && kids(S.study.nodes[S.cur].parent)[0] === S.cur;
+  body.innerHTML = `<div class="rb-movelist">${rows.join("")}</div>
+    <div class="rb-notes">
+      <div class="rb-glyphs">${GLYPHS.map((g) => `<button class="button ${note.glyph === g ? "on" : ""}" data-glyph="${g}">${g}</button>`).join(" ")}</div>
+      <textarea id="comment" class="textbox" rows="2" placeholder="Note on this position">${esc(note.comment || "")}</textarea>
+      ${inLine ? `<p class="rb-row" style="margin:0"><button class="button" id="btnPromote" ${isFirst ? "disabled" : ""}>Make this the first line</button>
+        <button class="button" id="btnDelete">${S.deleteArmed === S.cur ? "Click again to delete" : "Delete from here"}</button></p>` : ""}
+    </div>`;
+  for (const el of body.querySelectorAll("[data-go]")) el.onclick = () => go(el.dataset.go);
+  for (const b of body.querySelectorAll("[data-glyph]")) b.onclick = () => {
+    const n = noteOf(S.cur, true);
+    n.glyph = n.glyph === b.dataset.glyph ? "" : b.dataset.glyph;
+    save();
+    renderStudy();
+  };
+  $id("comment").oninput = (e) => {
+    noteOf(S.cur, true).comment = e.target.value;
+    save();
+  };
+  $id("comment").onchange = renderStudy;
+  if (inLine) {
+    $id("btnPromote").onclick = () => {
+      promote(S.cur);
+      renderStudy();
+    };
+    $id("btnDelete").onclick = () => {
+      if (S.deleteArmed !== S.cur) {
+        S.deleteArmed = S.cur;
+        renderStudy();
+        return;
+      }
+      const parent = S.study.nodes[S.cur].parent;
+      deleteNode(S.cur);
+      S.deleteArmed = null;
+      save();
+      go(parent);
+    };
+  }
+  const cur = body.querySelector(".cur");
+  if (cur) {
+    const list = body.querySelector(".rb-movelist");
+    list.scrollTop = Math.max(0, cur.offsetTop - list.offsetTop - 60);
+  }
+}
+
 // source/app/navigation.js
 function position() {
   if (!isReplayPos(S.cur)) {
@@ -955,7 +1060,7 @@ function showTitle() {
 }
 
 // source/app/load.js
-async function loadText(text, { shown = false } = {}) {
+async function loadText(text, { shown = false, replayId = null, study = null } = {}) {
   const t = String(text || "").trim();
   let exported = null;
   if (t.startsWith("{")) {
@@ -967,16 +1072,17 @@ async function loadText(text, { shown = false } = {}) {
   }
   const rep = E.parseReplayInput(exported ? exported.log : t);
   S.rep = rep;
+  S.replayId = replayId;
   S.key = rep.meta.id || "log-" + hash(rep.lines.slice(0, 40).join("\n") + rep.lines.length);
   S.lines.clear();
   S.replayPos.clear();
   S.stats = await fetchStats(rep.formatid);
-  S.cbEnd = E.clientAt(rep, rep.lastTurn + 1).cb;
+  S.cbEnd = E.clientAt(rep, rep.lastTurn + 1);
   S.base = [S.cbEnd.p1, S.cbEnd.p2].map((side) => side.team.map((p) => E.suggestSet(E.knownOf(p), S.stats, rep.gen)));
-  S.study = exported?.study || loadSaved(S.key) || newStudy();
+  S.study = study || exported?.study || loadSaved(S.key) || newStudy();
   const fits = S.study.sets?.length === 2 && S.study.sets.every((side, si) => side.length === S.base[si].length);
   if (!fits) S.study.sets = clone(S.base);
-  if (exported) save();
+  if (study || exported) save();
   S.sel = {};
   S.tera = {};
   S.err = "";
@@ -1005,17 +1111,38 @@ async function fetchReplay(id) {
   if (!r.ok) throw new Error(r.status === 404 ? "Replay not found (it may be private or deleted)." : `Could not load the replay (${r.status}).`);
   return r.text();
 }
+async function shareLink() {
+  const payload = { rbv: 1, study: S.study, ...S.replayId ? { id: S.replayId } : { log: S.rep.lines.join("\n") } };
+  const stream = new Blob([JSON.stringify(payload)]).stream().pipeThrough(new CompressionStream("deflate-raw"));
+  const bytes = new Uint8Array(await new Response(stream).arrayBuffer());
+  let binary = "";
+  for (let i = 0; i < bytes.length; i += 32768) binary += String.fromCharCode(...bytes.subarray(i, i + 32768));
+  const data = btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  return location.href.replace(/#.*$/, "") + "#s=" + data;
+}
+async function openSharedLink() {
+  const m = /^#s=([\w-]+)$/.exec(location.hash);
+  if (!m) return;
+  history.replaceState(null, "", location.href.replace(/#.*$/, ""));
+  const binary = atob(m[1].replace(/-/g, "+").replace(/_/g, "/"));
+  const bytes = Uint8Array.from(binary, (c) => c.charCodeAt(0));
+  const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("deflate-raw"));
+  const payload = JSON.parse(await new Response(stream).text());
+  const text = payload.id ? await fetchReplay(payload.id) : payload.log;
+  await loadText(text, { replayId: payload.id || null, study: payload.study });
+}
 function wireDialogs() {
-  const loader = $id("loader"), exporter = $id("exporter");
+  const loader = $id("loader"), sharer = $id("sharer");
   $id("btnLoad").onclick = () => {
     loader.hidden = false;
     $id("loadErr").textContent = "";
     $id("replayUrl").focus();
   };
-  $id("btnExport").onclick = () => {
+  $id("btnShare").onclick = async () => {
     $id("exportBox").value = JSON.stringify({ rbv: 1, log: S.rep.lines.join("\n"), study: S.study });
+    $id("shareLink").value = await shareLink();
     $id("copyMsg").textContent = "";
-    exporter.hidden = false;
+    sharer.hidden = false;
   };
   $id("fileIn").onchange = async () => {
     const f = $id("fileIn").files[0];
@@ -1023,25 +1150,30 @@ function wireDialogs() {
   };
   $id("btnDoLoad").onclick = () => loadFrom(async () => {
     const id = replayIdFrom($id("replayUrl").value) || replayIdFrom($id("pasteBox").value);
-    return id ? fetchReplay(id) : $id("pasteBox").value;
+    return id ? { text: await fetchReplay(id), replayId: id } : { text: $id("pasteBox").value };
   });
-  $id("btnSample").onclick = () => loadFrom(() => fetch("sample.json").then((r) => r.text()));
+  $id("btnSample").onclick = () => loadFrom(async () => {
+    const text = await fetch("sample.json").then((r) => r.text());
+    return { text, replayId: JSON.parse(text).id };
+  });
   $id("btnCancel").onclick = () => {
     loader.hidden = true;
   };
-  $id("btnCopy").onclick = async () => {
+  const copy = async (box, done) => {
     try {
-      await navigator.clipboard.writeText($id("exportBox").value);
-      $id("copyMsg").textContent = "Copied";
+      await navigator.clipboard.writeText(box.value);
+      $id("copyMsg").textContent = done;
     } catch {
-      $id("exportBox").select();
+      box.select();
       $id("copyMsg").textContent = "Press Ctrl+C to copy";
     }
   };
-  $id("btnCloseExport").onclick = () => {
-    exporter.hidden = true;
+  $id("btnCopyLink").onclick = () => copy($id("shareLink"), "Link copied");
+  $id("btnCopy").onclick = () => copy($id("exportBox"), "Text copied");
+  $id("btnCloseShare").onclick = () => {
+    sharer.hidden = true;
   };
-  for (const modal of [loader, exporter]) {
+  for (const modal of [loader, sharer, $id("importer")]) {
     modal.addEventListener("click", (e) => {
       if (e.target === modal) modal.hidden = true;
     });
@@ -1050,10 +1182,11 @@ function wireDialogs() {
     });
   }
 }
-async function loadFrom(getText) {
+async function loadFrom(get) {
   $id("loadErr").textContent = "";
   try {
-    await loadText(await getText());
+    const { text, replayId } = await get();
+    await loadText(text, { replayId });
     $id("loader").hidden = true;
     $id("pasteBox").value = "";
     $id("replayUrl").value = "";
@@ -1072,7 +1205,9 @@ async function boot() {
     listenForTooltips($id("pickSec"));
     wireDialogs();
     document.addEventListener("keydown", onKey);
-    await loadText(await fetch("sample.json").then((r) => r.text()), { shown: true });
+    const sample = await fetch("sample.json").then((r) => r.text());
+    await loadText(sample, { shown: true, replayId: JSON.parse(sample).id });
+    await openSharedLink();
     (window.requestIdleCallback || ((f) => setTimeout(f, 1500)))(() => {
       const s = document.createElement("script");
       s.src = TEAMBUILDER_TABLES;

@@ -66,7 +66,8 @@ body.dark {
   background: linear-gradient(color-mix(in srgb, var(--t, #ccc) 15%, #fff), color-mix(in srgb, var(--t, #ccc) 40%, #fff)); }
 body.dark .rb-mv { color: #eee; background: linear-gradient(color-mix(in srgb, var(--t, #ccc) 25%, #2a2f36), color-mix(in srgb, var(--t, #ccc) 45%, #2a2f36)); }
 .rb-mv b { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.rb-mv small { font-size: 7.5pt; opacity: .8; display: flex; justify-content: space-between; gap: 4px; }
+.rb-mv small { font-size: 7.5pt; opacity: .8; display: flex; justify-content: space-between; gap: 4px; white-space: nowrap; }
+.rb-mv .rb-dmg { font-weight: bold; }
 .rb-mv:disabled { opacity: .4; cursor: default; }
 /* a guessed move (not seen in the replay) */
 .rb-mv.guess { border-style: dashed; border-width: 2px; opacity: .62; filter: grayscale(.45); }
@@ -133,6 +134,9 @@ body.dark .rb-edit { background: rgba(255,255,255,.12); }
 .rb-evs { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 2px; }
 .rb-evs input { text-align: center; padding: 2px 0; }
 .rb-evs span { font-size: 7.5pt; text-align: center; color: var(--rb-muted); }
+.rb-plus { color: #c0392b; } .rb-minus { color: #2e6fd0; }   /* as in Showdown's teambuilder */
+.rb-teamhead span { display: flex; gap: 4px; }
+.rb-problems { margin: 8px 0 0; padding-left: 18px; font-size: 9pt; color: var(--rb-bad); max-height: 40vh; overflow: auto; }
 
 /* dialogs and the password gate */
 .rb-modal { position: fixed; inset: 0; background: rgba(0,0,0,.55); display: flex; align-items: center; justify-content: center; padding: 16px; z-index: 50; }

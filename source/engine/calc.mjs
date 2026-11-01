@@ -1,0 +1,63 @@
+// Damage numbers from Smogon's damage calculator (@smogon/calc), on simulator positions and on the replay's own hits.
+import {Dex} from '@pkmn/sim';
+import {calculate, Pokemon as CalcPokemon, Move as CalcMove, Field as CalcField} from '@smogon/calc/dist/adaptable.js';
+import {gens} from './core.mjs';
+
+const WEATHER = {sunnyday: 'Sun', raindance: 'Rain', sandstorm: 'Sand', hail: 'Hail', snowscape: 'Snow', snow: 'Snow',
+  desolateland: 'Harsh Sunshine', primordialsea: 'Heavy Rain', deltastream: 'Strong Winds'};
+const TERRAIN = {electricterrain: 'Electric', grassyterrain: 'Grassy', psychicterrain: 'Psychic', mistyterrain: 'Misty'};
+const STATUSES = ['brn', 'par', 'psn', 'tox', 'slp', 'frz'];
+
+// A calc field from the calc's weather/terrain names ('Sun', 'Electric') and each side's condition ids. Hazards are left out:
+// the calc takes a side with hazards to mean the Pokemon is switching in (no Multiscale, "after Stealth Rock"), and here it is in.
+export function calcField({weather, terrain, pseudo = [], attacker = {}, defender = {}}) {
+  const side = c => ({isReflect: !!c.reflect, isLightScreen: !!c.lightscreen, isAuroraVeil: !!c.auroraveil, isTailwind: !!c.tailwind});
+  return new CalcField({gameType: 'Singles', weather, terrain, isGravity: pseudo.includes('gravity'),
+    isMagicRoom: pseudo.includes('magicroom'), isWonderRoom: pseudo.includes('wonderroom'), attackerSide: side(attacker), defenderSide: side(defender)});
+}
+// A calc Pokemon. hpPercent: current HP as a share of its max (the calc wants HP points).
+export function calcPokemon(gen, species, {hpPercent = 100, status, ...options}) {
+  const opts = {...options, status: STATUSES.includes(status) ? status : ''};
+  const full = new CalcPokemon(gen, species, opts);
+  return hpPercent >= 100 ? full : new CalcPokemon(gen, species, {...opts, curHP: Math.max(1, Math.round(full.maxHP() * hpPercent / 100))});
+}
+// Damage of one move as a share of the defender's max HP: [min %, max %], and the calc's description.
+export function calcDamage(gen, attacker, defender, moveName, field, isCrit = false) {
+  const r = calculate(gen, attacker, defender, new CalcMove(gen, moveName, {isCrit}), field);
+  const [lo, hi] = r.range();
+  return {min: lo / defender.maxHP() * 100, max: hi / defender.maxHP() * 100, result: r};
+}
+
+function simConditions(side) {
+  const out = {};
+  for (const [id, c] of Object.entries(side.sideConditions)) out[id] = c.layers || true;
+  return out;
+}
+function fromSim(gen, p) {
+  return calcPokemon(gen, p.species.name, {
+    level: p.level, ability: Dex.abilities.get(p.ability).name, item: p.item ? Dex.items.get(p.item).name : undefined,
+    nature: p.set.nature || undefined, evs: p.set.evs, ivs: p.set.ivs, boosts: p.boosts, status: p.status,
+    hpPercent: p.hp / p.maxhp * 100, teraType: p.terastallized || undefined, alliesFainted: p.side.pokemon.filter(x => x.fainted).length,
+  });
+}
+
+// For each move of side si's active Pokemon, the calc's result against the foe as the calc words it
+// ({range: '39.9 - 46.9%', desc: '252+ Atk ... -- guaranteed 3HKO'}), or null (status moves, nothing to hit).
+export function damageCalcs(battle, si) {
+  const attacker = battle.sides[si].active[0], defender = battle.sides[1 - si].active[0];
+  if (!attacker || !defender || attacker.fainted || defender.fainted) return [];
+  const gen = gens.get(battle.gen);
+  let a, d;
+  try { a = fromSim(gen, attacker); d = fromSim(gen, defender); } catch { return []; }
+  const field = calcField({weather: WEATHER[battle.field.weather], terrain: TERRAIN[battle.field.terrain], pseudo: Object.keys(battle.field.pseudoWeather),
+    attacker: simConditions(battle.sides[si]), defender: simConditions(battle.sides[1 - si])});
+  return attacker.moveSlots.map(slot => {
+    const move = Dex.moves.get(slot.id);
+    if (move.category === 'Status') return null;
+    try {
+      const {result} = calcDamage(gen, a, d, move.name, field);
+      const range = /^[\d.]+ - [\d.]+%/.exec(result.moveDesc('%'));
+      return range ? {range: range[0], desc: result.fullDesc('%', false)} : null;
+    } catch { return null; }
+  });
+}

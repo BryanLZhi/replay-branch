@@ -1,8 +1,9 @@
-// Start-up: load the simulator, wait for Showdown's replay viewer, then open the sample replay it already shows.
+// Start-up: load the simulator, wait for Showdown's replay viewer, open the sample replay it already shows, then the study
+// in the address if there is one.
 import {$id, esc, setEngine} from './state.js';
 import {attachToEmbed} from './viewer.js';
 import {onKey} from './navigation.js';
-import {loadText, wireDialogs} from './load.js';
+import {loadText, openSharedLink, wireDialogs} from './load.js';
 import {listenForTooltips} from './tooltips.js';
 
 // Hover tooltips for older generations use Showdown's teambuilder tables (16 MB); fetch them once the page is usable.
@@ -16,7 +17,9 @@ async function boot() {
     listenForTooltips($id('pickSec'));
     wireDialogs();
     document.addEventListener('keydown', onKey);
-    await loadText(await fetch('sample.json').then(r => r.text()), {shown: true});
+    const sample = await fetch('sample.json').then(r => r.text());
+    await loadText(sample, {shown: true, replayId: JSON.parse(sample).id});
+    await openSharedLink();
     (window.requestIdleCallback || (f => setTimeout(f, 1500)))(() => {
       const s = document.createElement('script'); s.src = TEAMBUILDER_TABLES; document.head.appendChild(s);
     });

@@ -1,6 +1,6 @@
 // Showdown's own tooltips (battle-tooltips.js) on the move picker's buttons, as in a real battle.
 // Buttons carry data-tooltip="move|<index in the request>" or "switchpokemon|<index in the team>", and data-note for an
-// extra line ("Guessed", "Used in the replay").
+// extra line ("Guessed", "Used in the replay"), and moves data-calc with the damage calc's result.
 import {S, esc} from './state.js';
 
 let tips = null;
@@ -40,6 +40,7 @@ function showTooltip(elem) {
     console.error(e);
     return false;
   }
+  if (elem.dataset.calc) html += `<p class="tooltip-section">${esc(elem.dataset.calc)}</p>`;
   if (elem.dataset.note) html += `<p class="tooltip-section">${esc(elem.dataset.note)}</p>`;
   tips.placeTooltip(html, elem, false, type === 'move' ? 'move' : 'pokemon');
   return true;

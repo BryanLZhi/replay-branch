@@ -102,8 +102,12 @@ try {
   check(/what will .+ do\?/.test(await question()), 'then asks for turn 1', await question());
   const bench = await page.$$eval('#pickSec .rb-sw', b => [b.length, b.filter(x => !x.disabled).length]);
   check(bench[0] === 5 && bench[1] === 5, 'every Pokemon on the bench can be switched in on turn 1', `${bench[1]} of ${bench[0]}`);
-  await page.hover('#pickSec .rb-mv');
-  check(/Accuracy/.test(await text('#tooltipwrapper')), "hovering a move shows Showdown's move tooltip");
+  const ranges = await page.$$eval('#pickSec .rb-dmg', d => d.map(x => x.textContent));
+  check(ranges.length > 0 && ranges.every(r => /^[\d.]+ - [\d.]+%$/.test(r)), 'attacking moves show the damage calc range', ranges.join(', '));
+  await page.hover('#pickSec .rb-mv[data-calc]');
+  const tip = await text('#tooltipwrapper');
+  check(/Accuracy/.test(tip), "hovering a move shows Showdown's move tooltip");
+  check(/ vs\. .+: \d+-\d+ \(/.test(tip), "and the damage calc's result", tip.slice(tip.indexOf(' vs. ') - 40, tip.indexOf(' vs. ') + 60));
   await page.hover('#pickSec .rb-sw');
   check(/HP/.test(await text('#tooltipwrapper')), "hovering a Pokemon shows Showdown's Pokemon tooltip");
 
@@ -175,11 +179,24 @@ try {
   const reloaded = await page.$$eval('#studySec .rb-tok', t => t.map(x => x.textContent));
   check(reloaded.length === lineCount && reloaded.some(t => t.includes('!?') && t.includes('interesting try')), 'the study is kept across a reload', reloaded.length + ' lines');
 
-  // ---------------------------------------------------------------- export, delete, import
-  await page.click('#btnExport'); await sleep(200);
+  // ---------------------------------------------------------------- share (link and text), delete, load the text back
+  await page.click('#btnShare'); await sleep(300);
   const exported = await page.$eval('#exportBox', el => el.value);
-  check(exported.startsWith('{"rbv":1') && await visible('#exporter'), 'Export shows the study');
-  await page.click('#btnCloseExport');
+  const link = await page.$eval('#shareLink', el => el.value);
+  check(exported.startsWith('{"rbv":1') && /#s=[\w-]+$/.test(link) && await visible('#sharer'), 'Share shows a link and the study', link.length + ' characters');
+  await page.click('#btnCloseShare');
+  {
+    const other = await browser.createBrowserContext();   // a different visitor: no saved study, no password remembered
+    const p2 = await other.newPage(); await p2.setViewport({width: 1280, height: 1000});
+    p2.on('pageerror', e => pageErrors.push(e.message));
+    await p2.goto(link, {waitUntil: 'domcontentloaded'});
+    if (await p2.$eval('#gate', el => !el.hidden).catch(() => false)) { await p2.type('#gatePw', process.env.RBV_PW); await p2.keyboard.press('Enter'); }
+    await p2.waitForFunction(n => document.querySelectorAll('#studySec .rb-tok').length === n, {timeout: 60000}, lineCount).catch(() => {});
+    const shared = await p2.$$eval('#studySec .rb-tok', t => t.map(x => x.textContent));
+    check(shared.length === lineCount && shared.some(t => t.includes('interesting try')) && !p2.url().includes('#s='),
+      'the link opens the study for someone else', shared.length + ' lines');
+    await other.close();
+  }
   await page.click('#studySec .rb-tok'); await sleep(300); await settled();
   await page.click('#btnDelete'); await sleep(100);
   check(/again/.test(await text('#btnDelete')), 'Delete asks for a second click');
@@ -198,6 +215,37 @@ try {
   const field = await page.$('#studySec input[data-field=item]');
   await field.evaluate(el => { el.focus(); el.select(); }); await field.type('Leftovers'); await page.keyboard.press('Tab'); await sleep(200);
   check(await page.$eval('#studySec input[data-field=item]', el => el.value) === 'Leftovers', 'a set can be edited');
+  const atk = await page.$('#studySec input[data-field=ev_atk]');
+  await atk.evaluate(el => { el.focus(); el.select(); }); await atk.type('252+'); await page.keyboard.press('Tab'); await sleep(300);
+  const nature = await page.$eval('#studySec input[data-field=nature]', el => el.value);
+  check(await page.$eval('#studySec .rb-evs', el => el.textContent.includes('Atk+')) && ['Lonely', 'Adamant', 'Naughty', 'Brave'].includes(nature) &&
+    await page.$eval('#studySec input[data-field=ev_atk]', el => el.value) === '252', 'typing 252+ in an EV box sets the nature', nature);
+
+  // importing: a team that is not this one is flagged
+  await page.click('[data-import="0"]'); await sleep(200);
+  await page.type('#importText', 'https://pokepast.es/57780b9afe26d51b');
+  await page.click('#btnImport');
+  await until(() => !document.querySelector('#importProblems').hidden || document.querySelector('#importErr').textContent, null, 30000);
+  const problems = await page.$$eval('#importProblems li', l => l.map(x => x.textContent));
+  check(problems.some(p => p.startsWith('Not in the paste')) && /None of these/.test(await text('#importErr')), 'a PokéPaste of another team is flagged', problems[0]);
+  await page.click('#btnImportCancel');
+  // a set typed in, contradicting the replay: Talonflame was seen using Roost, and its U-turn did less than Choice Band would
+  await page.click('[data-import="0"]'); await sleep(200);
+  await page.$eval('#importText', el => {
+    el.value = ['Talonflame @ Choice Band', 'Ability: Gale Wings', 'EVs: 252 Atk / 4 Def / 252 Spe', 'Adamant Nature',
+      '- Brave Bird', '- Flare Blitz', '- U-turn', '- Swords Dance'].join('\n');
+    el.dispatchEvent(new Event('input'));
+  });
+  await page.click('#btnImport');
+  await until(() => !document.querySelector('#importProblems').hidden || document.querySelector('#importErr').textContent, null, 30000);
+  const flagged = await page.$$eval('#importProblems li', l => l.map(x => x.textContent));
+  check(flagged.some(p => /no Roost/.test(p)) && flagged.some(p => /Talonflame's .+ the sets allow/.test(p)), 'moves and damage the replay shows are checked', flagged.filter(p => /Talonflame/.test(p)).join(' | '));
+  await page.click('#btnImport'); await sleep(300);
+  const imported = await page.$$eval('#studySec .rb-mon', cards => {
+    const card = cards.find(c => c.querySelector('.nm').textContent.includes('Talonflame'));
+    return card && {item: card.querySelector('[data-field=item]').value, guesses: card.querySelectorAll('.guess').length};
+  });
+  check(!await visible('#importer') && imported?.item === 'Choice Band' && imported.guesses === 0, 'Import anyway uses the set (no longer shown as a guess)');
   await page.click('[data-tab=study]'); await sleep(200);
 
   // ---------------------------------------------------------------- other formats, loaded by link

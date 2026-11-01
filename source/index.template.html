@@ -12,7 +12,7 @@
     <button class="button" type="submit"><strong>Enter</strong></button><span id="gateErr" class="rb-err"></span></form>
 </div>
 
-<div class="rb-topbar"><button class="button" type="button" id="btnLoad">Load replay</button> <button class="button" type="button" id="btnExport">Export study</button></div>
+<div class="rb-topbar"><button class="button" type="button" id="btnLoad">Load replay</button> <button class="button" type="button" id="btnShare">Share</button></div>
 
 <!-- Showdown's replay viewer (built by js/replay-embed.js from the log below), with our move picker and dice under its controls -->
 <div class="wrapper replay-wrapper">
@@ -43,12 +43,21 @@
     <p class="rb-err" id="loadErr"></p>
   </section>
 </div>
-<div class="rb-modal" id="exporter" hidden>
-  <section class="rb-section" role="dialog" aria-labelledby="exportTitle">
-    <h2 id="exportTitle">Export study</h2>
-    <p class="rb-note">This text holds the replay, your sets and every line you played. Paste it into <b>Load replay</b> to open the study again, on any device.</p>
-    <textarea id="exportBox" class="textbox" readonly></textarea>
-    <p class="rb-row" style="justify-content:flex-end"><span class="rb-note" id="copyMsg"></span><button class="button" type="button" id="btnCopy">Copy</button><button class="button" type="button" id="btnCloseExport">Close</button></p>
+<div class="rb-modal" id="sharer" hidden>
+  <section class="rb-section" role="dialog" aria-labelledby="shareTitle">
+    <h2 id="shareTitle">Share</h2>
+    <p class="rb-row"><input id="shareLink" class="textbox" readonly style="flex:1;min-width:0" aria-label="Link"><button class="button" type="button" id="btnCopyLink">Copy link</button></p>
+    <textarea id="exportBox" class="textbox" readonly aria-label="Study"></textarea>
+    <p class="rb-row" style="justify-content:flex-end"><span class="rb-note" id="copyMsg"></span><button class="button" type="button" id="btnCopy">Copy text</button><button class="button" type="button" id="btnCloseShare">Close</button></p>
+  </section>
+</div>
+<div class="rb-modal" id="importer" hidden>
+  <section class="rb-section" role="dialog" aria-labelledby="importTitle">
+    <h2 id="importTitle">Import team</h2>
+    <textarea id="importText" class="textbox" placeholder="https://pokepast.es/…" aria-label="Team"></textarea>
+    <ul id="importProblems" class="rb-problems" hidden></ul>
+    <p class="rb-row" style="justify-content:flex-end"><span class="rb-err" id="importErr" style="flex:1"></span>
+      <button class="button" type="button" id="btnImportCancel">Cancel</button><button class="button" type="button" id="btnImport"><strong>Import</strong></button></p>
   </section>
 </div>
 

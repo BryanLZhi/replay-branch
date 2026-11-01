@@ -5,7 +5,7 @@ import {kids, pathTo, lineSets, addNode, deleteNode, compute, forget, save} from
 import {playedChoice, matchesPlayed, teamIndex} from './replay.js';
 import {showPickerSetting, showPosition} from './viewer.js';
 import {renderPanels, go} from './navigation.js';
-import {movesDatalist} from './panels.js';
+import {movesDatalist} from './teams.js';
 import {setTooltipRequest} from './tooltips.js';
 
 export const pickerOn = () => stored('rb-picker', 'on') !== 'off';
@@ -67,14 +67,17 @@ function moveButtons(pos, si, req, active, played) {
   const act = req.active[0];
   const k = teamIndex(si, active);
   const known = k >= 0 ? S.base[si][k].fixed.moves.map(E.toID) : [];
+  const pasted = k >= 0 && (pos.kind === 'line' ? lineSets(S.cur) : S.study.sets)[si][k].pasted;
+  const calcs = E.damageCalcs(pos.battle, si);
   const moves = act.moves.map((m, i) => {
     const type = E.Dex.moves.get(m.id || m.move).type || 'Normal';
     const was = played && played.kind === 'move' && E.toID(played.name) === E.toID(m.move);
-    const guessed = k >= 0 && !known.includes(E.toID(m.move)) && !['struggle', 'recharge'].includes(E.toID(m.move));
+    const guessed = k >= 0 && !pasted && !known.includes(E.toID(m.move)) && !['struggle', 'recharge'].includes(E.toID(m.move));
     const note = guessed ? 'Guessed' : was ? 'Used in the replay' : '';
     return `<div class="rb-mvwrap"><button type="button" class="rb-mv has-tooltip t-${esc(type)} ${was ? 'played' : ''} ${guessed ? 'guess' : ''}" data-pick="move ${i + 1}" ` +
-      `data-tooltip="move|${i}" ${note ? `data-note="${note}"` : ''} ${m.disabled || m.pp === 0 ? 'disabled' : ''}>` +
-      `<b>${esc(m.move)}</b><small><span>${esc(type)}</span><span>${m.maxpp ? `${m.pp}/${m.maxpp}` : ''}</span></small></button>` +
+      `data-tooltip="move|${i}" ${note ? `data-note="${note}"` : ''} ${calcs[i] ? `data-calc="${esc(calcs[i].desc)}"` : ''} ${m.disabled || m.pp === 0 ? 'disabled' : ''}>` +
+      `<b>${esc(m.move)}</b><small><span>${esc(type)}</span>${calcs[i] ? `<span class="rb-dmg">${esc(calcs[i].range)}</span>` : ''}` +
+      `<span>${m.maxpp ? `${m.pp}/${m.maxpp}` : ''}</span></small></button>` +
       (guessed ? `<button type="button" class="rb-edit" data-edit="${esc(m.move)}" title="Change this guessed move" aria-label="Change ${esc(m.move)}"><i class="fa fa-pencil" aria-hidden="true"></i></button>` : '') + `</div>`;
   });
   const tera = act.canTerastallize ? `<p class="rb-row" style="margin-top:6px"><label><input type="checkbox" id="teraBox" ${S.tera[pid(si)] ? 'checked' : ''}> Terastallize</label> ${typeTag(act.canTerastallize)}</p>` : '';

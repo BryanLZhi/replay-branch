@@ -6,6 +6,7 @@ Lines branch like a chess study, and unknown sets are filled in from Smogon usag
 
 - **Viewer:** Pokémon Showdown's replay embed (`replay-embed.js`, MIT), with the battle scene loaded from play.pokemonshowdown.com.
 - **Branch simulator:** [@pkmn/sim](https://github.com/pkmn/ps) (MIT), bundled in `engine.js`.
+- **Damage calc:** [@smogon/calc](https://github.com/smogon/damage-calc) (MIT), bundled in `engine.js`.
 - **Usage stats:** Smogon's monthly stats via [pkmn.github.io/smogon](https://pkmn.github.io/smogon/data/stats/), and random battle
   sets via [pkmn.github.io/randbats](https://pkmn.github.io/randbats/), compacted in `stats/`.
 
@@ -25,13 +26,15 @@ The repository root is the site (GitHub Pages). Everything in it except `sample.
 | &nbsp;&nbsp;`picker.js` | the move picker |
 | &nbsp;&nbsp;`tooltips.js` | Showdown's hover tooltips on the picker's buttons |
 | &nbsp;&nbsp;`dice.js` | the dice of a line's last step |
-| &nbsp;&nbsp;`panels.js` | the Study and Teams tabs |
-| &nbsp;&nbsp;`load.js` | loading replays and studies, export |
-| `source/engine/` | the simulator wrapper (`core.mjs`: replay parsing, sets, controllable RNG), bundled into `engine.js` |
+| &nbsp;&nbsp;`panels.js` | the study panel and its Study tab |
+| &nbsp;&nbsp;`teams.js` | the Teams tab, and importing a team (checked against the replay) |
+| &nbsp;&nbsp;`load.js` | loading replays and studies, share links |
+| `source/engine/` | bundled into `engine.js`: `core.mjs` (replay parsing, sets, the simulator with controllable RNG), `calc.mjs` (Smogon's damage calc), `paste.mjs` (team import and its checks) |
 | `source/embed/` | Showdown's `replay-embed.js` and the small changes made to it for `js/replay-embed.js` |
 | `source/index.template.html`, `source/style.css` | the page |
 | `source/stats/build_stats.py` | rebuilds `stats/` |
 | `source/test/e2e.mjs` | end-to-end test that drives the page like a visitor |
+| `source/test/paste-check.mjs` | simulates battles between known teams to test the import checks (true sets pass, wrong ones are caught) |
 
 ## Development
 
@@ -40,6 +43,7 @@ npm install
 npm run build:engine   # everything, including engine.js (only needed when source/engine changes)
 npm run build          # everything else
 RBV_PW=<password> npm test   # serves the built site and tests it in Edge/Chrome; or: node source/test/e2e.mjs <url>
+npm run test:paste           # the import checks against simulated battles
 ```
 
 The password gate's hash is read from `RBV_PW_HASH` or `source/.pwhash` (SHA-256 of `rbv:<password>`, not committed). Without it the
