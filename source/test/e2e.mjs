@@ -55,15 +55,17 @@ const pickerReady = () => until(() => document.querySelector('#pickSec .rb-pside
 async function press(key) { await page.keyboard.press(key); await sleep(150); }
 // Wait until the viewer has stopped animating.
 const settled = () => until(() => !document.querySelector('.replay-controls button[data-action=pause]'), null, 60000);
-// Branch this turn: player 1 picks something other than what was played, player 2 their first option.
+// Branch this turn: player 1 picks something other than what was played, player 2 their first option (by its number key).
 // (On a turn where player 1 could not move, the replay does not show their choice and any move follows it: use a later turn.)
 async function branchTurn() {
   await pickerReady();
   for (let i = 0; i < 10 && !await page.$('#pickSec [data-pick].played'); i++) { await press('ArrowRight'); await pickerReady(); }
   const other = await page.$('#pickSec [data-pick]:not(.played):not(:disabled)');
   await other.click(); await sleep(150);
+  if (await page.$('#rbTitle .rb-mode')) return settled();   // only one player had a choice
   await pickerReady();
-  await press('1');
+  const first = await page.$$eval('#pickSec [data-pick]', b => b.findIndex(x => !x.disabled) + 1);
+  await press(String(first));
   await until(() => document.querySelector('#rbTitle .rb-mode'), null, 30000);
   await settled();
 }
