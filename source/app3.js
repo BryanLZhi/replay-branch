@@ -376,23 +376,67 @@ function playTurn(pos) {
 function renderDice(pos) {
   const el = $id('diceSec');
   if (pos.kind !== 'branch') { el.hidden = true; return; }
-  el.hidden = false;
   const rolls = pos.rolls || []; const node = S.study.nodes[S.cur];
-  const branchy = kids(S.cur).length > 0;
-  el.innerHTML = `<h2>Dice</h2>
-    ${rolls.length ? `<div class="rb-rolls">${rolls.map(rollRow).join('')}</div>` : ''}
-    <p class="rb-row"><button class="button" id="btnReroll"><i class="fa fa-random" aria-hidden="true"></i> Randomize</button>
-    <button class="button" id="btnDefaults" ${node.forced && node.forced.length ? '' : 'disabled'}>Most likely outcomes</button></p>`;
+  el.hidden = false;
+  el.innerHTML = `<div class="rb-dicehead"><h2>Dice</h2><span><button class="button" id="btnReroll" title="Roll real dice for every outcome"><i class="fa fa-random" aria-hidden="true"></i> Randomize</button>
+    <button class="button" id="btnDefaults" title="Back to the most likely outcomes" ${node.forced && node.forced.length ? '' : 'disabled'}>Most likely</button></span></div>
+    ${rolls.length ? `<div class="rb-dice">${diceGroups(rolls).map(groupHTML).join('')}</div>` : ''}`;
+  const apply = (i, v) => { const forced = rolls.map(x => ({key: x.key, value: x.value})); forced[i] = {key: rolls[i].key, value: v}; setForced(forced, node.seed); };
   for (const c of el.querySelectorAll('[data-roll]')) {
-    c[c.tagName === 'SELECT' ? 'onchange' : 'onclick'] = () => {
-      const i = +c.dataset.roll; const r = rolls[i];
-      const v = r.kind === 'chance' ? c.dataset.v === '1' : r.kind === 'order' ? JSON.parse(c.dataset.v || c.value) : +c.value;
-      const forced = rolls.map(x => ({key: x.key, value: x.value})); forced[i] = {key: r.key, value: v};
-      setForced(forced, node.seed);
-    };
+    const i = +c.dataset.roll; const r = rolls[i];
+    if (c.tagName === 'SELECT') c.onchange = () => apply(i, r.kind === 'order' ? JSON.parse(c.value) : +c.value);
+    else c.onclick = () => apply(i, r.kind === 'chance' ? !r.value : r.kind === 'order' ? JSON.parse(c.dataset.v) : r.value);
   }
   $id('btnReroll').onclick = () => setForced(rolls.map(r => ({key: r.key, value: randomOutcome(r)})), node.seed);
   $id('btnDefaults').onclick = () => setForced([], node.seed);
+}
+// The most likely outcome (what the engine picks by default); null when not known here.
+function likely(r) {
+  if (r.kind === 'chance') return r.p >= 0.5;
+  if (r.kind === 'roll') return 7;
+  if (r.kind === 'int') return r.lo + Math.floor((r.hi - 1 - r.lo) / 2);
+  if (r.kind === 'order') return r.options.map((_, k) => k);
+  return null;
+}
+const isDev = r => { const d = likely(r); return d !== null && JSON.stringify(d) !== JSON.stringify(r.value); };
+// Rolls of one move use (accuracy, crit, damage, side effects) form one group; anything else stands alone.
+function diceGroups(rolls) {
+  const groups = [];
+  for (const r of rolls) {
+    const m = /^(.+?): (accuracy|critical hit|damage roll|.+ \(\d+%\))$/.exec(r.label);
+    const key = m && r.who ? r.who + '|' + m[1] : null;
+    const last = groups[groups.length - 1];
+    if (key && last && last.key === key && !last.items.some(x => x.part === m[2] && m[2] !== 'damage roll')) { last.items.push({r, part: m[2]}); if (r.target && !last.target) last.target = r.target; continue; }
+    groups.push(key ? {key, who: r.who, move: m[1], target: r.target, items: [{r, part: m[2]}]} : {key: null, items: [{r, part: r.label}]});
+  }
+  return groups;
+}
+function chip(r, text, title) {
+  return `<button type="button" class="rb-chip ${isDev(r) ? 'dev' : ''} ${r.kind === 'chance' && r.value ? 'yes' : ''}" data-roll="${r.i}" title="${esc(title)}">${esc(text)}</button>`;
+}
+function itemHTML({r, part}) {
+  const pct = r.p !== undefined ? Math.round(r.p * 1000) / 10 + '%' : '';
+  if (r.kind === 'chance') {
+    if (part === 'accuracy') return chip(r, r.value ? 'Hit' : 'Miss', `${pct} to hit. Click to change.`);
+    if (part === 'critical hit') return chip(r, r.value ? 'Crit' : 'No crit', `${pct} to crit. Click to change.`);
+    const sec = /^(.+) \((\d+)%\)$/.exec(part);
+    if (sec) return chip(r, r.value ? cap(sec[1]) : 'No ' + sec[1], `${sec[2]}% chance. Click to change.`);
+    return `<span class="rb-dlabel">${esc(r.label)}${r.who ? ' <small>' + esc(r.who) + '</small>' : ''}</span>` + chip(r, r.value ? 'Yes' : 'No', `${pct} chance. Click to change.`);
+  }
+  if (r.kind === 'roll') return `<select class="rb-chipsel ${isDev(r) ? 'dev' : ''}" data-roll="${r.i}" aria-label="Damage roll" title="Damage roll">${Array.from({length: 16}, (_, v) => `<option value="${v}" ${v === r.value ? 'selected' : ''}>${100 - v}% damage</option>`).join('')}</select>`;
+  if (r.kind === 'int') { const n = r.hi - r.lo; return `<span class="rb-dlabel">${esc(r.label)}</span>` + (n <= 40 ? `<select class="rb-chipsel ${isDev(r) ? 'dev' : ''}" data-roll="${r.i}">${Array.from({length: n}, (_, k) => `<option value="${r.lo + k}" ${r.lo + k === r.value ? 'selected' : ''}>${r.lo + k}</option>`).join('')}</select>` : `<span>${r.value}</span>`); }
+  if (r.kind === 'pick') return `<span class="rb-dlabel">${esc(r.label)}</span><select class="rb-chipsel" data-roll="${r.i}">${r.options.map((o, k) => `<option value="${k}" ${k === r.value ? 'selected' : ''}>${esc(o)}</option>`).join('')}</select>`;
+  if (r.kind === 'order') {
+    const perms = permutations(r.options.length).slice(0, 24);
+    if (r.options.length === 2) return `<span class="rb-dlabel">Speed tie</span>` + perms.map(pm => `<button type="button" class="rb-chip ${JSON.stringify(pm) === JSON.stringify(r.value) ? 'yes' : ''}" data-roll="${r.i}" data-v="${esc(JSON.stringify(pm))}">${esc(r.options[pm[0]])} first</button>`).join('');
+    return `<span class="rb-dlabel">${esc(r.label)}</span><select class="rb-chipsel" data-roll="${r.i}">${perms.map(pm => `<option value="${esc(JSON.stringify(pm))}" ${JSON.stringify(pm) === JSON.stringify(r.value) ? 'selected' : ''}>${esc(pm.map(k => r.options[k]).join(' > '))}</option>`).join('')}</select>`;
+  }
+  return '';
+}
+function cap(s) { return s ? s[0].toUpperCase() + s.slice(1) : s; }
+function groupHTML(g) {
+  const head = g.key ? `<span class="rb-dhead">${esc(g.who)}'s <b>${esc(g.move)}</b>${g.target ? ` <span class="rb-darrow">→</span> ${esc(g.target)}` : ''}</span>` : '';
+  return `<div class="rb-dgroup">${head}<span class="rb-dchips">${g.items.map(itemHTML).join('')}</span></div>`;
 }
 function randomOutcome(r) {
   const ri = n => Math.floor(Math.random() * n);
@@ -402,27 +446,6 @@ function randomOutcome(r) {
   if (r.kind === 'pick') return ri(r.options.length);
   if (r.kind === 'order') { const o = r.options.map((_, k) => k); for (let k = o.length - 1; k > 0; k--) { const j = ri(k + 1); [o[k], o[j]] = [o[j], o[k]]; } return o; }
   return r.value;
-}
-function rollRow(r) {
-  const who = r.who ? `<small> · ${esc(r.who)}${r.target ? ' → ' + esc(r.target) : ''}</small>` : '';
-  let ctl = '';
-  if (r.kind === 'chance') {
-    const p = Math.round(r.p * 1000) / 10;
-    ctl = `<span class="rb-seg"><button type="button" class="button ${r.value ? 'on' : ''}" data-roll="${r.i}" data-v="1">${esc(r.yes)} ${p}%</button><button type="button" class="button ${!r.value ? 'on' : ''}" data-roll="${r.i}" data-v="0">${esc(r.no)}</button></span>`;
-  } else if (r.kind === 'roll') {
-    ctl = `<select class="button" data-roll="${r.i}" aria-label="Damage roll">${Array.from({length: 16}, (_, v) => `<option value="${v}" ${v === r.value ? 'selected' : ''}>${100 - v}%${v === 0 ? ' (max)' : v === 15 ? ' (min)' : ''}</option>`).join('')}</select>`;
-  } else if (r.kind === 'int') {
-    const n = r.hi - r.lo;
-    ctl = n <= 40 ? `<select class="button" data-roll="${r.i}">${Array.from({length: n}, (_, k) => `<option value="${r.lo + k}" ${r.lo + k === r.value ? 'selected' : ''}>${r.lo + k}</option>`).join('')}</select>` : `<span class="rb-note">${r.value}</span>`;
-  } else if (r.kind === 'pick') {
-    ctl = `<select class="button" data-roll="${r.i}">${r.options.map((o, k) => `<option value="${k}" ${k === r.value ? 'selected' : ''}>${esc(o)}</option>`).join('')}</select>`;
-  } else if (r.kind === 'order') {
-    const perms = permutations(r.options.length).slice(0, 24);
-    ctl = r.options.length === 2
-      ? `<span class="rb-seg">${perms.map(pm => `<button type="button" class="button ${JSON.stringify(pm) === JSON.stringify(r.value) ? 'on' : ''}" data-roll="${r.i}" data-v="${esc(JSON.stringify(pm))}">${esc(r.options[pm[0]])} first</button>`).join('')}</span>`
-      : `<select class="button" data-roll="${r.i}">${perms.map(pm => `<option value="${esc(JSON.stringify(pm))}" ${JSON.stringify(pm) === JSON.stringify(r.value) ? 'selected' : ''}>${esc(pm.map(k => r.options[k]).join(' > '))}</option>`).join('')}</select>`;
-  }
-  return `<div class="rb-roll"><div>${esc(r.label)}${who}</div><div>${ctl}</div></div>`;
 }
 function permutations(n) { const out = []; const rec = (a, rest) => { if (!rest.length) out.push(a); rest.forEach((x, i) => rec([...a, x], rest.filter((_, j) => j !== i))); }; rec([], [...Array(n).keys()]); return out; }
 function setForced(forced, seed) {
@@ -573,6 +596,13 @@ document.addEventListener('keydown', e => {
   if (!S.rep || e.ctrlKey || e.metaKey || e.altKey || e.target.closest('input, textarea, select') || !$id('loader').hidden || !$id('exporter').hidden) return;
   const k = {ArrowLeft: 'prev', ArrowRight: 'next', ArrowUp: 'up', ArrowDown: 'down'}[e.key];
   if (k) { e.preventDefault(); nav(k); return; }
+  const sec = $id('takeSec');
+  if (!sec.hidden && /^[1-9]$/.test(e.key)) {
+    const b = sec.querySelectorAll('[data-c]')[+e.key - 1];
+    if (b && !b.disabled) { e.preventDefault(); b.click(); }
+  } else if (!sec.hidden && (e.key === 't' || e.key === 'T')) {
+    const tb = $id('teraBox'); if (tb) { tb.checked = !tb.checked; tb.dispatchEvent(new Event('change')); }
+  }
 });
 
 // ------------------------------------------------------------------ load / export dialogs
@@ -639,7 +669,8 @@ async function selftest() {
     [...document.querySelectorAll('#takeSec .rb-mv:not(:disabled)')][0].click(); await wait(6000);
     out.push('after play: ' + S.cur + ' rolls ' + document.querySelectorAll('.rb-roll').length + ' err ' + S.err + ' | ' + $('.battle-log').text().slice(-160));
     out.push('sprites: ' + [...document.querySelectorAll('.battle img')].map(i => (i.src || '').split('/').slice(-2).join('/')).slice(0, 6).join(' , '));
-    const seg = document.querySelector('.rb-roll .rb-seg .button:not(.on)');
+    out.push('dice: ' + $('#diceSec .rb-dgroup').map((_, g) => $(g).text().replace(/\s+/g, ' ').trim()).get().join(' || '));
+    const seg = document.querySelector('#diceSec .rb-chip');
     if (seg) { seg.click(); await wait(5000); out.push('flipped -> ' + $('.battle-log').text().slice(-120)); }
     out.push('controls: ' + $('.replay-controls').text().slice(0, 120));
     $('.pickerchooser button[value=off]').click(); await wait(200);

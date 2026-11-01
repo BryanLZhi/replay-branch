@@ -119,6 +119,19 @@ body.dark .rb-edit { background: rgba(255,255,255,.12); }
   .replay-wrapper h1 { order: 6; font-size: 14pt; }
   .rb-topbar, .rb-wrap { padding: 0 8px; }
 }
+.rb-dicehead { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 6px; }
+.rb-dicehead h2 { margin: 0; }
+.rb-dice { display: flex; flex-direction: column; gap: 5px; }
+.rb-dgroup { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; font-size: 9pt; }
+.rb-dhead { min-width: 0; }
+.rb-darrow { color: var(--rb-muted); }
+.rb-dchips { display: inline-flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.rb-dlabel { color: var(--rb-muted); margin-right: 2px; }
+.rb-chip { font: inherit; font-size: 8.5pt; padding: 1px 8px; border-radius: 10px; border: 1px solid var(--rb-btnline); background: var(--rb-panel2); color: var(--rb-fg); cursor: pointer; }
+.rb-chip:hover { border-color: var(--rb-curline); }
+.rb-chip.yes { background: var(--rb-cur); }
+.rb-chip.dev, .rb-chipsel.dev { border-color: var(--rb-selline); box-shadow: 0 0 0 1px var(--rb-selline); }
+.rb-chipsel { font: inherit; font-size: 8.5pt; padding: 1px 4px; border-radius: 10px; border: 1px solid var(--rb-btnline); background: var(--rb-panel2); color: var(--rb-fg); }
 .rb-license { font-size: 7.5pt; color: #999; text-align: center; margin: 18px 0 8px; }
 #gate { position: fixed; inset: 0; z-index: 100; background: #2a3a4f; display: flex; align-items: center; justify-content: center; padding: 16px; }
 #gate form { background: #fff; color: #222; border-radius: 8px; padding: 20px; width: min(320px, 100%); box-sizing: border-box; display: flex; flex-direction: column; gap: 10px; }
@@ -137,8 +150,8 @@ body.dark .rb-edit { background: rgba(255,255,255,.12); }
 <input type="hidden" name="replayid" value="/*REPLAY_ID*/" />
 <div class="battle"></div><div class="battle-log"></div><div class="replay-controls"></div><div class="replay-controls-2"></div>
 <div class="rb-under">
-  <section class="rb-section" id="takeSec" hidden></section>
   <section class="rb-section" id="diceSec" hidden></section>
+  <section class="rb-section" id="takeSec" hidden></section>
 </div>
 <h1 style="font-weight:normal;text-align:center" id="rbTitle"></h1>
 <script type="text/plain" class="battle-log-data">/*REPLAY_LOG*/</script>
