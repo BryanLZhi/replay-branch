@@ -1,4 +1,4 @@
-﻿// ------------------------------------------------------------------ the Showdown replay embed + our sim
+// ------------------------------------------------------------------ the Showdown replay embed + our sim
 // replay-embed.js (Showdown, MIT) builds the replay viewer exactly like a downloaded replay; we drive Replays.battle.
 async function loadEngine() {
   try { return await import('./engine.js'); }

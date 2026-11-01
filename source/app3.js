@@ -1,4 +1,4 @@
-﻿let E;
+let E;
 const $id = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
 const TAKE_SEED = [11, 22, 33, 44];
@@ -171,7 +171,7 @@ function curBattle() {
 }
 function renderTake(pos) {
   const el = $id('takeSec');
-  const navBtns = `<span style="float:right"><button class="button" id="tbPrev" title="Back along the study (â†)"><i class="fa fa-chevron-left" aria-hidden="true"></i></button> <button class="button" id="tbNext" title="Forward along the study (â†’)"><i class="fa fa-chevron-right" aria-hidden="true"></i></button></span>`;
+  const navBtns = `<span style="float:right"><button class="button" id="tbPrev" title="Back along the study (←)"><i class="fa fa-chevron-left" aria-hidden="true"></i></button> <button class="button" id="tbNext" title="Forward along the study (→)"><i class="fa fa-chevron-right" aria-hidden="true"></i></button></span>`;
   if (pos.kind === 'main') {
     const t = pos.t;
     const doubles = S.rep.lines.some(l => l === '|gametype|doubles' || l === '|gametype|triples');
@@ -235,7 +235,7 @@ function renderTake(pos) {
 function describeChoice(side, c) {
   const [kind, n] = c.split(' '); const req = side.activeRequest;
   if (kind === 'move') return req.active[0].moves[+n - 1].move;
-  if (kind === 'switch') return 'â†’ ' + req.side.pokemon[+n - 1].ident.replace(/^p\d: /, '');
+  if (kind === 'switch') return '→ ' + req.side.pokemon[+n - 1].ident.replace(/^p\d: /, '');
   return c;
 }
 function playTurn(pos) {
@@ -278,7 +278,7 @@ function renderDice(pos) {
   $id('btnDefaults').onclick = () => setForced([], node.seed);
 }
 function rollRow(r) {
-  const who = r.who ? `<small> Â· ${esc(r.who)}${r.target ? ' â†’ ' + esc(r.target) : ''}</small>` : '';
+  const who = r.who ? `<small> · ${esc(r.who)}${r.target ? ' → ' + esc(r.target) : ''}</small>` : '';
   let ctl = '';
   if (r.kind === 'chance') {
     const p = Math.round(r.p * 1000) / 10;
@@ -319,7 +319,7 @@ function tokenHTML(id) {
   let r; try { r = compute(id); } catch { return `<span class="rb-tok rb-err" data-go="${id}">(error)</span>`; }
   const s = E.summarize(r.lines); const n = S.study.nodes[id];
   const pt = isMain(n.parent) ? mainT(n.parent) : compute(n.parent).battle.turn;
-  return `<span class="rb-tok ${id === S.cur ? 'cur' : ''}" data-go="${id}"><span class="tn">${pt}.</span>${esc(s.p1 || 'â€¦')} <span class="tn">|</span> ${esc(s.p2 || 'â€¦')}${(n.forced || []).length ? ' <i class="fa fa-cube" title="Dice set by you" aria-hidden="true"></i>' : ''}${n.glyph ? `<span class="rb-glyph">${esc(n.glyph)}</span>` : ''}${n.comment ? ` <i class="rb-cmt">${esc(n.comment.slice(0, 60))}</i>` : ''}</span>`;
+  return `<span class="rb-tok ${id === S.cur ? 'cur' : ''}" data-go="${id}"><span class="tn">${pt}.</span>${esc(s.p1 || '…')} <span class="tn">|</span> ${esc(s.p2 || '…')}${(n.forced || []).length ? ' <i class="fa fa-cube" title="Dice set by you" aria-hidden="true"></i>' : ''}${n.glyph ? `<span class="rb-glyph">${esc(n.glyph)}</span>` : ''}${n.comment ? ` <i class="rb-cmt">${esc(n.comment.slice(0, 60))}</i>` : ''}</span>`;
 }
 function varHTML(first) {
   let html = ''; let id = first;
@@ -339,12 +339,12 @@ function renderStudy() {
   if (kids('r1').length) rows.push(`<div class="rb-vars">${kids('r1').map(k => `<div class="rb-var">${varHTML(k)}</div>`).join('')}</div>`);
   for (let t = 1; t <= S.rep.lastTurn; t++) {
     const s = mainSummary(t); const id = 'r' + (t + 1); const nn = S.study.notes[id];
-    rows.push(`<div class="rb-mrow ${S.cur === id ? 'cur' : ''}" data-go="${id}"><div class="no">${t}</div><div class="a">${esc(s.p1 || 'â€”')}${nn && nn.glyph ? `<span class="rb-glyph">${esc(nn.glyph)}</span>` : ''}</div><div class="a">${esc(s.p2 || 'â€”')}</div></div>`);
+    rows.push(`<div class="rb-mrow ${S.cur === id ? 'cur' : ''}" data-go="${id}"><div class="no">${t}</div><div class="a">${esc(s.p1 || '—')}${nn && nn.glyph ? `<span class="rb-glyph">${esc(nn.glyph)}</span>` : ''}</div><div class="a">${esc(s.p2 || '—')}</div></div>`);
     if (nn && nn.comment) rows.push(`<div class="rb-vars" style="background:transparent"><span class="rb-cmt">${esc(nn.comment)}</span></div>`);
     const k = kids(id); if (k.length) rows.push(`<div class="rb-vars">${k.map(x => `<div class="rb-var">${varHTML(x)}</div>`).join('')}</div>`);
   }
   const note = nodeNote(S.cur) || {}; const isBranch = !isMain(S.cur);
-  body.innerHTML = `<p class="rb-note">Each row is one turn of the replay. Your lines show in green under the turn they start from. Keys: â† â†’ move along a line, â†‘ â†“ switch lines.</p>
+  body.innerHTML = `<p class="rb-note">Each row is one turn of the replay. Your lines show in green under the turn they start from. Keys: ← → move along a line, ↑ ↓ switch lines.</p>
     <div class="rb-movelist">${rows.join('')}</div>
     <div class="rb-notes"><div class="rb-glyphs">${['!!', '!', '!?', '?!', '?', '??'].map(g => `<button class="button ${note.glyph === g ? 'on' : ''}" data-glyph="${g}">${g}</button>`).join(' ')}</div>
       <textarea id="comment" class="textbox" rows="2" placeholder="Note on this position">${esc(note.comment || '')}</textarea>
