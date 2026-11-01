@@ -1393,22 +1393,22 @@ function renderTake(pos) {
     const t = pos.t;
     const doubles = S.rep.lines.some(l => l === '|gametype|doubles' || l === '|gametype|triples');
     const n = kids(S.cur).length;
-    el.innerHTML = `${navBtns}<h2>${t > S.rep.lastTurn ? 'End of the replay' : `Turn ${t}`}</h2><p class="rb-pos">${posLabel()}</p>
-      ${t > S.rep.lastTurn ? `<p class="rb-note">Go back to any turn to take over from there.</p>` : `<p class="rb-note">Take over to choose both players' moves from here and play out your own line.${n ? ` ${n === 1 ? 'One line starts' : `${n} lines start`} from this turn (see Study below).` : ''}</p>
+    el.innerHTML = `${navBtns}<h2>${t > S.rep.lastTurn ? 'End of the replay' : `Turn ${t}`}</h2>
+      ${t > S.rep.lastTurn ? '' : `
       <p class="rb-row"><button class="button" id="btnTake" ${doubles ? 'disabled' : ''}><strong>Take over at turn ${t}</strong></button>
-      <span class="rb-note">${doubles ? 'Taking over works for singles battles only, for now.' : `Unknown moves and items come from the Teams tab (${guessCount()} guessed).`}</span></p>`}`;
+      ${doubles ? '<span class="rb-note">Singles only for now.</span>' : ''}</p>`}`;
     const b = $id('btnTake'); if (b) b.onclick = () => { S.take = {t}; S.sel = {}; S.tera = {}; renderPanels(); renderControls(); };
   } else {
     const battle = pos.battle;
     if (battle.ended) {
-      el.innerHTML = `${navBtns}<h2>Battle over</h2><p class="rb-pos">${posLabel()}</p><p class="rb-note">${battle.winner ? esc(battle.winner) + ' won this line.' : 'This line ended in a tie.'} Step back to try something else.</p>`;
+      el.innerHTML = `${navBtns}<h2>${battle.winner ? esc(battle.winner) + ' won' : 'Tie'}</h2>`;
     } else {
       const sides = battle.sides.map((s, si) => ({si, s, req: s.activeRequest}));
       const need = sides.filter(x => x.req && !x.req.wait);
       const html = sides.map(({si, s, req}) => {
         const pid = 'p' + (si + 1);
         let body = '';
-        if (!req || req.wait) body = `<p class="rb-note">Waiting for the other player.</p>`;
+        if (!req || req.wait) body = '';
         else {
           const act = req.active && req.active[0];
           const forced = req.forceSwitch && req.forceSwitch[0];
@@ -1428,18 +1428,16 @@ function renderTake(pos) {
             const ch = `switch ${k + 1}`;
             return `<button type="button" class="button rb-sw ${S.sel[pid] === ch ? 'on' : ''}" data-p="${pid}" data-c="${ch}" ${fnt || p.active || trapped ? 'disabled' : ''}><span class="rb-picon" style="${iconStyle(p.details.split(',')[0])}"></span>${esc(name)} <small>${pct}%</small></button>`;
           }).join('')}</div>`;
-          if (forced) body = `<p class="rb-note" style="margin:0 0 4px">Choose a Pok&eacute;mon to send in.</p>` + body;
-          else if (trapped) body += `<p class="rb-note">Trapped: it can't switch out.</p>`;
+          
         }
         return `<div class="rb-pside"><h3><span>${esc(s.name)}</span><span class="rb-note">${esc(S.sel[pid] ? describeChoice(s, S.sel[pid]) : '')}</span></h3>${body}</div>`;
       }).join('');
       const ready = need.every(x => S.sel['p' + (x.si + 1)]);
-      el.innerHTML = `${navBtns}<h2>${pos.kind === 'take' ? `Your line from turn ${pos.t}` : 'Next choice'}</h2><p class="rb-pos">${posLabel()}</p>
+      el.innerHTML = `${navBtns}<h2>Turn ${pos.battle.turn}</h2>
         <div class="rb-choose">${html}</div>
         <p class="rb-row"><button class="button" id="btnPlay" ${ready ? '' : 'disabled'}><strong>Play turn</strong></button>
         ${pos.kind === 'take' ? `<button class="button" id="btnBack">Back to the replay</button>` : ''}
-        <span class="rb-note">${ready ? 'Ready.' : 'Pick a move or a switch for each player.'}</span></p>
-        ${pos.kind === 'take' && pos.notes && pos.notes.length ? `<p class="rb-note">${pos.notes.map(esc).join('<br>')}</p>` : ''}
+        </p>
         ${S.err ? `<p class="rb-err">${esc(S.err)}</p>` : ''}`;
       for (const b of el.querySelectorAll('[data-c]')) b.onclick = () => { S.sel[b.dataset.p] = b.dataset.c; S.err = ''; renderTake(curBattle()); };
       for (const c of el.querySelectorAll('[data-tera]')) c.onchange = () => { S.tera[c.dataset.tera] = c.checked; };
@@ -1478,9 +1476,8 @@ function renderDice(pos) {
   el.hidden = false;
   const rolls = pos.rolls || []; const node = S.study.nodes[S.cur];
   const branchy = kids(S.cur).length > 0;
-  el.innerHTML = `<h2>Dice for this turn</h2>
-    <p class="rb-note">Every random outcome of the step that led here. Change any of them and the step plays again${branchy ? ' as a new line (this one already continues, so it is kept)' : ''}.</p>
-    ${rolls.length ? `<div class="rb-rolls">${rolls.map(rollRow).join('')}</div>` : `<p class="rb-note">Nothing random happened on this step.</p>`}
+  el.innerHTML = `<h2>Dice</h2>
+    ${rolls.length ? `<div class="rb-rolls">${rolls.map(rollRow).join('')}</div>` : ''}
     <p class="rb-row"><button class="button" id="btnReroll"><i class="fa fa-random" aria-hidden="true"></i> Reroll everything</button>
     <button class="button" id="btnDefaults" ${node.forced && node.forced.length ? '' : 'disabled'}>Most likely outcomes</button></p>`;
   for (const c of el.querySelectorAll('[data-roll]')) {
@@ -1561,8 +1558,7 @@ function renderStudy() {
     const k = kids(id); if (k.length) rows.push(`<div class="rb-vars">${k.map(x => `<div class="rb-var">${varHTML(x)}</div>`).join('')}</div>`);
   }
   const note = nodeNote(S.cur) || {}; const isBranch = !isMain(S.cur);
-  body.innerHTML = `<p class="rb-note">Each row is one turn of the replay. Your lines show in green under the turn they start from. Keys: ← → move along a line, ↑ ↓ switch lines.</p>
-    <div class="rb-movelist">${rows.join('')}</div>
+  body.innerHTML = `<div class="rb-movelist">${rows.join('')}</div>
     <div class="rb-notes"><div class="rb-glyphs">${['!!', '!', '!?', '?!', '?', '??'].map(g => `<button class="button ${note.glyph === g ? 'on' : ''}" data-glyph="${g}">${g}</button>`).join(' ')}</div>
       <textarea id="comment" class="textbox" rows="2" placeholder="Note on this position">${esc(note.comment || '')}</textarea>
       ${isBranch ? `<p class="rb-row" style="margin:0"><button class="button" id="btnPromote" ${kids(S.study.nodes[S.cur].parent)[0] === S.cur ? 'disabled' : ''}>Make this the first line</button>
@@ -1603,7 +1599,7 @@ function renderTeams() {
     return `<div class="rb-teamhead"><b>${esc(cs.name || 'Player ' + (si + 1))}</b><button class="button" data-resetside="${si}">Reset to suggestions</button></div>
       <div class="rb-mons">${S.study.sets[si].map((s, k) => monCard(si, k, s, types)).join('')}</div>`;
   };
-  body.innerHTML = `<p class="rb-note">Plain = seen in the replay. <i>Dashed</i> = guess from Smogon usage stats (${S.stats ? esc(S.rep.formatid) : `<span class="rb-err">none for ${esc(S.rep.formatid)}, fill in the sets yourself</span>`}). Changes apply to lines you start after this; lines you already played keep their sets.</p>
+  body.innerHTML = `${S.stats ? '' : `<p class="rb-err">No usage stats for ${esc(S.rep.formatid)}.</p>`}
     ${side(0)}${side(1)}`;
   for (const inp of body.querySelectorAll('[data-f]')) inp.onchange = () => {
     const si = +inp.dataset.si, k = +inp.dataset.k, f = inp.dataset.f; const set = S.study.sets[si][k];
