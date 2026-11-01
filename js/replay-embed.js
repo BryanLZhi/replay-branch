@@ -1,5 +1,5 @@
 /* Copy of https://play.pokemonshowdown.com/js/replay-embed.js (Pokemon Showdown, MIT, Guangcong Luo).
- * Changes: does not load teambuilder-tables.js; fixes move-effect image paths before the first battle. */
+ * Changes: runs its scripts in order; does not load teambuilder-tables.js; fixes move-effect image paths. */
 "use strict";/**
  * Replay embed
  *
@@ -31,7 +31,7 @@ document.head.appendChild(linkEl);
 }
 function requireScript(url){
 var scriptEl=document.createElement('script');
-scriptEl.src=url;
+scriptEl.src=url;scriptEl.async=false;
 document.head.appendChild(scriptEl);
 }
 

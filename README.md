@@ -27,7 +27,7 @@ The repository root is the site (GitHub Pages). Everything in it except `sample.
 | &nbsp;&nbsp;`panels.js` | the Study and Teams tabs |
 | &nbsp;&nbsp;`load.js` | loading replays and studies, export |
 | `source/engine/` | the simulator wrapper (`core.mjs`: replay parsing, sets, controllable RNG), bundled into `engine.js` |
-| `source/embed/` | Showdown's `replay-embed.js` and the two changes made to it for `js/replay-embed.js` |
+| `source/embed/` | Showdown's `replay-embed.js` and the small changes made to it for `js/replay-embed.js` |
 | `source/index.template.html`, `source/style.css` | the page |
 | `source/stats/build_stats.py` | rebuilds `stats/` |
 | `source/test/e2e.mjs` | end-to-end test that drives the page like a visitor |

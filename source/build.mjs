@@ -2,7 +2,7 @@
 //   app.js              source/app/*.js bundled (engine.js stays a separate file, imported at start-up)
 //   index.html          source/index.template.html + the sample replay (the viewer's first render) + the password hash
 //   style.css           source/style.css
-//   js/replay-embed.js  Showdown's replay embed with two small changes (source/embed/make-embed.mjs)
+//   js/replay-embed.js  Showdown's replay embed with a few small changes (source/embed/make-embed.mjs)
 //   engine.js           only with --engine: the simulator bundle (source/engine/build-engine.mjs)
 // The password hash comes from RBV_PW_HASH or source/.pwhash (not committed); without one the page has no gate.
 import fs from 'fs';

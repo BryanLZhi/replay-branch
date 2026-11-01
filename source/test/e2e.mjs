@@ -56,8 +56,10 @@ async function press(key) { await page.keyboard.press(key); await sleep(150); }
 // Wait until the viewer has stopped animating.
 const settled = () => until(() => !document.querySelector('.replay-controls button[data-action=pause]'), null, 60000);
 // Branch this turn: player 1 picks something other than what was played, player 2 their first option.
+// (On a turn where player 1 could not move, the replay does not show their choice and any move follows it: use a later turn.)
 async function branchTurn() {
   await pickerReady();
+  for (let i = 0; i < 10 && !await page.$('#pickSec [data-pick].played'); i++) { await press('ArrowRight'); await pickerReady(); }
   const other = await page.$('#pickSec [data-pick]:not(.played):not(:disabled)');
   await other.click(); await sleep(150);
   await pickerReady();
@@ -119,6 +121,8 @@ try {
   await page.click('.pickerchooser button[value=on]'); await sleep(200);
   await pickerReady();
   check(await visible('#pickSec .rb-moves'), 'Move picker: On shows it again');
+  // find a turn where the player to move has a guessed move (one not seen in the replay)
+  for (let i = 0; i < 40 && !await page.$('#pickSec [data-edit]'); i++) { await press('ArrowRight'); await sleep(250); }
   const guessed = await page.$('#pickSec [data-edit]');
   if (guessed) {
     const old = await page.$eval('#pickSec [data-edit]', b => b.dataset.edit);
@@ -127,7 +131,9 @@ try {
     await page.type('.rb-mvinput', 'Protect'); await page.keyboard.press('Enter'); await sleep(300);
     const moves = await page.$$eval('#pickSec .rb-mv b', b => b.map(x => x.textContent));
     check(moves.includes('Protect') && !moves.includes(old), 'a guessed move can be edited inline', `${old} -> ${moves.join('/')}`);
-  } else console.log('(no guessed moves at this turn)');
+  } else check(false, 'a guessed move to edit');
+  await control('reset'); await sleep(400);
+  for (let i = 0; i < 4; i++) { await control('ff'); await sleep(250); }
 
   // ---------------------------------------------------------------- a line, its dice
   await branchTurn();
