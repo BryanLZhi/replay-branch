@@ -23,6 +23,7 @@ The repository root is the site (GitHub Pages). Everything in it except `sample.
 | &nbsp;&nbsp;`viewer.js` | drives Showdown's replay viewer |
 | &nbsp;&nbsp;`navigation.js` | the current position, going to another one, keyboard |
 | &nbsp;&nbsp;`picker.js` | the move picker |
+| &nbsp;&nbsp;`tooltips.js` | Showdown's hover tooltips on the picker's buttons |
 | &nbsp;&nbsp;`dice.js` | the dice of a line's last step |
 | &nbsp;&nbsp;`panels.js` | the Study and Teams tabs |
 | &nbsp;&nbsp;`load.js` | loading replays and studies, export |
