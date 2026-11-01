@@ -15,11 +15,20 @@ function until(test, ms = 60000) {
   return new Promise((res, rej) => { const t0 = Date.now(); const tick = () => { let ok = false; try { ok = test(); } catch {} if (ok) res(); else if (Date.now() - t0 > ms) rej(new Error('Showdown did not load (check your connection).')); else setTimeout(tick, 100); }; tick(); });
 }
 const MARKS = []; const MARK = l => { MARKS.push(l + ' ' + Math.round(performance.now())); if (location.hash === '#perf') { let p = document.getElementById('perflive'); if (!p) { p = document.createElement('pre'); p.id = 'perflive'; document.body.appendChild(p); } p.textContent = MARKS.join('\n'); } };
+// battle-animations.js prefixes its effect images with Dex.fxPrefix only if Dex existed when it ran;
+// with the embed's load order it may not have, leaving paths relative to this site (404s, missing move animations).
+function fixEffectUrls() {
+  try {
+    if (!window.BattleEffects || !Dex.fxPrefix) return;
+    for (const id in BattleEffects) { const e = BattleEffects[id]; if (e && e.url && !/^(https?:)?\/\//.test(e.url)) e.url = Dex.fxPrefix + e.url; }
+  } catch {}
+}
 async function boot() {
   try {
     MARK('module start');
     E = await loadEngine(); MARK('engine loaded');
     await until(() => window.Replays && Replays.battle && window.Battle && window.Dex); MARK('showdown ready');
+    fixEffectUrls();
     const txt = await fetch('sample.json').then(r => r.text()); MARK('sample fetched');
     S.psb = Replays.battle; S.psMode = 'main';
     Replays.battle.subscribe(st => { Replays.update(st); onPS(); });   // Battle keeps one listener: feed the embed's controls too
