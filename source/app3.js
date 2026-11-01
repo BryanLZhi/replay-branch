@@ -23,12 +23,29 @@ function fixEffectUrls() {
     for (const id in BattleEffects) { const e = BattleEffects[id]; if (e && e.url && !/^(https?:)?\/\//.test(e.url)) e.url = Dex.fxPrefix + e.url; }
   } catch {}
 }
+// Showdown's Last turn / Next turn / Reset walk the study (replay turns and your lines) instead of the raw battle log.
+function hookReplayControls() {
+  Replays.rewind = () => nav('prev');
+  Replays.ff = () => nav('next');
+  Replays.reset = () => go('r0', false);
+  const rc2 = Replays.$('.replay-controls-2');
+  if (!rc2.find('.pickerchooser').length) {
+    rc2.append('<div class="chooser pickerchooser"> <em>Move&nbsp;picker:</em> <div><button value="on">On</button><button value="off">Off</button></div> </div>');
+    rc2.find('.pickerchooser button').on('click', e => { e.preventDefault(); e.stopPropagation(); setPicker(e.currentTarget.value === 'on'); });
+  }
+  syncPickerChooser();
+}
+// (block body: a false return value would stop jQuery's each)
+function syncPickerChooser() {
+  try { const on = pickerOn(); Replays.$('.pickerchooser button').each((_, b) => { b.classList.toggle('sel', (b.value === 'on') === on); }); } catch {}
+}
 async function boot() {
   try {
     MARK('module start');
     E = await loadEngine(); MARK('engine loaded');
     await until(() => window.Replays && Replays.battle && window.Battle && window.Dex); MARK('showdown ready');
     fixEffectUrls();
+    hookReplayControls();
     const txt = await fetch('sample.json').then(r => r.text()); MARK('sample fetched');
     S.psb = Replays.battle; S.psMode = 'main';
     Replays.battle.subscribe(st => { Replays.update(st); onPS(); });   // Battle keeps one listener: feed the embed's controls too
@@ -243,10 +260,15 @@ function chooser(battle) {
   return {need, cur: need.find(x => !S.sel['p' + (x.si + 1)])};
 }
 function renderTake(pos) {
+  renderTakeInner(pos);
   const el = $id('takeSec');
-  const head = (title) => `<span style="float:right" class="rb-row" role="group"><label class="rb-toggle"><input type="checkbox" id="pickTog" ${pickerOn() ? 'checked' : ''}> Move picker</label>
-    <button class="button" id="tbPrev" title="Back (←)" aria-label="Back"><i class="fa fa-chevron-left" aria-hidden="true"></i></button><button class="button" id="tbNext" title="Forward (→)" aria-label="Forward"><i class="fa fa-chevron-right" aria-hidden="true"></i></button></span><h2>${title}</h2>`;
-  const wire = () => { $id('tbPrev').onclick = () => nav('prev'); $id('tbNext').onclick = () => nav('next'); $id('pickTog').onchange = e => setPicker(e.target.checked); };
+  el.hidden = !el.querySelector('.rb-pside, .rb-err');
+  syncPickerChooser();
+}
+function renderTakeInner(pos) {
+  const el = $id('takeSec');
+  const head = () => '';
+  const wire = () => {};
   if (pos.kind === 'main') { el.innerHTML = head(pos.t > S.rep.lastTurn ? 'End of the replay' : pos.t === 0 ? 'Team preview' : `Turn ${pos.t}`); wire(); return; }
   if (pos.kind === 'preview') { renderPreview(pos, head, wire); return; }
   const battle = pos.battle;
@@ -319,8 +341,8 @@ function renderPreview(pos, head, wire) {
   el.innerHTML = `${head('Team preview')}<div class="rb-pside"><h3><span>${esc(s.name)}: choose a lead</span>${prev.length ? '<button class="button" id="btnUndo"><i class="fa fa-undo" aria-hidden="true"></i> Back</button>' : ''}</h3><div class="rb-switches">${mons}</div></div>
     ${S.err ? `<p class="rb-err">${esc(S.err)}</p>` : ''}`;
   wire();
-  const bu = $id('btnUndo'); if (bu) bu.onclick = () => { const last = prev[prev.length - 1]; delete S.sel['p' + (last.si + 1)]; renderPreview(pos, head, wire); };
-  for (const b of el.querySelectorAll('[data-c]')) b.onclick = () => { S.sel[pid] = b.dataset.c; S.err = ''; if (chooser(pos.battle).cur) renderPreview(pos, head, wire); else playTurn(pos); };
+  const bu = $id('btnUndo'); if (bu) bu.onclick = () => { const last = prev[prev.length - 1]; delete S.sel['p' + (last.si + 1)]; renderTake(pos); };
+  for (const b of el.querySelectorAll('[data-c]')) b.onclick = () => { S.sel[pid] = b.dataset.c; S.err = ''; if (chooser(pos.battle).cur) renderTake(pos); else playTurn(pos); };
 }
 function describeChoice(side, c) {
   const [kind, n] = c.split(' '); const req = side.activeRequest;
@@ -620,10 +642,16 @@ async function selftest() {
     const seg = document.querySelector('.rb-roll .rb-seg .button:not(.on)');
     if (seg) { seg.click(); await wait(5000); out.push('flipped -> ' + $('.battle-log').text().slice(-120)); }
     out.push('controls: ' + $('.replay-controls').text().slice(0, 120));
-    $id('pickTog').click(); await wait(200);
-    out.push('toggle off: buttons ' + document.querySelectorAll('.rb-mv').length + ' header ' + $('#takeSec h2').text());
-    $id('pickTog').click(); await wait(200);
-    out.push('toggle on: buttons ' + document.querySelectorAll('.rb-mv').length);
+    $('.pickerchooser button[value=off]').click(); await wait(200);
+    out.push('picker off: panel hidden ' + $id('takeSec').hidden + ' sel ' + $('.pickerchooser button.sel').val());
+    $('.pickerchooser button[value=on]').click(); await wait(200);
+    out.push('picker on: buttons ' + document.querySelectorAll('.rb-mv').length + ' sel ' + $('.pickerchooser button.sel').val());
+    const before = S.cur; $('.replay-controls button[data-action=rewind]').click(); await wait(300);
+    out.push('Last turn button: ' + before + ' -> ' + S.cur);
+    $('.replay-controls button[data-action=ff]').click(); await wait(300);
+    out.push('Next turn button: -> ' + S.cur);
+    $('.replay-controls button[data-action=reset]').click(); await wait(300);
+    out.push('Reset button: -> ' + S.cur + ' started ' + S.psb.started);
   } catch (e) { out.push('ERROR ' + e.stack); }
   const pre = document.createElement('pre'); pre.id = 'selftest'; pre.textContent = out.join('\n'); document.body.appendChild(pre);
 }
