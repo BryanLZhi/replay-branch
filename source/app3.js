@@ -11,7 +11,7 @@ async function loadEngine() {
   try { return await import('./engine.js'); }
   catch { const t = await fetch('engine.js').then(r => r.text()); return await import(URL.createObjectURL(new Blob([t], {type: 'text/javascript'}))); }
 }
-function until(test, ms = 30000) {
+function until(test, ms = 60000) {
   return new Promise((res, rej) => { const t0 = Date.now(); const tick = () => { let ok = false; try { ok = test(); } catch {} if (ok) res(); else if (Date.now() - t0 > ms) rej(new Error('Showdown did not load (check your connection).')); else setTimeout(tick, 100); }; tick(); });
 }
 async function boot() {
@@ -50,13 +50,13 @@ async function loadText(text, first) {
   S.take = null; S.sel = {}; S.tera = {};
   if (!first) S.psMode = '';
   S.cur = '';
-  go('r1');
+  go('r0');
 }
 
 // ------------------------------------------------------------------ study tree model
 const isMain = id => id[0] === 'r';
 const mainT = id => +id.slice(1);
-function parentOf(id) { if (isMain(id)) { const t = mainT(id); return t > 1 ? 'r' + (t - 1) : null; } return S.study.nodes[id]?.parent || null; }
+function parentOf(id) { if (isMain(id)) { const t = mainT(id); return t > 0 ? 'r' + (t - 1) : null; } return S.study.nodes[id]?.parent || null; }
 function kids(id) { return S.study.kids[id] || []; }
 function childrenOf(id) { if (isMain(id)) { const t = mainT(id); const k = kids(id).slice(); if (t <= S.rep.lastTurn) k.unshift('r' + (t + 1)); return k; } return kids(id); }
 function pathTo(id) { const p = []; let n = id; while (n && !isMain(n)) { p.unshift(n); n = S.study.nodes[n].parent; } return p; }
@@ -65,10 +65,16 @@ function takeoverFor(t, sets) {
   if (!S.takeCache.has(k)) { const r = E.takeover(S.rep, t, sets, TAKE_SEED); S.takeCache.set(k, {json: E.serialize(r.battle), battle: r.battle, notes: r.notes}); }
   return S.takeCache.get(k);
 }
+function previewFor(sets) {
+  const k = 'preview:' + hash(JSON.stringify(sets));
+  if (!S.takeCache.has(k)) { const b = E.previewBattle(S.rep, sets, TAKE_SEED); S.takeCache.set(k, b ? {json: E.serialize(b), battle: b} : null); }
+  return S.takeCache.get(k);
+}
+const startIdx = () => S.rep.lines.findIndex(l => l === '|start');
 function compute(id) {
   if (S.node.has(id)) return S.node.get(id);
   const n = S.study.nodes[id];
-  const pj = isMain(n.parent) ? takeoverFor(mainT(n.parent), n.sets).json : compute(n.parent).json;
+  const pj = n.parent === 'r0' ? previewFor(n.sets).json : isMain(n.parent) ? takeoverFor(mainT(n.parent), n.sets).json : compute(n.parent).json;
   const r = E.step(pj, n.choices, n.forced, n.seed);
   const res = {json: E.serialize(r.battle), battle: r.battle, lines: r.lines, rolls: r.rolls};
   S.node.set(id, res);
@@ -114,7 +120,7 @@ function onPS() {
   const b = S.psb;
   if (S.psMode === 'main') {
     if (S.stopAt && b.turn >= S.stopAt) { S.stopAt = null; b.pause(); }
-    const t = b.ended ? S.rep.lastTurn + 1 : Math.max(1, Math.min(b.turn, S.rep.lastTurn + 1));
+    const t = b.ended ? S.rep.lastTurn + 1 : Math.max(0, Math.min(b.turn, S.rep.lastTurn + 1));
     const id = 'r' + t;
     const playing = isPlaying();
     if (id !== S.cur) { S.cur = id; S.sel = {}; S.tera = {}; renderPanels(); }
@@ -128,11 +134,11 @@ function showPosition(animate) {
     if (isMain(S.cur)) {
       if (S.psMode !== 'main') { newPS(S.rep.lines); S.psMode = 'main'; }
       const t = mainT(S.cur);
-      if (t > S.rep.lastTurn) S.psb.seekTurn(Infinity); else S.psb.seekTurn(t);
+      if (t === 0) S.psb.reset(); else if (t > S.rep.lastTurn) S.psb.seekTurn(Infinity); else S.psb.seekTurn(t);
     } else {
       const path = pathTo(S.cur);
       const t0 = mainT(S.study.nodes[path[0]].parent);
-      const prefix = S.rep.lines.slice(0, S.rep.turnIdx[t0] + 1);
+      const prefix = S.rep.lines.slice(0, t0 === 0 ? startIdx() : S.rep.turnIdx[t0] + 1);
       const before = path.slice(0, -1).flatMap(id => compute(id).lines);
       const last = compute(S.cur).lines;
       S.psMode = 'branch:' + S.cur;
@@ -166,7 +172,12 @@ const isPlaying = () => !!(S.psb && !S.psb.paused && !S.psb.atQueueEnd);
 function curBattle() {
   if (isMain(S.cur)) {
     const t = mainT(S.cur);
-    if (pickerOn() && t <= S.rep.lastTurn && !isDoubles() && !isPlaying()) {
+    if (t === 0 && pickerOn() && !isDoubles() && !isPlaying() && S.psb && !S.psb.started) {
+      const pv = previewFor(S.study.sets);
+      if (pv) return {kind: 'preview', t: 0, battle: pv.battle};
+      return {kind: 'main', t};
+    }
+    if (t >= 1 && pickerOn() && t <= S.rep.lastTurn && !isDoubles() && !isPlaying()) {
       const tk = takeoverFor(t, S.study.sets);
       return {kind: 'take', t, battle: tk.battle};
     }
@@ -176,6 +187,7 @@ function curBattle() {
 }
 // What a player actually did on replay turn t: their first action that turn.
 function replayChoice(t, si) {
+  if (t === 0) { const l = E.replayLeads(S.rep)['p' + (si + 1)]; return l ? {kind: 'lead', name: l} : null; }
   const a = S.rep.turnIdx[t], b = S.rep.turnIdx[t + 1] ?? S.rep.lines.length;
   const p = 'p' + (si + 1); let tera = false; let first = null;
   for (const l of S.rep.lines.slice(a + 1, b)) {
@@ -191,6 +203,7 @@ function replayChoice(t, si) {
 }
 function choiceMatches(side, sel, tera, played) {
   if (!played || !sel) return false;
+  if (played.kind === 'lead') { const [, n] = sel.split(' '); return side.activeRequest.side.pokemon[+n - 1].ident.replace(/^p\d: /, '') === played.name; }
   const [kind, n] = sel.split(' '); const req = side.activeRequest;
   if (played.kind === 'cant') return kind === 'move';
   if (kind !== played.kind) return false;
@@ -198,7 +211,7 @@ function choiceMatches(side, sel, tera, played) {
   return req.side.pokemon[+n - 1].ident.replace(/^p\d: /, '') === played.name;
 }
 // Sets in force at this position: the study's sets on the replay, the line's own sets inside a line.
-function setsAt(pos) { return pos.kind === 'take' ? S.study.sets : S.study.nodes[pathTo(S.cur)[0]].sets; }
+function setsAt(pos) { return pos.kind === 'take' || pos.kind === 'preview' ? S.study.sets : S.study.nodes[pathTo(S.cur)[0]].sets; }
 function teamIndex(si, name) { return S.cbEnd[si ? 'p2' : 'p1'].team.findIndex(p => p.name === name); }
 function editMove(pos, si, k, oldMove, newMove) {
   const mv = E.Dex.moves.get(newMove);
@@ -220,7 +233,8 @@ function renderTake(pos) {
   const head = (title) => `<span style="float:right" class="rb-row" role="group"><label class="rb-toggle"><input type="checkbox" id="pickTog" ${pickerOn() ? 'checked' : ''}> Move picker</label>
     <button class="button" id="tbPrev" title="Back (←)" aria-label="Back"><i class="fa fa-chevron-left" aria-hidden="true"></i></button><button class="button" id="tbNext" title="Forward (→)" aria-label="Forward"><i class="fa fa-chevron-right" aria-hidden="true"></i></button></span><h2>${title}</h2>`;
   const wire = () => { $id('tbPrev').onclick = () => nav('prev'); $id('tbNext').onclick = () => nav('next'); $id('pickTog').onchange = e => setPicker(e.target.checked); };
-  if (pos.kind === 'main') { el.innerHTML = head(pos.t > S.rep.lastTurn ? 'End of the replay' : `Turn ${pos.t}`); wire(); return; }
+  if (pos.kind === 'main') { el.innerHTML = head(pos.t > S.rep.lastTurn ? 'End of the replay' : pos.t === 0 ? 'Team preview' : `Turn ${pos.t}`); wire(); return; }
+  if (pos.kind === 'preview') { renderPreview(pos, head, wire); return; }
   const battle = pos.battle;
   if (battle.ended) { el.innerHTML = head(battle.winner ? esc(battle.winner) + ' won' : 'Tie'); wire(); return; }
   if (!pickerOn()) { el.innerHTML = head(`Turn ${battle.turn}`); wire(); return; }
@@ -277,6 +291,23 @@ function renderTake(pos) {
     inp.onchange = commit; inp.onblur = commit;
   };
 }
+function renderPreview(pos, head, wire) {
+  const el = $id('takeSec');
+  const {need, cur} = chooser(pos.battle);
+  if (!cur) { el.innerHTML = head('Team preview'); wire(); return; }
+  const {si, s, req} = cur; const pid = 'p' + (si + 1);
+  const played = replayChoice(0, si);
+  const prev = need.filter(x => S.sel['p' + (x.si + 1)]);
+  const mons = req.side.pokemon.map((p, n) => {
+    const name = p.ident.replace(/^p\d: /, ''); const was = played && played.name === name;
+    return `<button type="button" class="button rb-sw ${was ? 'played' : ''}" data-c="team ${n + 1}" ${was ? 'title="Lead in the replay"' : ''}><span class="rb-picon" style="${iconStyle(p.details.split(',')[0])}"></span>${esc(name)}</button>`;
+  }).join('');
+  el.innerHTML = `${head('Team preview')}<div class="rb-pside"><h3><span>${esc(s.name)}: choose a lead</span>${prev.length ? '<button class="button" id="btnUndo"><i class="fa fa-undo" aria-hidden="true"></i> Back</button>' : ''}</h3><div class="rb-switches">${mons}</div></div>
+    ${S.err ? `<p class="rb-err">${esc(S.err)}</p>` : ''}`;
+  wire();
+  const bu = $id('btnUndo'); if (bu) bu.onclick = () => { const last = prev[prev.length - 1]; delete S.sel['p' + (last.si + 1)]; renderPreview(pos, head, wire); };
+  for (const b of el.querySelectorAll('[data-c]')) b.onclick = () => { S.sel[pid] = b.dataset.c; S.err = ''; if (chooser(pos.battle).cur) renderPreview(pos, head, wire); else playTurn(pos); };
+}
 function describeChoice(side, c) {
   const [kind, n] = c.split(' '); const req = side.activeRequest;
   if (kind === 'move') return req.active[0].moves[+n - 1].move;
@@ -290,16 +321,16 @@ function playTurn(pos) {
     if (s.activeRequest && !s.activeRequest.wait) { let c = S.sel[pid]; if (c && c.startsWith('move') && S.tera[pid]) c += ' terastallize'; choices[pid] = c; }
   });
   // Same choices as the replay: play the replay's own turn.
-  if (pos.kind === 'take' && pos.battle.sides.every((s, si) => {
+  if ((pos.kind === 'take' || pos.kind === 'preview') && pos.battle.sides.every((s, si) => {
     const pid = 'p' + (si + 1);
     if (!s.activeRequest || s.activeRequest.wait) return true;
     return choiceMatches(s, S.sel[pid], S.tera[pid], replayChoice(pos.t, si));
-  })) { S.sel = {}; S.tera = {}; S.err = ''; S.stopAt = pos.t + 1; S.psb.seekTurn(pos.t); S.psb.play(); renderPanels(); return; }
-  const parent = pos.kind === 'take' ? 'r' + pos.t : S.cur;
+  })) { S.sel = {}; S.tera = {}; S.err = ''; S.stopAt = pos.t + 1; if (pos.t === 0) S.psb.reset(); else S.psb.seekTurn(pos.t); S.psb.play(); renderPanels(); return; }
+  const parent = pos.kind === 'take' || pos.kind === 'preview' ? 'r' + pos.t : S.cur;
   let id = kids(parent).find(k => JSON.stringify(S.study.nodes[k].choices) === JSON.stringify(choices) && !(S.study.nodes[k].forced || []).length);
   const existed = !!id;
   try {
-    if (!id) { id = addNode(parent, choices, [], newSeed(), pos.kind === 'take' ? clone(S.study.sets) : undefined); compute(id); }
+    if (!id) { id = addNode(parent, choices, [], newSeed(), pos.kind === 'take' || pos.kind === 'preview' ? clone(S.study.sets) : undefined); compute(id); }
   } catch (e) { if (id && !existed) { deleteNode(id); save(); } S.sel = {}; S.tera = {}; S.err = e.message || String(e); renderTake(pos); return; }
   S.sel = {}; S.tera = {}; S.err = '';
   go(id, true);
@@ -394,7 +425,9 @@ function renderStudySec() {
 }
 function renderStudy() {
   const body = $id('tabBody'); const rows = [];
-  rows.push(`<div class="rb-mrow start ${S.cur === 'r1' ? 'cur' : ''}" data-go="r1"><div class="no">0</div><div class="a">Start: leads sent out</div></div>`);
+  rows.push(`<div class="rb-mrow start ${S.cur === 'r0' ? 'cur' : ''}" data-go="r0"><div class="no"></div><div class="a">Team preview</div></div>`);
+  if (kids('r0').length) rows.push(`<div class="rb-vars">${kids('r0').map(k => `<div class="rb-var">${varHTML(k)}</div>`).join('')}</div>`);
+  { const L = E.replayLeads(S.rep); rows.push(`<div class="rb-mrow ${S.cur === 'r1' ? 'cur' : ''}" data-go="r1"><div class="no">0</div><div class="a">→ ${esc(L.p1 || '?')}</div><div class="a">→ ${esc(L.p2 || '?')}</div></div>`); }
   if (kids('r1').length) rows.push(`<div class="rb-vars">${kids('r1').map(k => `<div class="rb-var">${varHTML(k)}</div>`).join('')}</div>`);
   for (let t = 1; t <= S.rep.lastTurn; t++) {
     const s = mainSummary(t); const id = 'r' + (t + 1); const nn = S.study.notes[id];
@@ -486,7 +519,7 @@ function renderPanels() {
 function go(id, animate, force) {
   if (!id) return;
   if (!isMain(id) && !S.study.nodes[id]) return;
-  if (isMain(id) && (mainT(id) < 1 || mainT(id) > S.rep.lastTurn + 1)) return;
+  if (isMain(id) && (mainT(id) < 0 || mainT(id) > S.rep.lastTurn + 1)) return;
   const changed = S.cur !== id || force;
   if (S.cur !== id) { S.sel = {}; S.tera = {}; S.err = ''; }
   if (S.take && !(isMain(id) && mainT(id) === S.take.t)) S.take = null;
@@ -539,6 +572,13 @@ for (const m of ['loader', 'exporter']) $id(m).addEventListener('click', e => { 
 async function selftest() {
   const out = []; const wait = ms => new Promise(r => setTimeout(r, ms));
   try {
+    out.push('at load: cur ' + S.cur + ' started ' + S.psb.started + ' turn ' + S.psb.turn + ' | picker: ' + $('#takeSec h3 span').first().text() + ' | lead marks ' + [...document.querySelectorAll('#takeSec .played')].map(b => b.textContent.trim()).join(','));
+    // branch the leads: player 1 leads with something else
+    [...document.querySelectorAll('#takeSec [data-c]:not(.played)')][0].click(); await wait(100);
+    out.push('p2 lead q: ' + $('#takeSec h3 span').first().text());
+    document.querySelector('#takeSec .played').click(); await wait(6000);
+    out.push('lead branch: cur ' + S.cur + ' turn ' + S.psb.turn + ' err ' + S.err + ' | ' + $('.battle-log').text().slice(-140));
+    go('r0', false); await wait(500);
     $('.replay-controls button[data-action=play]').click(); await wait(4000);
     out.push('play button: controls "' + $('.replay-controls').text().trim().slice(0, 12) + '" turn ' + S.psb.turn + ' paused ' + S.psb.paused + ' cur ' + S.cur);
     $('.replay-controls button[data-action=pause]').click(); await wait(300);

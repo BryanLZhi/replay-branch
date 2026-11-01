@@ -357,6 +357,30 @@ export function takeover(rep, t, sets, seed) {
   return {battle, order, notes};
 }
 
+// Team preview: a fresh battle with both teams (in the replay's team order), waiting for each player's lead choice ("team N").
+// Returns null when the format has no team preview.
+export function previewBattle(rep, sets, seed) {
+  const {cb} = clientAt(rep, rep.lastTurn + 1);
+  const battle = new SimBattle(seed ? {formatid: rep.formatid, seed} : {formatid: rep.formatid});
+  [cb.p1, cb.p2].forEach((cs, si) => {
+    const team = sets[si].map(s => ({name: s.name, species: s.species, item: s.item || '', ability: s.ability || '', moves: s.moves.filter(Boolean),
+      nature: s.nature || 'Serious', evs: s.evs, ivs: s.ivs, level: s.level || 100, gender: s.gender || '', teraType: s.teraType || undefined, shiny: false}));
+    battle.setPlayer(si ? 'p2' : 'p1', {name: cs.name || (si ? 'Player 2' : 'Player 1'), team});
+  });
+  return battle.requestState === 'teampreview' ? battle : null;
+}
+// The leads the replay's players sent out.
+export function replayLeads(rep) {
+  const start = rep.lines.findIndex(l => l === '|start');
+  const leads = {};
+  for (const l of rep.lines.slice(start + 1)) {
+    const m = /^\|switch\|(p[12])a: ([^|]+)\|/.exec(l);
+    if (m && !leads[m[1]]) leads[m[1]] = m[2];
+    if (l.startsWith('|turn|')) break;
+  }
+  return leads;
+}
+
 // ---------------------------------------------------------------- branch engine
 // A node = a saved sim state at the start of a turn (or at a forced switch), its log, and the RNG picks that produced it.
 export function serialize(battle) { return battle.toJSON(); }
