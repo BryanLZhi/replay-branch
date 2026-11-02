@@ -104,10 +104,34 @@ body.dark .rb-landing a:not(.blocklink) { color: #a8c8e8; }
 .rb-type { display: inline-block; font-size: 7.5pt; font-weight: bold; color: #fff; text-shadow: 0 1px 0 #0006; background: var(--t); border-radius: 3px; padding: 0 4px; line-height: 14px; }
 .rb-picon { width: 40px; height: 30px; display: inline-block; vertical-align: middle; }
 
-/* move picker */
-.rb-pside { min-width: 0; }
-.rb-pside h3 { margin: 0 0 8px; font-size: 10pt; display: flex; justify-content: space-between; align-items: center; gap: 6px; }
-.rb-pside h3 .button { font-weight: normal; }
+/* turn bar: the two players' choices for this turn, and Play turn (always there, same height, so nothing shifts) */
+.rb-under #pickSec { position: relative; padding: 6px 8px; z-index: 5; }
+.rb-bar { display: flex; align-items: center; gap: 8px; min-height: 40px; }
+.rb-turn { font-size: 9pt; font-weight: bold; color: var(--rb-muted); white-space: nowrap; min-width: 58px; }
+.rb-slots { display: flex; gap: 8px; flex: 1; min-width: 0; align-items: center; }
+.rb-slotwrap { display: flex; flex-direction: column; flex: 1 1 0; min-width: 0; }
+.rb-who { font-size: 7.5pt; color: var(--rb-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rb-slot { font: inherit; font-size: 9pt; text-align: left; border-radius: 5px; padding: 3px 7px; cursor: pointer; min-width: 0; color: #222;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; align-items: center; gap: 4px;
+  border: 1px solid color-mix(in srgb, var(--t, #999) 60%, #333);
+  background: linear-gradient(color-mix(in srgb, var(--t, #ccc) 15%, #fff), color-mix(in srgb, var(--t, #ccc) 40%, #fff)); }
+body.dark .rb-slot { color: #eee; background: linear-gradient(color-mix(in srgb, var(--t, #ccc) 25%, #2a2f36), color-mix(in srgb, var(--t, #ccc) 45%, #2a2f36)); }
+.rb-slot .fa-caret-down { margin-left: auto; opacity: .6; }
+.rb-slot .rb-picon { margin: -6px 0 -6px -4px; }
+.rb-slot small { opacity: .75; }
+.rb-slot.plain { --t: #a8b0b8; }
+.rb-slot.empty { border-style: dashed; color: var(--rb-muted); background: transparent; }
+.rb-slot.quiet { opacity: .5; cursor: default; background: transparent; border-style: dashed; --t: #a8b0b8; }
+.rb-slot.quiet[data-slot] { cursor: pointer; }
+.rb-slot.changed { box-shadow: 0 0 0 2px var(--rb-selline); }   /* (not what the replay's player did) */
+.rb-slot.open, .rb-slot:not(.quiet):hover { border-color: var(--rb-curline); }
+.rb-play { white-space: nowrap; }
+/* the move menu, over the page below the bar */
+.rb-menu { position: absolute; left: -1px; right: -1px; top: calc(100% + 4px); background: var(--rb-panel); border: 1px solid var(--rb-line);
+  border-radius: 6px; padding: 10px; box-shadow: 0 6px 18px rgba(0, 0, 0, .35); }
+.rb-menu h3 { margin: 0 0 8px; font-size: 10pt; display: flex; justify-content: space-between; align-items: center; gap: 6px; }
+.rb-menu h3 .rb-linkbtn { font-size: 14pt; line-height: 1; opacity: .6; }
+.rb-mv.chosen, .rb-sw.chosen { box-shadow: 0 0 0 2px var(--rb-curline); }
 .rb-moves { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; }
 .rb-mvwrap { position: relative; min-width: 0; display: flex; }
 .rb-mv { flex: 1; font: inherit; font-size: 9pt; text-align: left; border-radius: 5px; padding: 4px 7px; cursor: pointer; min-width: 0; color: #222;
@@ -200,6 +224,9 @@ body.dark .rb-edit { background: rgba(255,255,255,.12); }
 
 /* phone width: Showdown's saved-replay layout is fixed for desktop (controls pinned at 373px, log 640px to the right) */
 @media (max-width: 700px) {
+  .rb-bar { flex-wrap: wrap; }
+  .rb-slots { order: 3; flex-basis: 100%; }
+  .rb-play { margin-left: auto; }
   body div.wrapper.replay-wrapper { padding-top: 0 !important; display: flex; flex-direction: column; overflow-x: hidden; }   /* beats replay.css, which loads later */
   .replay-wrapper .battle { position: relative !important; top: 0 !important; left: 0 !important; order: 1; flex: none; }
   .replay-wrapper .replay-controls { position: static !important; order: 2; padding: 6px 4px 0; }

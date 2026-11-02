@@ -4,8 +4,8 @@
 import {S, $id, esc, clearPicks} from './state.js';
 import {isReplayPos, replayTurn, pathTo, compute} from './study.js';
 import {startIndex, playerName} from './replay.js';
-import {renderPanels, position, go, step} from './navigation.js';
-import {pickerOn, setPicker, renderPicker} from './picker.js';
+import {renderPanels, go, step} from './navigation.js';
+import {pickerOn, setPicker} from './picker.js';
 
 const FADE = {hyperfast: 40, fast: 50, normal: 300, slow: 500, reallyslow: 1000};
 const DELAY = {hyperfast: 1, fast: 1, normal: 1, slow: 1000, reallyslow: 3000};
@@ -71,7 +71,7 @@ function onBattleEvent(state) {
   const t = b.ended ? S.rep.lastTurn + 1 : Math.min(b.turn, S.rep.lastTurn + 1);
   const playing = isPlaying();
   if ('r' + t !== S.cur) { S.cur = 'r' + t; clearPicks(); renderPanels(); }
-  else if (playing !== S.wasPlaying) renderPicker(position());
+  else if (playing !== S.wasPlaying) renderPanels();
   S.wasPlaying = playing;
 }
 

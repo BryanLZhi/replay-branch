@@ -25,7 +25,7 @@ The repository root is the site (GitHub Pages). Everything in it except `sample.
 | &nbsp;&nbsp;`replay.js` | facts read from the replay's log (who played what) |
 | &nbsp;&nbsp;`viewer.js` | drives Showdown's replay viewer |
 | &nbsp;&nbsp;`navigation.js` | the current position, going to another one, keyboard |
-| &nbsp;&nbsp;`picker.js` | the move picker |
+| &nbsp;&nbsp;`picker.js` | the turn bar: both players' choices for the turn on screen (what the replay did, until you change one), their move menus, Play turn |
 | &nbsp;&nbsp;`tooltips.js` | Showdown's hover tooltips on the picker's buttons |
 | &nbsp;&nbsp;`dice.js` | the dice of a line's last step |
 | &nbsp;&nbsp;`panels.js` | the study panel and its Study tab |

@@ -10,7 +10,8 @@ export const S = {
   cbEnd: null,        // spectator view of the battle at the end of the replay (team order, names)
   study: null,        // {rbv, sets, nodes, kids, notes, seq}, saved per replay
   cur: '',            // current position: 'r<turn>' on the replay ('r0' = team preview), 'n<id>' in one of your lines
-  sel: {},            // picks made so far this turn, by player ('p1', 'p2')
+  sel: {},            // picks changed this turn, by player ('p1', 'p2'); the rest are what the replay's players did
+  menu: null,         // the player whose move menu is open (0, 1) or null
   gimmick: {},        // by player: 'terastallize', 'mega', 'megax', 'megay', 'ultra', 'zmove' or 'dynamax' ticked with the move
   err: '',            // last error to show in the picker
   tab: 'study',       // 'study' or 'teams'
@@ -29,7 +30,7 @@ export let E = null;
 export function setEngine(engine) { E = engine; }
 
 // Forget this turn's picks.
-export function clearPicks() { S.sel = {}; S.gimmick = {}; }
+export function clearPicks() { S.sel = {}; S.gimmick = {}; S.menu = null; }
 
 export const $id = id => document.getElementById(id);
 export const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));

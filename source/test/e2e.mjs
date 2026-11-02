@@ -61,23 +61,31 @@ const text = sel => page.$eval(sel, el => el.textContent.trim()).catch(() => '')
 const visible = sel => page.$eval(sel, el => !el.closest('[hidden]') && el.getClientRects().length > 0).catch(() => false);
 const inLine = () => page.$('#rbTitle .rb-mode').then(Boolean);
 const currentRow = () => text('.rb-mrow.cur .no');
-const question = () => text('#pickSec h3 span');
 const control = action => page.click(`.replay-controls button[data-action=${action}]`);
-const pickerReady = () => until(() => document.querySelector('#pickSec .rb-pside') && !document.querySelector('#pickSec').hidden);
 async function press(key) { await page.keyboard.press(key); await sleep(150); }
 // Wait until the viewer has stopped animating.
 const settled = () => until(() => !document.querySelector('.replay-controls button[data-action=pause]'), null, 60000);
-// Branch this turn: player 1 picks something other than what was played, player 2 their first option (by its number key).
-// (On a turn where player 1 could not move, the replay does not show their choice and any move follows it: use a later turn.)
+// The turn bar: its turn, a player's slot, that player's move menu.
+const turnLabel = () => text('#pickSec .rb-turn');
+const slotText = si => text(`#pickSec [data-slot="${si}"]`);
+const liveSlot = si => page.$(`#pickSec .rb-slot[data-slot="${si}"]:not(.quiet)`);
+const barReady = () => until(() => !document.querySelector('#pickSec').hidden && document.querySelector('#pickSec .rb-slot:not(.quiet)'));
+const question = () => text('#pickSec .rb-menu h3 span');
+async function openSlot(si) {
+  await page.click(`#pickSec [data-slot="${si}"]`);
+  await until(() => document.querySelector('#pickSec .rb-menu'), null, 10000);
+}
+// Change a player's choice to something the replay's player did not do (or anything, in a line).
+async function changeSlot(si) {
+  await openSlot(si);
+  const b = await page.$('#pickSec .rb-menu [data-pick]:not(.played):not(.chosen):not(:disabled)') || await page.$('#pickSec .rb-menu [data-pick]:not(:disabled)');
+  await b.click(); await sleep(100);
+}
+// Branch this turn: change both players' choices, then Play turn.
 async function branchTurn() {
-  await pickerReady();
-  for (let i = 0; i < 10 && !await page.$('#pickSec [data-pick].played'); i++) { await press('ArrowRight'); await pickerReady(); }
-  const other = await page.$('#pickSec [data-pick]:not(.played):not(:disabled)');
-  await other.click(); await sleep(150);
-  if (await page.$('#rbTitle .rb-mode')) return settled();   // only one player had a choice
-  await pickerReady();
-  const first = await page.$$eval('#pickSec [data-pick]', b => b.findIndex(x => !x.disabled) + 1);
-  await press(String(first));
+  await barReady();
+  for (const si of [0, 1]) if (await liveSlot(si)) await changeSlot(si);
+  await page.click('#btnPlayTurn');
   await until(() => document.querySelector('#rbTitle .rb-mode'), null, 30000);
   await settled();
 }
@@ -103,24 +111,31 @@ try {
   check(/\?r=/.test(page.url()), 'a replay gets its own address', page.url());
 
   // ---------------------------------------------------------------- team preview: leads
-  await pickerReady();
-  check(/choose a lead/.test(await question()), 'starts at team preview with the lead picker', await question());
+  await barReady();
+  check(await turnLabel() === 'Team preview' && /\S/.test(await slotText(0)) && /\S/.test(await slotText(1)),
+    "starts at team preview, the bar showing the replay's leads", `${await slotText(0)} | ${await slotText(1)}`);
+  await openSlot(0);
+  check(/choose a lead/.test(await question()), "a slot opens that player's menu", await question());
+  await press('Escape');
+  check(!await page.$('#pickSec .rb-menu'), 'Esc closes it');
   check(!await inLine() && await currentRow() === '', 'on the replay at team preview');
   await branchTurn();
-  check(await inLine(), 'picking a different lead starts a line');
+  check(await inLine(), 'changing the leads and playing the turn starts a line');
   check(await page.$$eval('#studySec .rb-tok', t => t.length) === 1, 'the line is in the study');
   check(await visible('#diceSec'), 'dice are shown for the line');
 
   await control('reset'); await sleep(500);
-  check(!await inLine() && /choose a lead/.test(await question()), 'Reset goes back to team preview');
+  check(!await inLine() && await turnLabel() === 'Team preview', 'Reset goes back to team preview');
 
-  // following the replay: both pick what was played
-  for (let i = 0; i < 2; i++) { await pickerReady(); await page.click('#pickSec [data-pick].played'); await sleep(150); }
+  // following the replay: Play turn with the bar as it is
+  await barReady(); await page.click('#btnPlayTurn');
   await until(() => document.querySelector('.rb-mrow.cur .no')?.textContent === '0', null, 30000); await settled();
-  check(!await inLine(), 'picking the played leads follows the replay');
-  await pickerReady();
-  check(/what will .+ do\?/.test(await question()), 'then asks for turn 1', await question());
-  const bench = await page.$$eval('#pickSec .rb-sw', b => [b.length, b.filter(x => !x.disabled).length]);
+  check(!await inLine(), 'Play turn as the replay played it follows the replay');
+  await barReady();
+  check(await turnLabel() === 'Turn 1', 'and the bar moves on to turn 1', await turnLabel());
+  await openSlot(0);
+  check(/what will .+ do\?/.test(await question()), 'with the move menu', await question());
+  const bench = await page.$$eval('#pickSec .rb-menu .rb-sw', b => [b.length, b.filter(x => !x.disabled).length]);
   check(bench[0] === 5 && bench[1] === 5, 'every Pokemon on the bench can be switched in on turn 1', `${bench[1]} of ${bench[0]}`);
   const ranges = await page.$$eval('#pickSec .rb-dmg', d => d.map(x => x.textContent));
   check(ranges.length > 0 && ranges.every(r => /^[\d.]+ - [\d.]+%$/.test(r)), 'attacking moves show the damage calc range', ranges.join(', '));
@@ -128,8 +143,10 @@ try {
   const tip = await text('#tooltipwrapper');
   check(/Accuracy/.test(tip), "hovering a move shows Showdown's move tooltip");
   check(/ vs\. .+: \d+-\d+ \(/.test(tip), "and the damage calc's result", tip.slice(tip.indexOf(' vs. ') - 40, tip.indexOf(' vs. ') + 60));
-  await page.hover('#pickSec .rb-sw');
+  await page.hover('#pickSec .rb-menu .rb-sw');
   check(/HP/.test(await text('#tooltipwrapper')), "hovering a Pokemon shows Showdown's Pokemon tooltip");
+  await page.click('#studySec'); await sleep(150);
+  check(!await page.$('#pickSec .rb-menu'), 'a click elsewhere closes the menu');
 
   // ---------------------------------------------------------------- play / pause and the turn buttons
   await control('play'); await sleep(4000);
@@ -145,29 +162,55 @@ try {
   await press('ArrowRight');
   check(await currentRow() === '3', 'Right arrow steps forward');
 
+  // ---------------------------------------------------------------- hammering the controls
+  await control('reset'); await sleep(300);
+  for (let i = 0; i < 25; i++) await page.click('.replay-controls button[data-action=ff]');   // as fast as clicks go
+  for (let i = 0; i < 10; i++) await page.click('.replay-controls button[data-action=rewind]');
+  for (let i = 0; i < 6; i++) await control(i % 2 ? 'pause' : 'play').catch(() => {});
+  for (let i = 0; i < 20; i++) await page.keyboard.press('ArrowRight');
+  await control('pause').catch(() => {}); await sleep(1500); await settled();
+  for (let i = 0; i < 8; i++) await page.keyboard.press('ArrowLeft');
+  await sleep(800);
+  const row = await currentRow(), label = await turnLabel();
+  check(label === `Turn ${+row + 1}`, 'after hammering the controls, the bar shows the turn on screen', `row ${row}, bar ${label}`);
+  await openSlot(0);
+  check(/what will .+ do\?/.test(await question()), 'and its menu still opens', await question());
+  await press('Escape');
+
   // ---------------------------------------------------------------- move picker toggle, guessed moves
   await page.click('.pickerchooser button[value=off]'); await sleep(200);
-  check(!await visible('#pickSec'), 'Move picker: Off hides the picker');
+  check(!await visible('#pickSec'), 'Move picker: Off hides the bar');
   await page.click('.pickerchooser button[value=on]'); await sleep(200);
-  await pickerReady();
-  check(await visible('#pickSec .rb-moves'), 'Move picker: On shows it again');
-  // find a turn where the player to move has a guessed move (one not seen in the replay)
-  for (let i = 0; i < 40 && !await page.$('#pickSec [data-edit]'); i++) { await press('ArrowRight'); await sleep(250); }
-  const guessed = await page.$('#pickSec [data-edit]');
+  await barReady();
+  check(await visible('#pickSec .rb-bar'), 'Move picker: On shows it again');
+  // find a turn where player 1 has a guessed move (one not seen in the replay)
+  let guessed = null;
+  for (let i = 0; i < 40 && !guessed; i++) {
+    if (await liveSlot(0)) { await openSlot(0); guessed = await page.$('#pickSec .rb-menu [data-edit]'); if (!guessed) await press('Escape'); }
+    if (!guessed) { await press('ArrowRight'); await sleep(250); }
+  }
   if (guessed) {
-    const old = await page.$eval('#pickSec [data-edit]', b => b.dataset.edit);
+    const old = await page.$eval('#pickSec .rb-menu [data-edit]', b => b.dataset.edit);
     await guessed.click(); await sleep(100);
     await page.$eval('.rb-mvinput', el => { el.value = ''; });
     await page.type('.rb-mvinput', 'Protect'); await page.keyboard.press('Enter'); await sleep(300);
-    const moves = await page.$$eval('#pickSec .rb-mv b', b => b.map(x => x.textContent));
+    const moves = await page.$$eval('#pickSec .rb-menu .rb-mv b', b => b.map(x => x.textContent));
     check(moves.includes('Protect') && !moves.includes(old), 'a guessed move can be edited inline', `${old} -> ${moves.join('/')}`);
+    await press('Escape');
   } else check(false, 'a guessed move to edit');
   await control('reset'); await sleep(400);
   for (let i = 0; i < 4; i++) { await control('ff'); await sleep(250); }
 
   // ---------------------------------------------------------------- a line, its dice
-  await branchTurn();
-  check(await inLine(), 'picking another move (keyboard for player 2) starts a line');
+  await barReady();
+  await openSlot(0);
+  const nth = await page.$$eval('#pickSec .rb-menu [data-pick]', b => b.findIndex(x => !x.disabled && !x.classList.contains('played') && !x.classList.contains('chosen')) + 1);
+  await press(String(nth));   // (number keys pick in the menu)
+  check(await page.$('#pickSec [data-slot="0"].changed'), 'a number key picks in the menu, and the slot shows it changed');
+  await changeSlot(1);
+  await press('Enter');   // (Enter plays the turn)
+  await until(() => document.querySelector('#rbTitle .rb-mode'), null, 30000); await settled();
+  check(await inLine(), 'Enter plays the changed turn as a line');
   const logBefore = await text('.battle-log');
   const chip = await page.$('#diceSec button.rb-chip[title]');   // a yes/no outcome (speed-tie chips have no title)
   if (chip) {
@@ -195,7 +238,7 @@ try {
   check(tokens.some(t => t.includes('!?') && t.includes('interesting try')), 'glyph and note show on the line');
 
   await page.reload({waitUntil: 'domcontentloaded'});
-  await pickerReady();
+  await barReady();
   const reloaded = await page.$$eval('#studySec .rb-tok', t => t.map(x => x.textContent));
   check(reloaded.length === lineCount && reloaded.some(t => t.includes('!?') && t.includes('interesting try')), 'the study is kept across a reload', reloaded.length + ' lines');
 
@@ -248,7 +291,7 @@ try {
   await page.click('#btnLoad'); await sleep(200);
   await page.$eval('#pasteBox', (el, v) => { el.value = v; }, exported);
   await page.click('#btnDoLoad'); await sleep(1000);
-  await pickerReady();
+  await barReady();
   check(!await visible('#loader') && await page.$$eval('#studySec .rb-tok', t => t.length) === lineCount, 'loading the export brings the lines back');
 
   // ---------------------------------------------------------------- teams tab
@@ -326,7 +369,7 @@ try {
   await until(() => document.querySelectorAll('#searchResults [data-visit]').length, null, 30000);
   const result = await page.$eval('#searchResults [data-visit]', r => r.dataset.visit);
   await page.click('#searchResults [data-visit]');
-  await pickerReady().catch(() => {});
+  await barReady().catch(() => {});
   check(page.url().includes(result) && await visible('#viewer'), 'a search result opens', result);
   await page.goBack(); await sleep(400);
   check(await visible('#landing'), 'Back returns to the landing page');
@@ -347,39 +390,35 @@ try {
     await until(() => document.querySelector('#loader').hidden, null, 30000); await sleep(800);
     const title = await text('#rbTitle');
     check(!await text('#loadErr'), `${format}: loads ${id}`, title.slice(0, 60));
-    if (!await visible('#pickSec .rb-pside')) { await control('ff'); await sleep(500); }   // no team preview: start at turn 1
+    if (!await liveSlot(0)) { await control('ff'); await sleep(500); }   // no team preview: start at turn 1
     await branchTurn();
     const err = await text('#pickSec .rb-err');
     check(await inLine() && !err, `${format}: taking over a turn works`, err);
     if (GIMMICK_FORMATS.includes(format)) {
-      // back on the replay, walk the turns to one where the player to move can Mega Evolve / use Z-Power / Dynamax
+      // back on the replay, walk the turns to one where a player can Mega Evolve / use Z-Power / Dynamax
       await control('reset'); await sleep(400);
-      const GIMMICK = '#pickSec [data-gimmick]:not([data-gimmick=terastallize])';
-      for (let i = 0; i < 60 && !await page.$(GIMMICK); i++) {
-        // player 2's choice too: pick player 1's first option, look, and take it back
-        const first = await page.$('#pickSec .rb-mv:not(:disabled)');
-        if (first && /what will/.test(await question())) {
-          const q = await question();
-          await first.click(); await sleep(150);
-          if (await page.$(GIMMICK)) break;
-          if (await page.$('#btnUndo') && await question() !== q) { await page.click('#btnUndo'); await sleep(150); }
-          if (await page.$('#rbTitle .rb-mode')) { await settled(); await press('ArrowLeft'); await sleep(200); }
+      const GIMMICK = '#pickSec .rb-menu [data-gimmick]:not([data-gimmick=terastallize])';
+      let found = false;
+      for (let i = 0; i < 60 && !found; i++) {
+        for (const si of [0, 1]) {
+          if (found || !await liveSlot(si)) continue;
+          await openSlot(si);
+          if (await page.$(GIMMICK)) found = true; else await press('Escape');
         }
-        await press('ArrowRight'); await sleep(200);
+        if (!found) { await press('ArrowRight'); await sleep(200); }
       }
-      const box = await page.$('#pickSec [data-gimmick]:not([data-gimmick=terastallize])');
-      if (!box) { check(false, `${format}: a Mega Evolution / Z-Power / Dynamax choice turns up`); continue; }
-      const kind = await box.evaluate(b => b.parentElement.textContent.trim());
-      const before = await page.$$eval('#pickSec .rb-mv b', b => b.map(x => x.textContent).join('/'));
-      await press('t');   // ticks it
-      const after = await page.$$eval('#pickSec .rb-mv b', b => b.map(x => x.textContent).join('/'));
-      check(await page.$eval('#pickSec [data-gimmick]:not([data-gimmick=terastallize])', b => b.checked), `${format}: ${kind} can be ticked`,
-        before === after ? before : `${before} -> ${after}`);
-      const move = await page.$('#pickSec .rb-mv:not(:disabled)');
-      await move.click(); await sleep(150);
-      if (!await page.$('#rbTitle .rb-mode')) { await pickerReady(); const n = await page.$$eval('#pickSec [data-pick]', b => b.findIndex(x => !x.disabled) + 1); await press(String(n)); }
-      await until(() => document.querySelector('#rbTitle .rb-mode') || document.querySelector('#pickSec .rb-err') ||
-        document.querySelector('.rb-mrow.cur'), null, 30000);
+      if (!found) { check(false, `${format}: a Mega Evolution / Z-Power / Dynamax choice turns up`); continue; }
+      const kind = await page.$eval(GIMMICK, b => b.parentElement.textContent.trim());
+      // (it starts ticked where the replay's player used it)
+      const was = await page.$eval(GIMMICK, b => b.checked);
+      const before = await page.$$eval('#pickSec .rb-menu .rb-mv b', b => b.map(x => x.textContent).join('/'));
+      await press('t');   // toggles it
+      const after = await page.$$eval('#pickSec .rb-menu .rb-mv b', b => b.map(x => x.textContent).join('/'));
+      check(await page.$eval(GIMMICK, b => b.checked) !== was, `${format}: T toggles ${kind}${was ? ' (the replay used it)' : ''}`, before === after ? before : `${before} -> ${after}`);
+      await page.click('#pickSec .rb-menu .rb-mv:not(:disabled)'); await sleep(150);
+      for (const si of [0, 1]) if (await page.$(`#pickSec [data-slot="${si}"].empty`)) await changeSlot(si);
+      await page.click('#btnPlayTurn');
+      await until(() => document.querySelector('#rbTitle .rb-mode') || document.querySelector('#pickSec .rb-err') || document.querySelector('.rb-mrow.cur'), null, 30000);
       await settled();
       check(!await text('#pickSec .rb-err'), `${format}: playing a turn with ${kind} works`, await text('#pickSec .rb-err'));
     }

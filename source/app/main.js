@@ -2,7 +2,7 @@
 // Showdown's replay viewer load.
 import {S, $id, setEngine} from './state.js';
 import {attachToEmbed} from './viewer.js';
-import {onKey} from './navigation.js';
+import {onKey, onOutsideClick} from './navigation.js';
 import {route, wireDialogs} from './load.js';
 import {wireLanding} from './landing.js';
 import {listenForTooltips} from './tooltips.js';
@@ -16,6 +16,7 @@ async function loadViewer() {
   attachToEmbed();
   listenForTooltips($id('pickSec'));
   document.addEventListener('keydown', onKey);
+  document.addEventListener('click', onOutsideClick);
   (window.requestIdleCallback || (f => setTimeout(f, 1500)))(() => {
     const s = document.createElement('script'); s.src = TEAMBUILDER_TABLES; document.head.appendChild(s);
   });
