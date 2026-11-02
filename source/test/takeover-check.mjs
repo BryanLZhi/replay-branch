@@ -34,7 +34,7 @@ function played(rep, t) {
     if (si < 0) continue;
     gimmick[si] ||= GIMMICKS[kind] || (kind === '-start' && what === 'Dynamax' ? 'dynamax' : '');
     if (out[si]) continue;
-    if (kind === 'move') out[si] = line.includes('[from]') ? {kind: 'other'} : {kind: 'move', name: what};
+    if (kind === 'move') out[si] = line.includes('[from]') || what === 'Struggle' ? {kind: 'other'} : {kind: 'move', name: what};
     else if (kind === 'switch') out[si] = {kind: 'switch', name: who.replace(/^p\da: /, '')};
     else if (kind === 'cant') out[si] = {kind: 'other'};
   }

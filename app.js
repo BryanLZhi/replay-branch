@@ -19,11 +19,13 @@ var S = {
   cur: "",
   // current position: 'r<turn>' on the replay ('r0' = team preview), 'n<id>' in one of your lines
   sel: {},
-  // picks changed this turn, by player ('p1', 'p2'); the rest are what the replay's players did
+  // picks changed this turn, by slot ('p1a', 'p1b', 'p2a'...); the rest are what the replay's players did
   menu: null,
-  // the player whose move menu is open (0, 1) or null
+  // the slot whose move menu is open ('p1a', 'p2b'...) or null
+  aim: null,
+  // in doubles, the move the open menu asks a target for: {n}
   gimmick: {},
-  // by player: 'terastallize', 'mega', 'megax', 'megay', 'ultra', 'zmove' or 'dynamax' ticked with the move
+  // by slot: 'terastallize', 'mega', 'megax', 'megay', 'ultra', 'zmove' or 'dynamax' ticked with the move
   next: null,
   // the dice of the turn on the bar, before it is played: {key, forced, seed, base, rolls, for}
   err: "",
@@ -56,6 +58,7 @@ function clearPicks() {
   S.sel = {};
   S.gimmick = {};
   S.menu = null;
+  S.aim = null;
   S.next = null;
 }
 var $id = (id) => document.getElementById(id);
@@ -199,7 +202,7 @@ function promote(id) {
 }
 
 // source/app/replay.js
-var isDoubles = () => S.rep.lines.some((l) => l === "|gametype|doubles" || l === "|gametype|triples");
+var watchOnly = () => S.rep.lines.some((l) => /^\|gametype\|(triples|freeforall|multi)/.test(l));
 var startIndex = () => S.rep.lines.findIndex((l) => l === "|start");
 var playerName = (si) => S.cbEnd[pid(si)].name || "Player " + (si + 1);
 var teamIndex = (si, name) => S.cbEnd[pid(si)].team.findIndex((p) => p.name === name);
@@ -208,39 +211,31 @@ function turnLines(t) {
   return S.rep.lines.slice(a + 1, b);
 }
 var turnSummary = (t) => E.summarize(turnLines(t));
-var GIMMICKS = { "-terastallize": "terastallize", "-mega": "mega", "-burst": "ultra", "-zpower": "zmove" };
-var gimmickOf = (kind, what) => GIMMICKS[kind] || (kind === "-start" && what === "Dynamax" ? "dynamax" : "");
 var family = (g) => g && g.startsWith("mega") ? "mega" : g || "";
-function playedChoice(t, si) {
+var acted = /* @__PURE__ */ new WeakMap();
+function playedChoice(t, si, place = 0) {
   const p = pid(si);
   if (t === 0) {
-    const lead = E.replayLeads(S.rep)[p];
+    const lead = E.replayLeads(S.rep)[p + "abc"[place]];
     return lead ? { kind: "lead", name: lead } : null;
   }
-  let first = null, gimmick = "";
-  for (const line of turnLines(t)) {
-    const [, kind, who = "", what] = line.split("|");
-    if (!who.startsWith(p)) continue;
-    gimmick || (gimmick = gimmickOf(kind, what));
-    if (first) continue;
-    if (kind === "faint") first = { kind: "cant" };
-    else if (kind === "move" && !line.includes("[from]")) first = { kind: "move", name: what };
-    else if (kind === "switch") first = { kind: "switch", name: nameOf(who) };
-    else if (kind === "cant") first = line.split("|")[4] ? { kind: "move", name: line.split("|")[4] } : { kind: "cant" };
-  }
-  return first && { ...first, gimmick };
+  if (!acted.has(S.rep)) acted.set(S.rep, /* @__PURE__ */ new Map());
+  const turns = acted.get(S.rep);
+  if (!turns.has(t)) turns.set(t, E.playedActions(S.rep, t));
+  return turns.get(t)[si][place] || { kind: "cant", gimmick: "" };
 }
-function moveNames(active, n) {
-  return [active.moves[n - 1]?.move, active.canZMove?.[n - 1]?.move, active.maxMoves?.maxMoves?.[n - 1]?.move].filter(Boolean).map((m) => E.toID(m).replace(/^hiddenpower.+/, "hiddenpower").replace(/^(return|frustration)\d+$/, "$1"));
-}
-function matchesPlayed(side, pick, gimmick, played) {
+var moveNames = (active, n) => E.moveNames(active, n);
+function matchesPlayed(side, pick, gimmick, played, place = 0, def = null) {
   if (!played || !pick) return false;
-  const [kind, n] = pick.split(" ");
+  const [kind, n, target] = pick.split(" ");
   const req = side.activeRequest;
   if (played.kind === "lead") return nameOf(req.side.pokemon[n - 1].ident) === played.name;
   if (played.kind === "cant") return kind === "move";
   if (kind !== played.kind) return false;
-  if (kind === "move") return moveNames(req.active[0], n).includes(E.toID(played.name)) && family(gimmick) === family(played.gimmick);
+  if (kind === "move") {
+    if (played.target && def && def.pick.split(" ")[2] !== target) return false;
+    return moveNames(req.active[place], n).includes(E.toID(played.name)) && family(gimmick) === family(played.gimmick);
+  }
   return nameOf(req.side.pokemon[n - 1].ident) === played.name;
 }
 
@@ -460,8 +455,8 @@ function listenForTooltips(el) {
   tips.showTooltip = showTooltip;
   tips.listen(el);
 }
-function setTooltipRequest(si, req) {
-  request = req ? { si, req } : null;
+function setTooltipRequest(si, req, place = 0) {
+  request = req ? { si, req, place } : null;
   BattleTooltips.hideTooltip();
 }
 function serverPokemon(p) {
@@ -473,15 +468,15 @@ function serverPokemon(p) {
 function showTooltip(elem) {
   if (!request) return false;
   const [type, n, as] = elem.dataset.tooltip.split("|");
-  const { si, req } = request;
+  const { si, req, place } = request;
   tips.battle = S.psb;
   let html;
   try {
     if (type === "move") {
-      const active = S.psb.sides[si].active[0];
+      const active = S.psb.sides[si].active[place];
       if (!active) return false;
-      const move = req.active[0].moves[n];
-      html = tips.showMoveTooltip(S.psb.dex.moves.get(move.id || move.move), as || "move", active, serverPokemon(req.side.pokemon.find((p) => p.active)));
+      const move = req.active[place].moves[n];
+      html = tips.showMoveTooltip(S.psb.dex.moves.get(move.id || move.move), as || "move", active, serverPokemon(req.side.pokemon[place]));
     } else {
       html = tips.showPokemonTooltip(null, serverPokemon(req.side.pokemon[n]));
     }
@@ -730,45 +725,74 @@ var icon2 = (species) => {
   }
 };
 var GIMMICK_NAMES = { terastallize: "Tera", mega: "Mega", megax: "Mega X", megay: "Mega Y", ultra: "Ultra Burst", zmove: "Z", dynamax: "Dynamax" };
+var family2 = (g) => g && g.startsWith("mega") ? "mega" : g || "";
+var keyOf = (si, place) => pid(si) + "abc"[place];
 var requestOf = (pos, si) => {
   const req = pos.battle?.sides[si].activeRequest;
   return req && !req.wait ? req : null;
 };
-function playedPick(pos, si, req) {
+var doublesBattle = (pos) => pos.battle?.gameType === "doubles";
+function placesOf(pos, si, req) {
+  if (req.teamPreview) return doublesBattle(pos) ? [0, 1] : [0];
+  const side = pos.battle.sides[si];
+  if (req.forceSwitch) return req.forceSwitch.map((f, place) => f ? place : -1).filter((p) => p >= 0);
+  return side.active.map((p, place) => p && !p.fainted && !p.volatiles.commanding ? place : -1).filter((p) => p >= 0);
+}
+var benchFree = (req, taken) => req.side.pokemon.map((p, n) => n).filter((n) => !req.side.pokemon[n].active && !/fnt/.test(req.side.pokemon[n].condition) && !taken.includes(n + 1));
+var switchedIn = (pick) => pick && /^switch \d+$/.test(pick) ? +pick.split(" ")[1] : 0;
+function playedPick(pos, si, place, req) {
   if (pos.kind === "line") return null;
-  const played = playedChoice(pos.t, si);
+  const played = playedChoice(pos.t, si, place);
   if (!played) return null;
   const nth = (name) => req.side.pokemon.findIndex((p) => nameOf(p.ident) === name) + 1;
   if (played.kind === "lead") return nth(played.name) ? { pick: "team " + nth(played.name), gimmick: "" } : null;
   if (played.kind === "switch") return nth(played.name) ? { pick: "switch " + nth(played.name), gimmick: "" } : null;
-  const act = req.active?.[0];
+  const act = req.active?.[place];
   if (!act) return null;
   const i = played.kind === "cant" ? act.moves.findIndex((m) => !m.disabled) : act.moves.findIndex((_, i2) => moveNames(act, i2 + 1).includes(E.toID(played.name)));
   if (i < 0) return null;
   let gimmick = played.gimmick;
   if (gimmick === "mega") gimmick = act.canMegaEvo ? "mega" : act.canMegaEvoX ? "megax" : act.canMegaEvoY ? "megay" : "mega";
-  return { pick: "move " + (i + 1), gimmick: gimmick || "" };
+  return { pick: withTarget(pos, si, place, act, i, gimmick || "", played.target), gimmick: gimmick || "" };
 }
-function slot(pos, si, req) {
-  const def = playedPick(pos, si, req);
-  const pick = S.sel[pid(si)] || def?.pick || null;
-  const gimmick = S.gimmick[pid(si)] ?? def?.gimmick ?? "";
+function withTarget(pos, si, place, act, i, gimmick, ident) {
+  if (!doublesBattle(pos)) return "move " + (i + 1);
+  const type = E.targetType(act, i, gimmick);
+  if (!E.needsTarget(type)) return "move " + (i + 1);
+  const loc = E.targetLoc(type, ident, si, place) ?? E.targetsFor(type, pos.battle, si, place)[0];
+  return `move ${i + 1} ${loc}`;
+}
+function slot(pos, si, place, req) {
+  const key = keyOf(si, place);
+  if (req.forceSwitch && !S.sel[key]) {
+    const others = placesOf(pos, si, req).filter((p) => p !== place).map((p) => switchedIn(S.sel[keyOf(si, p)]));
+    if (!benchFree(req, others).length) return { pick: "pass", gimmick: "", changed: false, def: { pick: "pass", gimmick: "" }, fixed: true };
+  }
+  const def = playedPick(pos, si, place, req);
+  const pick = S.sel[key] || def?.pick || null;
+  const gimmick = S.gimmick[key] ?? def?.gimmick ?? "";
   const changed2 = !!def && (pick !== def.pick || gimmick !== def.gimmick) || !def && !!pick;
   return { pick, gimmick, changed: changed2, def };
 }
-function pickLabel(req, pick, gimmick) {
-  const [kind, n] = pick.split(" ");
+function pickLabel(pos, si, place, req, pick, gimmick) {
+  const [kind, n, target] = pick.split(" ");
+  if (kind === "pass") return { html: "&mdash;", type: "" };
   if (kind === "move") {
-    const act = req.active[0], m = act.moves[n - 1];
+    const act = req.active[place], m = act.moves[n - 1];
     const as = gimmick === "zmove" ? act.canZMove?.[n - 1] : gimmick === "dynamax" || act.maxMoves && !act.canDynamax ? act.maxMoves?.maxMoves?.[n - 1] : null;
     const shown = as && E.Dex.moves.get(as.move);
     const name = !as ? m.move : shown.exists ? shown.name : as.move;
     const type = (shown?.exists ? shown : E.Dex.moves.get(m.id || m.move)).type || "Normal";
     const extra = gimmick && !["zmove", "dynamax"].includes(gimmick) ? ` <small>+ ${GIMMICK_NAMES[gimmick]}</small>` : "";
-    return { html: esc(name) + extra, type };
+    const aim = target ? ` <small>&rarr; ${esc(targetName(pos, si, +target))}</small>` : "";
+    return { html: esc(name) + extra + aim, type };
   }
   const p = req.side.pokemon[n - 1];
   return { html: `<span class="rb-picon" style="${icon2(p.details.split(",")[0])}"></span>${kind === "switch" ? "&rarr; " : ""}${esc(nameOf(p.ident))}`, type: "" };
+}
+function targetName(pos, si, loc) {
+  const side = pos.battle.sides[loc > 0 ? 1 - si : si], p = side.active[Math.abs(loc) - 1];
+  return p ? p.name : "?";
 }
 function renderPicker(pos) {
   const el = $id("pickSec");
@@ -780,98 +804,138 @@ function renderPicker(pos) {
   }
   const battle = pos.battle;
   const turnLabel = pos.kind === "preview" ? "Team preview" : battle ? `Turn ${battle.turn}` : pos.t > S.rep.lastTurn ? "End" : pos.t ? `Turn ${pos.t}` : "Start";
-  let slots, playable = false;
+  const doubles = doublesBattle(pos) || !battle && S.rep.lines.includes("|gametype|doubles");
+  let groups2, playable = false;
   if (!battle || battle.ended) {
-    const why = battle?.ended ? "The battle is over" : isDoubles() ? "Doubles can only be watched" : pos.t > S.rep.lastTurn ? "End of the replay" : "";
+    const why = battle?.ended ? "The battle is over" : watchOnly() ? "This format can only be watched" : pos.t > S.rep.lastTurn ? "End of the replay" : "";
     const playing = isPlaying();
-    slots = why ? [`<span class="rb-dim">${why}</span>`] : [0, 1].map((si) => `<div class="rb-slotwrap"><span class="rb-who">${esc(playerName(si))}</span><button type="button" class="rb-slot quiet" ${playing ? `data-slot="${si}"` : "disabled"}>&hellip;</button></div>`);
+    groups2 = why ? [`<span class="rb-dim">${why}</span>`] : [0, 1].map((si) => `<div class="rb-slotwrap"><span class="rb-who">${esc(playerName(si))}</span>` + (doubles ? [0, 1] : [0]).map((place) => `<button type="button" class="rb-slot quiet" ${playing ? `data-slot="${si}" data-place="${place}"` : "disabled"}>&hellip;</button>`).join("") + `</div>`);
   } else {
     const need = [0, 1].map((si) => requestOf(pos, si));
-    playable = need.some(Boolean) && need.every((req, si) => !req || slot(pos, si, req).pick);
-    slots = [0, 1].map((si) => {
+    const turn = barTurn(pos);
+    playable = !!turn;
+    groups2 = [0, 1].map((si) => {
       const req = need[si];
-      if (!req) return `<div class="rb-slotwrap"><span class="rb-who">${esc(playerName(si))}</span><button type="button" class="rb-slot quiet" disabled>waiting</button></div>`;
-      const s = slot(pos, si, req);
-      const label2 = s.pick ? pickLabel(req, s.pick, s.gimmick) : { html: "Choose", type: "" };
-      return `<div class="rb-slotwrap"><span class="rb-who">${esc(playerName(si))}</span><button type="button" class="rb-slot ${label2.type ? "t-" + esc(label2.type) : "plain"} ${s.changed ? "changed" : ""} ${s.pick ? "" : "empty"} ${S.menu === si ? "open" : ""}" data-slot="${si}" aria-haspopup="true" aria-expanded="${S.menu === si}">${label2.html} <i class="fa fa-caret-down" aria-hidden="true"></i></button></div>`;
+      const head = `<div class="rb-slotwrap"><span class="rb-who">${esc(playerName(si))}</span>`;
+      if (!req) return head + `<button type="button" class="rb-slot quiet" disabled>waiting</button></div>`;
+      return head + placesOf(pos, si, req).map((place) => {
+        const s = slot(pos, si, place, req), key = keyOf(si, place);
+        const label2 = s.pick ? pickLabel(pos, si, place, req, s.pick, s.gimmick) : { html: "Choose", type: "" };
+        const who = doubles && !req.teamPreview ? `<span class="rb-place">${esc(nameOf(req.side.pokemon[place].ident))}</span>` : "";
+        return `<button type="button" class="rb-slot ${label2.type ? "t-" + esc(label2.type) : "plain"} ${s.changed ? "changed" : ""} ${s.pick ? "" : "empty"} ${S.menu === key ? "open" : ""}" data-slot="${si}" data-place="${place}" aria-haspopup="true" aria-expanded="${S.menu === key}" ${s.fixed ? "disabled" : ""}>${who}${label2.html} <i class="fa fa-caret-down" aria-hidden="true"></i></button>`;
+      }).join("") + `</div>`;
     });
   }
-  el.innerHTML = `<div class="rb-bar"><span class="rb-turn">${turnLabel}</span><div class="rb-slots">${slots.join("")}</div><button type="button" class="button rb-play" id="btnPlayTurn" ${playable ? "" : "disabled"}><i class="fa fa-play" aria-hidden="true"></i> Play turn</button></div>` + (S.err ? `<p class="rb-err">${esc(S.err)}</p>` : "") + menuHTML(pos);
+  el.innerHTML = `<div class="rb-bar ${doubles ? "doubles" : ""}"><span class="rb-turn">${turnLabel}</span><div class="rb-slots">${groups2.join("")}</div><button type="button" class="button rb-play" id="btnPlayTurn" ${playable ? "" : "disabled"}><i class="fa fa-play" aria-hidden="true"></i> Play turn</button></div>` + (S.err ? `<p class="rb-err">${esc(S.err)}</p>` : "") + menuHTML(pos);
   for (const b of el.querySelectorAll("[data-slot]")) b.onclick = (e) => {
     e.stopPropagation();
-    openMenu(pos, +b.dataset.slot);
+    openMenu(pos, +b.dataset.slot, +(b.dataset.place || 0));
   };
   $id("btnPlayTurn").onclick = () => {
     if (playable) playTurn(pos);
   };
   wireMenu(pos);
 }
-function openMenu(pos, si) {
+function openMenu(pos, si, place) {
+  const key = keyOf(si, place);
+  S.aim = null;
   if (isPlaying()) {
     S.psb.pause();
-    S.menu = si;
+    S.menu = key;
     go(S.cur, { force: true });
     return;
   }
-  S.menu = S.menu === si ? null : si;
+  S.menu = S.menu === key ? null : key;
   renderPicker(pos);
 }
 function closeMenu() {
   if (S.menu == null) return false;
   S.menu = null;
+  S.aim = null;
   setTooltipRequest(null);
   return true;
 }
+var menuSlot = () => S.menu ? { si: +S.menu[1] - 1, place: "abc".indexOf(S.menu[2]) } : null;
 function menuHTML(pos) {
-  const si = S.menu;
-  const req = si != null && pos.battle && !pos.battle.ended ? requestOf(pos, si) : null;
-  if (!req) {
+  const at = menuSlot();
+  const req = at && pos.battle && !pos.battle.ended ? requestOf(pos, at.si) : null;
+  if (!req || !placesOf(pos, at.si, req).includes(at.place)) {
     setTooltipRequest(null);
     return "";
   }
-  setTooltipRequest(si, req);
-  const s = slot(pos, si, req);
-  const forced = req.forceSwitch && req.forceSwitch[0];
-  const active = nameOf((req.side.pokemon.find((p) => p.active) || { ident: "" }).ident);
+  const { si, place } = at;
+  setTooltipRequest(si, req, place);
+  const s = slot(pos, si, place, req);
+  const forced = !!req.forceSwitch;
+  const active = nameOf((req.side.pokemon[place] || { ident: "" }).ident);
   const who = esc(playerName(si));
   const reviving = req.side.pokemon.some((p) => p.reviving);
-  const question = pos.kind === "preview" ? `${who}: choose a lead` : reviving ? `${who}: choose a Pok&eacute;mon to revive` : forced ? `${who}: switch in a Pok&eacute;mon` : `${who}: what will ${esc(active)} do?`;
-  const trapped = !forced && !!(req.active?.[0].trapped || pos.battle.sides[si].active[0]?.trapped);
-  const body = pos.kind === "preview" ? leadButtons(req, s) : (forced ? "" : moveButtons(pos, si, req, active, s)) + switchButtons(req, forced, s, trapped);
+  const question = req.teamPreview ? `${who}: choose ${doublesBattle(pos) ? place ? "the second lead" : "the first lead" : "a lead"}` : reviving ? `${who}: choose a Pok&eacute;mon to revive` : S.aim ? `${who}: choose a target for ${esc(req.active[place].moves[S.aim.n - 1].move)}` : forced ? `${who}: switch in a Pok&eacute;mon` : `${who}: what will ${esc(active)} do?`;
+  const trapped = !forced && !req.teamPreview && !!(req.active?.[place]?.trapped || pos.battle.sides[si].active[place]?.trapped);
+  const taken = placesOf(pos, si, req).filter((p) => p !== place).map((p) => slot(pos, si, p, req).pick);
+  const body = req.teamPreview ? leadButtons(req, s, taken) : S.aim ? targetButtons(pos, si, place, req) : (forced ? "" : moveButtons(pos, si, place, req, active, s, taken)) + switchButtons(req, forced, s, trapped, taken);
   return `<div class="rb-menu" role="dialog" aria-label="${who}'s choice"><h3><span>${question}</span><button type="button" class="rb-linkbtn" id="btnCloseMenu" aria-label="Close">&times;</button></h3>${body}</div>`;
 }
 function wireMenu(pos) {
   const menu = $id("pickSec").querySelector(".rb-menu");
   if (!menu) return;
-  const si = S.menu;
+  const { si, place } = menuSlot(), key = S.menu;
   menu.onclick = (e) => e.stopPropagation();
+  const done = () => {
+    closeMenu();
+    renderPicker(pos);
+    renderDice(pos);
+  };
   $id("btnCloseMenu").onclick = () => {
     closeMenu();
     renderPicker(pos);
   };
   for (const b of menu.querySelectorAll("[data-pick]")) b.onclick = () => {
-    S.sel[pid(si)] = b.dataset.pick;
+    const pick = b.dataset.pick, [kind, n] = pick.split(" ");
     S.err = "";
-    closeMenu();
+    if (kind === "move" && doublesBattle(pos)) {
+      const act = requestOf(pos, si).active[place];
+      const type = E.targetType(act, n - 1, S.gimmick[key] ?? slot(pos, si, place, requestOf(pos, si)).gimmick);
+      const targets = E.targetsFor(type, pos.battle, si, place);
+      if (E.needsTarget(type) && targets.length > 1) {
+        S.aim = { n: +n };
+        renderPicker(pos);
+        return;
+      }
+      S.sel[key] = E.needsTarget(type) ? `${pick} ${targets[0]}` : pick;
+    } else S.sel[key] = pick;
+    done();
+  };
+  for (const b of menu.querySelectorAll("[data-target]")) b.onclick = () => {
+    S.sel[key] = `move ${S.aim.n} ${b.dataset.target}`;
+    done();
+  };
+  const back = $id("btnAimBack");
+  if (back) back.onclick = () => {
+    S.aim = null;
     renderPicker(pos);
-    renderDice(pos);
   };
   for (const box of menu.querySelectorAll("[data-gimmick]")) box.onchange = () => {
-    S.gimmick[pid(si)] = box.checked ? box.dataset.gimmick : "";
+    S.gimmick[key] = box.checked ? box.dataset.gimmick : "";
+    const sel = S.sel[key] || slot(pos, si, place, requestOf(pos, si)).pick;
+    if (sel && sel.startsWith("move") && doublesBattle(pos)) {
+      const act = requestOf(pos, si).active[place], n = +sel.split(" ")[1];
+      S.sel[key] = withTarget(pos, si, place, act, n - 1, S.gimmick[key], null);
+    }
     renderPicker(pos);
     renderDice(pos);
   };
-  for (const b of menu.querySelectorAll("[data-edit]")) b.onclick = () => editGuessedMove(pos, si, b);
+  for (const b of menu.querySelectorAll("[data-edit]")) b.onclick = () => editGuessedMove(pos, si, place, b);
 }
-var pickedHere = (s, pick) => s.pick === pick ? "chosen" : "";
-var playedHere = (s, pick) => s.def?.pick === pick ? "played" : "";
-function leadButtons(req, s) {
+var pickedHere = (s, pick) => s.pick === pick || (s.pick || "").startsWith(pick + " ") ? "chosen" : "";
+var playedHere = (s, pick) => s.def?.pick === pick || (s.def?.pick || "").startsWith(pick + " ") ? "played" : "";
+function leadButtons(req, s, taken) {
   return `<div class="rb-switches">${req.side.pokemon.map((p, n) => {
     const pick = "team " + (n + 1), was = playedHere(s, pick);
-    return `<button type="button" class="button rb-sw has-tooltip ${was} ${pickedHere(s, pick)}" data-pick="${pick}" data-tooltip="switchpokemon|${n}" ${was ? 'data-note="Lead in the replay"' : ""}><span class="rb-picon" style="${icon2(p.details.split(",")[0])}"></span>${esc(nameOf(p.ident))}</button>`;
+    return `<button type="button" class="button rb-sw has-tooltip ${was} ${pickedHere(s, pick)}" data-pick="${pick}" data-tooltip="switchpokemon|${n}" ${was ? 'data-note="Lead in the replay"' : ""} ${taken.includes(pick) ? "disabled" : ""}><span class="rb-picon" style="${icon2(p.details.split(",")[0])}"></span>${esc(nameOf(p.ident))}</button>`;
   }).join("")}</div>`;
 }
-function gimmicks(act) {
+function gimmicks(act, othersUse) {
   return [
     act.canMegaEvo && ["mega", "Mega Evolution"],
     act.canMegaEvoX && ["megax", "Mega Evolution X"],
@@ -880,15 +944,17 @@ function gimmicks(act) {
     act.canZMove && ["zmove", "Z-Power"],
     act.canDynamax && ["dynamax", "Dynamax"],
     act.canTerastallize && ["terastallize", "Terastallize"]
-  ].filter(Boolean);
+  ].filter((g) => g && !othersUse.includes(family2(g[0])));
 }
-function moveButtons(pos, si, req, active, s) {
-  const act = req.active[0];
+function moveButtons(pos, si, place, req, active, s, taken) {
+  const act = req.active[place];
   const mode = s.gimmick === "zmove" ? "zmove" : s.gimmick === "dynamax" || act.maxMoves && !act.canDynamax ? "maxmove" : "";
   const k = teamIndex(si, active);
   const known = k >= 0 ? S.base[si][k].fixed.moves.map(E.toID) : [];
   const pasted = k >= 0 && (pos.kind === "line" ? lineSets(S.cur) : S.study.sets)[si][k].pasted;
-  const calcs = mode ? [] : E.damageCalcs(pos.battle, si);
+  const foes = pos.battle.sides[1 - si].active.map((p, f) => p && !p.fainted ? f : -1).filter((f) => f >= 0);
+  const calcs = mode ? [] : doublesBattle(pos) ? foes.map((f) => E.damageCalcs(pos.battle, si, place, f)) : [E.damageCalcs(pos.battle, si)];
+  const transformed = pos.battle.sides[si].active[place]?.transformed;
   const moves = act.moves.map((m, i) => {
     const pick = "move " + (i + 1);
     const as = mode === "zmove" ? act.canZMove[i] : mode === "maxmove" ? act.maxMoves.maxMoves[i] : null;
@@ -896,29 +962,42 @@ function moveButtons(pos, si, req, active, s) {
     const name = !as ? m.move : shown.exists ? shown.name : as.move;
     const type = (shown?.exists ? shown : E.Dex.moves.get(m.id || m.move)).type || "Normal";
     const was = playedHere(s, pick);
-    const transformed = pos.battle.sides[si].active[0]?.transformed;
     const guessed = k >= 0 && !pasted && !transformed && !known.includes(E.toID(m.move)) && !["struggle", "recharge"].includes(E.toID(m.move));
     const note = guessed ? "Guessed" : was ? "Used in the replay" : "";
     const disabled = m.disabled || m.pp === 0 || mode === "zmove" && !as;
-    return `<div class="rb-mvwrap"><button type="button" class="rb-mv has-tooltip t-${esc(type)} ${was} ${pickedHere(s, pick)} ${guessed ? "guess" : ""}" data-pick="${pick}" data-tooltip="move|${i}|${mode}" ${note ? `data-note="${note}"` : ""} ${calcs[i]?.desc ? `data-calc="${esc(calcs[i].desc)}"` : ""} ${disabled ? "disabled" : ""}><b>${esc(name)}</b><small><span>${esc(type)}</span>${calcs[i] ? `<span class="rb-dmg">${esc(calcs[i].range)}</span>` : ""}<span>${m.maxpp ? `${m.pp}/${m.maxpp}` : ""}</span></small></button>` + (guessed ? `<button type="button" class="rb-edit" data-edit="${esc(m.move)}" title="Change this guessed move" aria-label="Change ${esc(m.move)}"><i class="fa fa-pencil" aria-hidden="true"></i></button>` : "") + `</div>`;
+    const ranges = calcs.map((c, j) => c[i] && { ...c[i], foe: doublesBattle(pos) ? pos.battle.sides[1 - si].active[foes[j]] : null }).filter(Boolean);
+    const desc = ranges.map((c) => c.desc).filter(Boolean).join("\n");
+    return `<div class="rb-mvwrap"><button type="button" class="rb-mv has-tooltip t-${esc(type)} ${was} ${pickedHere(s, pick)} ${guessed ? "guess" : ""}" data-pick="${pick}" data-tooltip="move|${i}|${mode}" ${note ? `data-note="${note}"` : ""} ${desc ? `data-calc="${esc(desc)}"` : ""} ${disabled ? "disabled" : ""}><b>${esc(name)}</b><small><span>${esc(type)}</span>${ranges.map((c) => `<span class="rb-dmg">${c.foe ? `<span class="rb-picon mini" style="${icon2(c.foe.species.name)}"></span>` : ""}${esc(c.range)}</span>`).join("")}<span>${m.maxpp ? `${m.pp}/${m.maxpp}` : ""}</span></small></button>` + (guessed ? `<button type="button" class="rb-edit" data-edit="${esc(m.move)}" title="Change this guessed move" aria-label="Change ${esc(m.move)}"><i class="fa fa-pencil" aria-hidden="true"></i></button>` : "") + `</div>`;
   });
-  const boxes = gimmicks(act).map(([value, label2]) => `<label><input type="checkbox" data-gimmick="${value}" ${s.gimmick === value ? "checked" : ""}> ${label2}</label>` + (value === "terastallize" ? " " + typeTag2(act.canTerastallize) : "")).join(" ");
+  const othersUse = placesOf(pos, si, req).filter((p) => p !== place).map((p) => family2(S.gimmick[keyOf(si, p)] ?? slot(pos, si, p, req).gimmick)).filter(Boolean);
+  const boxes = gimmicks(act, othersUse).map(([value, label2]) => `<label><input type="checkbox" data-gimmick="${value}" ${s.gimmick === value ? "checked" : ""}> ${label2}</label>` + (value === "terastallize" ? " " + typeTag2(act.canTerastallize) : "")).join(" ");
   return `<div class="rb-moves">${moves.join("")}</div>${boxes ? `<p class="rb-row" style="margin-top:6px">${boxes}</p>` : ""}`;
 }
-function switchButtons(req, forced, s, trapped) {
+function targetButtons(pos, si, place, req) {
+  const act = req.active[place], n = S.aim.n;
+  const type = E.targetType(act, n - 1, S.gimmick[keyOf(si, place)] ?? "");
+  const ok = E.targetsFor(type, pos.battle, si, place);
+  const button = (loc) => {
+    const side = pos.battle.sides[loc > 0 ? 1 - si : si], p = side.active[Math.abs(loc) - 1];
+    if (!p) return "";
+    return `<button type="button" class="button rb-sw" data-target="${loc}" ${ok.includes(loc) ? "" : "disabled"}><span class="rb-picon" style="${icon2(p.species.name)}"></span>${esc(p.name)} <small>${p.fainted ? 0 : Math.round(p.hp / p.maxhp * 100)}%</small></button>`;
+  };
+  return `<div class="rb-switches">${button(2)}${button(1)}</div><div class="rb-switches">${button(-1)}${button(-2)}</div><p class="rb-row" style="margin-top:6px"><button type="button" class="rb-linkbtn" id="btnAimBack">&larr; Back</button></p>`;
+}
+function switchButtons(req, forced, s, trapped, taken) {
   const reviving = req.side.pokemon.some((p) => p.reviving);
   return `<div class="rb-switches">${req.side.pokemon.map((p, n) => {
     if (p.active && !forced) return "";
     const pick = "switch " + (n + 1), was = playedHere(s, pick);
     const fainted = /fnt/.test(p.condition);
-    const unavailable = reviving ? !fainted : fainted || p.active || trapped;
+    const unavailable = reviving ? !fainted : fainted || p.active || trapped || taken.includes(pick);
     const [hp, max] = p.condition.split(" ")[0].split("/");
     return `<button type="button" class="button rb-sw has-tooltip ${was} ${pickedHere(s, pick)}" data-pick="${pick}" data-tooltip="switchpokemon|${n}" ${was ? 'data-note="Used in the replay"' : ""} ${unavailable ? "disabled" : ""}><span class="rb-picon" style="${icon2(p.details.split(",")[0])}"></span>${esc(nameOf(p.ident))} <small>${fainted ? 0 : Math.round(hp / max * 100)}%</small></button>`;
   }).join("")}</div>`;
 }
-function editGuessedMove(pos, si, button) {
+function editGuessedMove(pos, si, place, button) {
   const req = requestOf(pos, si);
-  const active = nameOf((req.side.pokemon.find((p) => p.active) || { ident: "" }).ident);
+  const active = nameOf((req.side.pokemon[place] || { ident: "" }).ident);
   const old = button.dataset.edit;
   const k = teamIndex(si, active);
   const sets = pos.kind === "line" ? lineSets(S.cur) : S.study.sets;
@@ -971,19 +1050,33 @@ function replaceMove(pos, si, k, oldMove, newMove) {
   if (pos.kind === "line") showPosition(false);
   renderPanels();
 }
+function sideChoice(pos, si, req, picks) {
+  if (req.teamPreview) {
+    const leads = picks.map((p) => +p.pick.split(" ")[1]);
+    if (!doublesBattle(pos)) return picks[0].pick;
+    const team = S.cbEnd[pid(si)].team, all = req.side.pokemon.map((_, n) => n + 1).filter((n) => !leads.includes(n));
+    const seen = (n) => {
+      const k = teamIndex(si, nameOf(req.side.pokemon[n - 1].ident));
+      return k >= 0 && team[k].maxhp > 0;
+    };
+    return "team " + leads.concat(all.filter(seen), all.filter((n) => !seen(n))).join(all.length + leads.length >= 10 ? "," : "");
+  }
+  return picks.map((p) => p.pick.startsWith("move") && p.gimmick ? p.pick + " " + p.gimmick : p.pick).join(", ");
+}
 function barTurn(pos) {
   const battle = pos.battle;
-  if (!battle || battle.ended || isDoubles()) return null;
+  if (!battle || battle.ended || watchOnly()) return null;
   const need = [0, 1].map((si) => requestOf(pos, si));
   if (!need.some(Boolean)) return null;
   const choices = {}, onReplay = pos.kind === "turn" || pos.kind === "preview";
   let replay2 = onReplay;
   for (const [si, req] of need.entries()) {
     if (!req) continue;
-    const s = slot(pos, si, req);
-    if (!s.pick) return null;
-    choices[pid(si)] = s.pick.startsWith("move") && s.gimmick ? s.pick + " " + s.gimmick : s.pick;
-    replay2 && (replay2 = matchesPlayed(battle.sides[si], s.pick, s.gimmick, playedChoice(pos.t, si)));
+    const places = placesOf(pos, si, req);
+    const picks = places.map((place) => slot(pos, si, place, req));
+    if (picks.some((s) => !s.pick)) return null;
+    if (picks.length) choices[pid(si)] = sideChoice(pos, si, req, picks);
+    replay2 && (replay2 = picks.every((s) => s.fixed || !s.changed && matchesPlayed(battle.sides[si], s.pick, s.gimmick, playedChoice(pos.t, si, places[picks.indexOf(s)]), places[picks.indexOf(s)], s.def)));
   }
   return { choices, replay: replay2, parent: onReplay ? "r" + pos.t : S.cur, sets: onReplay ? S.study.sets : void 0 };
 }
@@ -1062,7 +1155,7 @@ function renderStudy() {
   const rows = [
     row("r0", "", `<div class="a">Team preview</div>`, "start"),
     linesFrom("r0"),
-    row("r1", 0, `<div class="a">\u2192 ${esc(leads.p1 || "?")}</div><div class="a">\u2192 ${esc(leads.p2 || "?")}</div>`),
+    row("r1", 0, ["p1", "p2"].map((p) => `<div class="a">\u2192 ${esc([leads[p + "a"], leads[p + "b"]].filter(Boolean).join(", ") || "?")}</div>`).join("")),
     linesFrom("r1")
   ];
   for (let t = 1; t <= S.rep.lastTurn; t++) {
@@ -1127,7 +1220,7 @@ function position() {
     return { kind: "line", battle: r.battle, rolls: r.rolls };
   }
   const t = replayTurn(S.cur);
-  const canPick = pickerOn() && !isDoubles() && !isPlaying();
+  const canPick = pickerOn() && !watchOnly() && !isPlaying();
   if (canPick && t === 0 && S.psb && !S.psb.started) {
     const pv = previewPos(S.study.sets);
     if (pv) return { kind: "preview", t, battle: pv.battle };
@@ -1619,8 +1712,9 @@ var statsIndex = null;
 async function fetchStats(formatid) {
   try {
     statsIndex || (statsIndex = fetch("stats/index.json").then((r2) => r2.json()));
-    if (!(formatid in await statsIndex)) return null;
-    const r = await fetch("stats/" + formatid + ".json");
+    const id = E.statsFormat(formatid, await statsIndex);
+    if (!id) return null;
+    const r = await fetch("stats/" + id + ".json");
     return r.ok ? await r.json() : null;
   } catch {
     statsIndex = null;

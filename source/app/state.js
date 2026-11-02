@@ -10,9 +10,10 @@ export const S = {
   cbEnd: null,        // spectator view of the battle at the end of the replay (team order, names)
   study: null,        // {rbv, sets, nodes, kids, notes, seq}, saved per replay
   cur: '',            // current position: 'r<turn>' on the replay ('r0' = team preview), 'n<id>' in one of your lines
-  sel: {},            // picks changed this turn, by player ('p1', 'p2'); the rest are what the replay's players did
-  menu: null,         // the player whose move menu is open (0, 1) or null
-  gimmick: {},        // by player: 'terastallize', 'mega', 'megax', 'megay', 'ultra', 'zmove' or 'dynamax' ticked with the move
+  sel: {},            // picks changed this turn, by slot ('p1a', 'p1b', 'p2a'...); the rest are what the replay's players did
+  menu: null,         // the slot whose move menu is open ('p1a', 'p2b'...) or null
+  aim: null,          // in doubles, the move the open menu asks a target for: {n}
+  gimmick: {},        // by slot: 'terastallize', 'mega', 'megax', 'megay', 'ultra', 'zmove' or 'dynamax' ticked with the move
   next: null,         // the dice of the turn on the bar, before it is played: {key, forced, seed, base, rolls, for}
   err: '',            // last error to show in the picker
   tab: 'study',       // 'study' or 'teams'
@@ -32,7 +33,7 @@ export let E = null;
 export function setEngine(engine) { E = engine; }
 
 // Forget this turn's picks.
-export function clearPicks() { S.sel = {}; S.gimmick = {}; S.menu = null; S.next = null; }
+export function clearPicks() { S.sel = {}; S.gimmick = {}; S.menu = null; S.aim = null; S.next = null; }
 
 export const $id = id => document.getElementById(id);
 export const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));

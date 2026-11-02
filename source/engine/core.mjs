@@ -34,10 +34,21 @@ export function parseReplayInput(text) {
   let formatid = meta.formatid || toID(tier.replace(/\[|\]/g, ''));
   if (!Dex.formats.get(formatid).exists) {
     const alt = toID(tier);
-    formatid = Dex.formats.get(alt).exists ? alt : `gen${gen}customgame`;
+    formatid = Dex.formats.get(alt).exists ? alt : nearestFormat(formatid, gen, lines.includes('|gametype|doubles') ? 'doubles' : 'singles');
   }
   const lastTurn = turnIdx.length - 1;
   return {lines, tier, gen, formatid, turnIdx, lastTurn, winIdx, meta};
+}
+
+// A format this simulator lacks (a newer regulation, another server's): the closest one it has, of the same game type -
+// the latest whose id shares the longest start with it (gen9vgc2025regj -> gen9vgc2025regi) - else its custom game.
+function nearestFormat(formatid, gen, gameType) {
+  const all = Dex.formats.all().filter(f => f.exists && f.effectType === 'Format' && (f.gameType || 'singles') === gameType && f.id.startsWith('gen' + gen));
+  for (let n = formatid.length - 1; n > ('gen' + gen).length + 2; n--) {
+    const near = all.filter(f => f.id.startsWith(formatid.slice(0, n)));
+    if (near.length) return near[near.length - 1].id;
+  }
+  return `gen${gen}${gameType === 'doubles' ? 'doubles' : ''}customgame`;
 }
 
 // A client-side battle (what a spectator knows) after the replay's lines up to the start of turn t (t = lastTurn + 1 means the end).
@@ -59,7 +70,9 @@ export function clientAt(rep, t) {
 // take the new one only when the new forme has just one (Mega Evolutions, Terapagos-Terastal...).
 // Mummy and Lingering Aroma also pass themselves on to the Pokemon that touched them (and Wandering Spirit swaps), which the
 // client does not record: "|-activate|<holder>|ability: Mummy|<other>|[ability] <the other's ability until now>".
+// A Pledge joining an ally's ("|move|<it>|Grass Pledge|...|[from] move: Water Pledge") is its own move, not the ally's.
 export function addLine(cb, args, kwArgs) {
+  if (args[0] === 'move' && /Pledge$/.test(args[2] || '') && /Pledge$/.test(kwArgs.from || '')) { kwArgs = {...kwArgs}; delete kwArgs.from; }
   const poke = args[0] === 'detailschange' ? cb.getPokemon(args[1]) : null;
   const before = poke && {ability: poke.ability, baseAbility: poke.baseAbility};
   try { cb.add(args, kwArgs); } catch {}
@@ -123,11 +136,11 @@ export function revealedTeams(rep) {
   for (let i = 0; i < rep.lines.length - 1; i++) {
     const [, kind, who = ''] = rep.lines[i].split('|');
     if (kind !== '-zpower') continue;
-    const next = rep.lines.slice(i + 1).find(l => l.startsWith('|move|' + who.slice(0, 2)));
+    const next = rep.lines.slice(i + 1).find(l => l.startsWith('|move|' + who.slice(0, 3)));
     const zmove = next && Dex.moves.get(next.split('|')[3]);
     if (!zmove?.exists) continue;
     const crystal = zmove.isZ ? Dex.items.get(zmove.isZ) : null;   // (a status Z-Move is logged as the move itself)
-    const mon = known[who.startsWith('p2') ? 1 : 0].find(k => k.name === who.replace(/^p\da: /, ''));
+    const mon = known[who.startsWith('p2') ? 1 : 0].find(k => k.name === who.replace(/^p\d[a-c]?: /, ''));
     if (crystal && mon && !mon.item && !mon.lastItem) mon.item = crystal.name;
   }
   // the log names a damaging Z-Move or Max Move, not the move it came from: keep only its type (suggestSet finds a move of
@@ -137,6 +150,7 @@ export function revealedTeams(rep) {
     if (!z.length) continue;
     mon.moves = mon.moves.filter(m => !z.includes(m));
     mon.zTypes = z.filter(m => Dex.moves.get(m.name).category !== 'Status').map(m => Dex.moves.get(m.name).type);
+    mon.statusMove = z.some(m => Dex.moves.get(m.name).category === 'Status');
   }
   return known;
 }
@@ -160,8 +174,12 @@ export function suggestSet(known, stats, gen) {
       Dex.moves.all().find(m => m.type === type && m.category !== 'Status' && m.basePower >= 70 && !m.isZ && !m.isMax && !m.isNonstandard)?.name;
     if (mv) moves.splice(Math.min(moves.length, 3), moves.length >= 4 ? 1 : 0, mv);
   }
+  // (Max Guard came from a status move: Protect, most likely)
+  if (known.statusMove && !moves.some(m => Dex.moves.get(m).category === 'Status')) moves.splice(Math.min(moves.length, 3), moves.length >= 4 ? 1 : 0, 'Protect');
   if (!moves.length) moves.push('Tackle');   // never seen moving and no stats: a placeholder to edit (the sim needs a move)
-  let item = known.item || known.lastItem || (e && e.i && e.i[0] ? itemName(e.i[0][0]) : '');
+  // (not an Assault Vest on a Pokemon seen using a status move)
+  const usedStatus = known.moves.some(m => Dex.moves.get(m.name).category === 'Status');
+  let item = known.item || known.lastItem || ((e && e.i) || []).map(([i]) => itemName(i)).find(i => !(usedStatus && toID(i) === 'assaultvest')) || '';
   let ability = known.ability || (e && e.a && e.a[0] ? e.a[0][0] : (sp.abilities ? sp.abilities[0] : ''));
   let tera = known.tera || (e && e.t && e.t[0] ? e.t[0][0] : (sp.types ? sp.types[0] : ''));
   let nature = 'Serious', evs = {hp: 84, atk: 84, def: 84, spa: 84, spd: 84, spe: 84};
@@ -284,7 +302,15 @@ export class RngControl {
     return this.rec({key: 'int:' + (e.id || '') + ':' + lo + '-' + hi, kind: 'int', label, who: e.holder, lo, hi}, lo + Math.floor((hi - 1 - lo) / 2));
   }
   sample(items) {
-    this.base.sample(items);
+    const r = this.base.sample(items);
+    const c = this.top();
+    if (c && c.kind === 'aim') {
+      // doubles: a move without a chosen target gets one at random; only for a move that hits one target does it matter
+      // (Outrage, a foe that fainted first...), not for spread moves, which the simulator still gives one
+      if (!['normal', 'any', 'adjacentFoe', 'randomNormal', 'adjacentAlly'].includes(c.target)) return r;
+      const idx = this.rec({key: 'aim:' + c.move, kind: 'pick', label: `${c.move}: target`, who: c.user, options: items.map(x => (x && x.name) || String(x))}, 0);
+      return items[idx < 0 ? 0 : idx];
+    }
     const e = this.effectLabel();
     // most likely = the most common entry (e.g. 2 or 3 hits from [2,2,3,3,4,5]); first one on a tie
     const counts = new Map(); items.forEach(x => counts.set(x, (counts.get(x) || 0) + 1));
@@ -333,6 +359,7 @@ export function installRng(battle, ctl) {
     : {kind: 'sec', old: true, move: move.name, user: pokemon.name, list: ((moveData || move).secondaries || []).filter(s => s.chance !== undefined), n: 0});
   wrap(A, 'secondaries', (targets, source, move, moveData) => ({kind: 'sec', move: move.name, user: source.name, list: (moveData && moveData.secondaries) || move.secondaries || [], n: 0}));
   if (battle.gen === 2 || battle.gen === 3) wrap(battle, 'endTurn', () => ({kind: 'endturn'}));
+  wrap(battle, 'getRandomTarget', (pokemon, move) => { const m = Dex.moves.get(move); return {kind: 'aim', move: m.name, target: m.target, user: pokemon.name}; });
   const sp = battle.speedSort;
   battle.speedSort = function (...a) { ctl.push({kind: 'speed'}); try { return sp.apply(this, a); } finally { ctl.pop(); } };
   return ctl;
@@ -370,11 +397,15 @@ function endOf(rep) {
 }
 // A side's team at some turn, plus the Pokemon the replay only reveals later (without team preview they are not known
 // yet, but they are on the team): those are in the back, unhurt.
+// (in the end's order, which the sets follow, matched by name: in doubles the client reorders a team as its Pokemon change places)
 function withLaterReveals(teamNow, teamAtEnd) {
-  return teamNow.concat(teamAtEnd.slice(teamNow.length).map(p => ({
-    name: p.name, speciesForme: p.baseSpeciesForme || p.speciesForme, level: p.level, gender: p.gender, hp: 0, maxhp: 0, fainted: false,
-    status: '', boosts: {}, volatiles: {}, moveSlots: [], item: '', itemEffect: '', lastItem: '', lastItemEffect: '', ability: '', baseAbility: '',
-  })));
+  const left = teamNow.slice();
+  return teamAtEnd.map((p, k) => {
+    const j = left.findIndex(x => x.name === p.name);
+    if (j >= 0) return left.splice(j, 1)[0];
+    return {name: p.name, speciesForme: p.baseSpeciesForme || p.speciesForme, level: p.level, gender: p.gender, hp: 0, maxhp: 0, fainted: false,
+      status: '', boosts: {}, volatiles: {}, moveSlots: [], item: '', itemEffect: '', lastItem: '', lastItemEffect: '', ability: '', baseAbility: ''};
+  });
 }
 
 // sets[side][k] are full sets in the order of the replay's team (as at its end); returns {battle, ctl, notes}
@@ -385,13 +416,20 @@ export function takeover(rep, t, sets, seed) {
   const battle = new SimBattle(seed ? {formatid: rep.formatid, seed} : {formatid: rep.formatid});
   const sides = [cb.p1, cb.p2];
   const teams = sides.map((cs, si) => withLaterReveals(cs.team, endOf(rep).sides[si].team));
-  const order = [];
+  const order = [], transformed = [];
+  const seen = teams.map((team, si) => team.map((p, k) => { const e = endOf(rep).sides[si].team[k]; return !!(p.maxhp || e?.maxhp); }));
   sides.forEach((cs, si) => {
     const team = teams[si];
-    const act = cs.active[0];
-    const idx = team.map((_, k) => k);
-    const a = act ? team.indexOf(act) : -1;
-    if (a > 0) { idx.splice(a, 1); idx.unshift(a); }
+    // the active Pokemon in their places (an empty place: one that fainted stands in), then the rest, the ones seen in
+    // battle first (a format that brings 4 of 6 brings the first 4)
+    const front = cs.active.map(p => p ? team.indexOf(p) : -1);
+    front.forEach((k, place) => {
+      if (k >= 0) return;
+      const fainted = team.findIndex((x, j) => !front.includes(j) && (x.fainted || (x.maxhp > 0 && x.hp <= 0)));
+      front[place] = fainted >= 0 ? fainted : team.findIndex((_, j) => !front.includes(j));
+    });
+    const rest = team.map((_, k) => k).filter(k => !front.includes(k));
+    const idx = front.filter(k => k >= 0).concat(rest.filter(k => seen[si][k]), rest.filter(k => !seen[si][k]));
     order[si] = idx;
     const simSets = idx.map(k => {
       const s = sets[si][k];
@@ -435,6 +473,7 @@ export function takeover(rep, t, sets, seed) {
     if (used.dynamax) ss.dynamaxUsed = true;
     order[si].forEach((k, pos) => {
       const cp = teams[si][k]; const sp = ss.pokemon[pos]; const set = sets[si][k];
+      if (!sp) return;   // (not brought)
       // forme changes that persist (Palafin-Hero, Mimikyu-Busted, ...)
       if (cp.speciesForme && toID(cp.speciesForme) !== toID(sp.species.name) && Dex.species.get(cp.speciesForme).exists) {
         try { sp.formeChange(cp.speciesForme, null, true); } catch (e) { notes.push(`${cp.name}: could not set forme ${cp.speciesForme}.`); }
@@ -451,7 +490,7 @@ export function takeover(rep, t, sets, seed) {
         sp.hp = Math.max(1, Math.min(sp.maxhp, Math.round(frac * sp.maxhp)));
         if (cp.status) {
           // (in gens 1-2 Toxic turns into regular poison once its Pokemon is out of battle)
-          const status = battle.gen <= 2 && cp.status === 'tox' && cs.active[0] !== cp ? 'psn' : cp.status;
+          const status = battle.gen <= 2 && cp.status === 'tox' && !cs.active.includes(cp) ? 'psn' : cp.status;
           sp.status = status; const st = effState(battle, {id: status, target: sp});
           if (cp.status === 'slp') { st.startTime = 3; st.time = Math.max(1, 3 - (cp.statusState?.sleepTurns || 0)); }
           if (cp.status === 'tox') st.stage = cp.statusState?.toxicTurns || 0;
@@ -471,7 +510,7 @@ export function takeover(rep, t, sets, seed) {
       if (used.mega) { sp.canMegaEvo = false; sp.canMegaEvoX = false; sp.canMegaEvoY = false; }
       if (used.ultra) sp.canUltraBurst = null;
       // active Pokemon details
-      if (cs.active[0] === cp && !sp.fainted) {
+      if (cs.active.includes(cp) && !sp.fainted) {
         Object.assign(sp.boosts, cp.boosts || {});
         for (const [vid, v] of Object.entries(cp.volatiles || {})) {
           if (!VOLATILES.includes(vid)) { if (!['typechange', 'typeadd'].includes(vid)) notes.push(`${cp.name}: "${vid}" not carried over.`); continue; }
@@ -482,6 +521,7 @@ export function takeover(rep, t, sets, seed) {
           if (vid === 'encore') { st.move = cp.lastMove; st.duration = 3; }
           if (vid === 'disable') { st.move = cp.lastMove; st.duration = 4; }
           if (vid === 'yawn') st.duration = 2;
+          if (vid === 'imprison') st.source = sp;
           if (vid === 'perishsong') st.duration = (v.level || 3) + 1;
           if (vid === 'magnetrise') st.duration = 5;
           if (vid === 'stockpile') st.layers = v.level || 1;
@@ -490,6 +530,7 @@ export function takeover(rep, t, sets, seed) {
           if (vid === 'partiallytrapped') { const foe = battle.sides[1 - si].active[0]; st.source = foe; st.duration = 3; st.sourceEffect = Dex.moves.get(v.id || 'wrap'); }
           sp.volatiles[vid] = st;
         }
+        if (cp.volatiles?.transform) transformed.push([sp, si, cp.speciesForme]);
         // gens 1-2 keep Toxic's count in a hidden effect of its own (gen 2 cannot do without it)
         if (battle.gen <= 2 && cp.status === 'tox') {
           sp.volatiles.residualdmg = effState(battle, {id: 'residualdmg', target: sp, counter: Math.max(1, cp.statusState?.toxicTurns || 1)});
@@ -501,7 +542,7 @@ export function takeover(rep, t, sets, seed) {
         }
         sp.activeMoveActions = cp.movesUsedWhileActive ? cp.movesUsedWhileActive.length : 1;
         sp.activeTurns = Math.max(1, sp.activeMoveActions);
-        sp.lastMove = cp.lastMove && cp.lastMove !== 'switch-in' ? Dex.moves.get(cp.lastMove) : null;
+        sp.lastMove = cp.lastMove && cp.lastMove !== 'switch-in' ? battle.dex.getActiveMove(cp.lastMove) : null;   // (an active move: a plain Move does not survive save and restore)
         if (used.dynamaxTurns > 0) {   // still Dynamaxed: doubles its HP, as it was
           sp.addVolatile('dynamax');
           if (sp.volatiles.dynamax) sp.volatiles.dynamax.duration = used.dynamaxTurns;
@@ -510,6 +551,11 @@ export function takeover(rep, t, sets, seed) {
     });
     ss.pokemonLeft = left;
   });
+  // (after every Pokemon is in place: a Transform copies the one it transformed into, on the other side)
+  for (const [sp, si, species] of transformed) {
+    const into = battle.sides[1 - si].active.find(p => p && toID(p.species.name) === toID(species)) || battle.sides[1 - si].active[0];
+    if (into) try { sp.transformInto(into, Dex.moves.get('transform')); } catch (e) { notes.push(`${sp.name}: could not carry its Transform over.`); }
+  }
   battle.turn = t;
   battle.makeRequest('move');
   battle.log.push(`|takeover|${t}`);
@@ -528,16 +574,90 @@ export function previewBattle(rep, sets, seed) {
   });
   return battle.requestState === 'teampreview' ? battle : null;
 }
-// The leads the replay's players sent out.
+// The leads the replay's players sent out: {p1: first lead, p1a, p1b (doubles), p2, ...}.
 export function replayLeads(rep) {
   const start = rep.lines.findIndex(l => l === '|start');
   const leads = {};
   for (const l of rep.lines.slice(start + 1)) {
-    const m = /^\|switch\|(p[12])a: ([^|]+)\|/.exec(l);
-    if (m && !leads[m[1]]) leads[m[1]] = m[2];
+    const m = /^\|switch\|(p[12])([a-c]): ([^|]+)\|/.exec(l);
+    if (m && !leads[m[1] + m[2]]) leads[m[1] + m[2]] = m[3];
     if (l.startsWith('|turn|')) break;
   }
+  for (const p of ['p1', 'p2']) leads[p] = leads[p + 'a'];
   return leads;
+}
+
+// The usage stats to use for a format: its own, else those of its series (gen9vgc2026regi -> gen9vgc2026; Bo3 alike).
+export function statsFormat(formatid, available) {
+  for (const id of [formatid, formatid.replace(/bo3$/, ''), formatid.replace(/bo3$/, '').replace(/reg[a-z]+$/, '')]) if (id in available) return id;
+  return null;
+}
+
+// The names move n of a request's Pokemon can show up under in the log: itself, its Z-Move, its Max Move.
+// (The log calls every Hidden Power just that, and Return / Frustration without the power the request adds in old gens.)
+export function moveNames(active, n) {
+  return [active.moves[n - 1]?.move, active.canZMove?.[n - 1]?.move, active.maxMoves?.maxMoves?.[n - 1]?.move].filter(Boolean)
+    .map(m => toID(m).replace(/^hiddenpower.+/, 'hiddenpower').replace(/^(return|frustration)\d+$/, '$1'));
+}
+
+// ---------------------------------------------------------------- doubles targets
+// A move (from a request) that takes a target in doubles, and the targets the menu offers: 1, 2 the foes' places,
+// -1, -2 your own (the simulator's numbers).
+const TARGETED = {normal: 'foes ally', any: 'foes ally', adjacentFoe: 'foes', adjacentAlly: 'ally', adjacentAllyOrSelf: 'ally self'};
+// The target kind of move i of a request's Pokemon used with this gimmick (as a Max Move or Z-Move it can differ); none
+// for a move it is locked into, which the request lists without one.
+export function targetType(act, i, gimmick = '') {
+  if (gimmick === 'dynamax' || (act.maxMoves && !act.canDynamax)) return act.maxMoves?.maxMoves?.[i]?.target || '';
+  if (gimmick === 'zmove' && act.canZMove?.[i]) return act.canZMove[i].target || '';
+  return act.moves[i]?.target || '';
+}
+export const needsTarget = type => type in TARGETED;
+export function targetsFor(type, battle, si, place) {
+  const kinds = TARGETED[type];
+  if (!kinds) return [];
+  const up = p => p && !p.fainted;
+  const foes = battle.sides[1 - si].active.map((p, k) => up(p) ? k + 1 : 0).filter(Boolean);
+  const out = [];
+  if (kinds.includes('foes')) out.push(...(foes.length ? foes : battle.sides[1 - si].active.map((_, k) => k + 1)));
+  const other = battle.sides[si].active.findIndex((p, k) => k !== place && up(p));
+  if (kinds.includes('ally') && other >= 0) out.push(-(other + 1));
+  if (kinds.includes('self')) out.push(-(place + 1));
+  if (!out.length && kinds.includes('ally')) out.push(-((place ^ 1) + 1));
+  return out;
+}
+// Where the Pokemon a log line names ('p2b: Name') stands, as a target from side si's place (null if the move takes none
+// or could not have aimed there).
+export function targetLoc(type, ident, si, place) {
+  const kinds = TARGETED[type], at = /^p([12])([a-c])/.exec(ident || '');
+  if (!kinds || !at) return null;
+  const k = 'abc'.indexOf(at[2]), loc = +at[1] - 1 === si ? -(k + 1) : k + 1;
+  const ok = loc > 0 ? kinds.includes('foes') : k === place ? kinds.includes('self') : kinds.includes('ally');
+  return ok ? loc : null;
+}
+
+const GIMMICKS = {'-terastallize': 'terastallize', '-mega': 'mega', '-burst': 'ultra', '-zpower': 'zmove'};
+// What each Pokemon on the field did in turn t, by side and place (a, b): {kind: 'move', name, target (the ident it
+// hit, if the log names one) | 'switch', name | 'cant'} and the once-per-battle mechanic it used ({gimmick}).
+// A Pokemon that fainted before acting never showed its choice ('cant'), and the switch-in that follows is not it;
+// a move it could not use (blocked by Taunt and the like) shows in its can't-move line.
+export function playedActions(rep, t) {
+  const out = [[], []], gimmick = [[], []];
+  const a = rep.turnIdx[t], b = rep.turnIdx[t + 1] ?? rep.lines.length;
+  for (const line of rep.lines.slice(a + 1, b)) {
+    const parts = line.split('|'), [, kind, who = '', what = ''] = parts;
+    const m = /^p([12])([a-c])?: /.exec(who);
+    if (!m) continue;
+    const si = +m[1] - 1, place = m[2] ? 'abc'.indexOf(m[2]) : 0;
+    gimmick[si][place] ||= GIMMICKS[kind] || (kind === '-start' && what === 'Dynamax' ? 'dynamax' : '');
+    if (out[si][place]) continue;
+    if (kind === 'faint') out[si][place] = {kind: 'cant'};
+    // (a Pledge another Pokemon's Pledge joined is still its own choice)
+    else if (kind === 'move' && what === 'Struggle') out[si][place] = {kind: 'cant'};
+    else if (kind === 'move' && (!line.includes('[from]') || /\[from\] ?move: \w+ Pledge/.test(line))) out[si][place] = {kind: 'move', name: what, target: /^p[12][a-c]: /.test(parts[4] || '') ? parts[4] : ''};
+    else if (kind === 'switch') out[si][place] = {kind: 'switch', name: who.replace(/^p\d[a-c]?: /, '')};
+    else if (kind === 'cant') out[si][place] = parts[4] ? {kind: 'move', name: parts[4], target: ''} : {kind: 'cant'};
+  }
+  return out.map((places, si) => places.map((p, place) => p && {...p, gimmick: gimmick[si][place] || ''}));
 }
 
 // ---------------------------------------------------------------- branch engine
@@ -555,6 +675,7 @@ export function step(json, choices, forced, seed) {
   ctl.forced = forced ? forced.slice() : [];
   installRng(battle, ctl);
   const start = battle.log.length;
+  battle.sentLogPos = start;   // (the simulator takes 1000 lines unsent for an endless loop; a long line's log is all unsent)
   // Only choices still owed, and none once the battle has moved on: a side can already be done choosing (its choice
   // made before the save), and then the first choice runs the turn and the next request is a different one.
   const asked = battle.requestState, turn = battle.turn;

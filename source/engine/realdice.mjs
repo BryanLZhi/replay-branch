@@ -12,13 +12,13 @@ function hp(s) {
   const m = /^(\d+)(?:\/(\d+))?/.exec(s || '');
   return m ? {n: +m[1], d: m[2] ? +m[2] : 100} : null;
 }
-// (Pokemon by side only: the simulator's names can differ from the log's nicknames, and this is singles)
+// (Pokemon by side and place, not name: the simulator's names can differ from the log's nicknames)
 function tokens(lines) {
   const out = [];
   for (const l of lines) {
     const a = l.split('|'), kind = a[1];
     if (!KEPT.has(kind)) continue;
-    const who = (a[2] || '').slice(0, 2);
+    const at = /^(p\d)([a-c])?/.exec(a[2] || ''), who = at ? at[1] + (at[2] || 'a') : '';
     const from = toID((/\[from\] ?([^|]*)/.exec(l) || [])[1] || '');
     if (HP.has(kind)) out.push({key: [kind, who, from].join('|'), hp: hp(a[3])});
     else out.push({key: [kind, who, toID(a[3] || ''), kind === '-boost' || kind === '-unboost' ? a[4] : '', from].join('|')});
@@ -34,11 +34,14 @@ function shown(sim, scale) {
   return v === scale.d && sim.n < sim.d ? scale.d - 1 : v;
 }
 
-// How much the simulated turn reads like the log: each matching line scores, a matching HP more, an extra line costs.
+// How much the simulated turn reads like the log: each matching line scores, a matching HP more, an extra line costs -
+// a miss, crit or can't-move the log does not show costs more (guessed sets get damage wrong; luck should not make up for it).
+const LUCK = /^(-miss|-crit|cant)\|/;
+const cost = s => LUCK.test(s.key) ? 3 : 1;
 function score(sim, log) {
   const w = (s, l) => {
     if (s.key !== l.key) return -1;
-    if (!l.hp) return 3;
+    if (!l.hp) return 2 + cost(s);
     const off = Math.abs(shown(s.hp, l.hp) - l.hp.n);
     return off === 0 ? 4 : off <= 1 ? 3.5 : 3;
   };
@@ -51,7 +54,7 @@ function score(sim, log) {
     }
     prev = row;
   }
-  return prev[log.length] - sim.length;
+  return prev[log.length] - sim.reduce((c, s) => c + cost(s), 0);
 }
 const best = sim => sim.reduce((s, t) => s + (t.hp ? 3 : 2), 0);   // every line matched, every HP exact
 

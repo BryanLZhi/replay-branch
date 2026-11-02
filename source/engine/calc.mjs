@@ -16,9 +16,9 @@ const STATUSES = ['brn', 'par', 'psn', 'tox', 'slp', 'frz'];
 
 // A calc field from the calc's weather/terrain names ('Sun', 'Electric') and each side's condition ids. Hazards are left out:
 // the calc takes a side with hazards to mean the Pokemon is switching in (no Multiscale, "after Stealth Rock"), and here it is in.
-export function calcField({weather, terrain, pseudo = [], attacker = {}, defender = {}}) {
+export function calcField({weather, terrain, pseudo = [], attacker = {}, defender = {}, doubles = false}) {
   const side = c => ({isReflect: !!c.reflect, isLightScreen: !!c.lightscreen, isAuroraVeil: !!c.auroraveil, isTailwind: !!c.tailwind});
-  return new CalcField({gameType: 'Singles', weather, terrain, isGravity: pseudo.includes('gravity'),
+  return new CalcField({gameType: doubles ? 'Doubles' : 'Singles', weather, terrain, isGravity: pseudo.includes('gravity'),
     isMagicRoom: pseudo.includes('magicroom'), isWonderRoom: pseudo.includes('wonderroom'), attackerSide: side(attacker), defenderSide: side(defender)});
 }
 // Abilities whose boost the calc adds by itself (it assumes the Pokemon just came in); the boosts we pass already have it.
@@ -55,16 +55,17 @@ function fromSim(gen, p) {
   });
 }
 
-// For each move of side si's active Pokemon, the calc's result against the foe as the calc words it
-// ({range: '39.9 - 46.9%', desc: '252+ Atk ... -- guaranteed 3HKO'}), or null (status moves, nothing to hit).
-export function damageCalcs(battle, si) {
-  const attacker = battle.sides[si].active[0], defender = battle.sides[1 - si].active[0];
+// For each move of side si's active Pokemon (in place `place`), the calc's result against the foe (in place `foe`) as the
+// calc words it ({range: '39.9 - 46.9%', desc: '252+ Atk ... -- guaranteed 3HKO'}), or null (status moves, nothing to hit).
+// In doubles the calc takes spread moves' lower damage into account.
+export function damageCalcs(battle, si, place = 0, foe = 0) {
+  const attacker = battle.sides[si].active[place], defender = battle.sides[1 - si].active[foe];
   if (!attacker || !defender || attacker.fainted || defender.fainted) return [];
   const gen = calcGen(battle.gen, battle.format.id);
   let a, d;
   try { a = fromSim(gen, attacker); d = fromSim(gen, defender); } catch { return []; }
   const field = calcField({weather: WEATHER[battle.field.weather], terrain: TERRAIN[battle.field.terrain], pseudo: Object.keys(battle.field.pseudoWeather),
-    attacker: simConditions(battle.sides[si]), defender: simConditions(battle.sides[1 - si])});
+    attacker: simConditions(battle.sides[si]), defender: simConditions(battle.sides[1 - si]), doubles: battle.gameType === 'doubles'});
   return attacker.moveSlots.map(slot => {
     const move = Dex.moves.get(slot.id);
     if (move.category === 'Status') return null;

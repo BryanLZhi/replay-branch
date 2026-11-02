@@ -2,7 +2,8 @@
 
 A study board for Pokémon Showdown replays. Watch a replay in Showdown's own replay viewer, take over at any turn, and play out
 your own lines: you choose both players' moves and every random outcome (accuracy, crits, damage rolls, secondary effects, speed ties).
-Lines branch like a chess study, and unknown sets are filled in from Smogon usage stats, all editable.
+Lines branch like a chess study, and unknown sets are filled in from Smogon usage stats, all editable. Singles and doubles
+(VGC, Doubles OU: each Pokémon's move and target); triples and free-for-all can only be watched.
 
 - **Viewer:** Pokémon Showdown's replay embed (`replay-embed.js`, MIT), with the battle scene loaded from play.pokemonshowdown.com.
 - **Branch simulator:** [@pkmn/sim](https://github.com/pkmn/ps) (MIT), bundled in `engine.js`.
@@ -39,6 +40,7 @@ The repository root is the site (GitHub Pages). Everything in it except `sample.
 | `source/test/paste-check.mjs` | simulates battles between known teams to test the import checks (true sets pass, wrong ones are caught) |
 | `source/test/takeover-check.mjs` | takes over every turn of recent replays and checks the position offers what the players did (moves, switches, Mega Evolution, Z-Moves, Dynamax, Tera) |
 | `source/test/realdice-check.mjs` | finds the dice of every turn of recent replays from their logs and counts the turns that then play out as logged, and the misses, crits and effects recovered |
+| `source/test/doubles-check.mjs` | doubles (VGC, Doubles OU): takes over every turn of recent replays and checks the simulator takes what each Pokémon did (move, target, switch, Tera...), finds the turn's dice, and plays random lines on |
 
 ## Development
 

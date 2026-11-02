@@ -122,6 +122,11 @@ body.dark .rb-slot { color: #eee; background: linear-gradient(color-mix(in srgb,
 .rb-slot small { opacity: .75; }
 .rb-slot.plain { --t: #a8b0b8; }
 .rb-slot.empty { border-style: dashed; color: var(--rb-muted); background: transparent; }
+/* doubles: each player's two Pokemon, one above the other, each slot led by the Pokemon's name */
+.rb-bar.doubles .rb-slotwrap { gap: 3px; }
+.rb-place { font-size: 7.5pt; color: var(--rb-muted); margin-right: 2px; }
+.rb-place::after { content: ':'; }
+.rb-picon.mini { zoom: .55; vertical-align: middle; margin: -8px 2px -8px 0; }
 .rb-slot.quiet { opacity: .5; cursor: default; background: transparent; border-style: dashed; --t: #a8b0b8; }
 .rb-slot.quiet[data-slot] { cursor: pointer; }
 .rb-slot.changed { box-shadow: 0 0 0 2px var(--rb-selline); }   /* (not what the replay's player did) */

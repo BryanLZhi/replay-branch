@@ -86,8 +86,9 @@ let statsIndex = null;
 async function fetchStats(formatid) {
   try {
     statsIndex ||= fetch('stats/index.json').then(r => r.json());
-    if (!(formatid in await statsIndex)) return null;
-    const r = await fetch('stats/' + formatid + '.json');
+    const id = E.statsFormat(formatid, await statsIndex);   // (a VGC regulation uses its year's: gen9vgc2026regi -> gen9vgc2026)
+    if (!id) return null;
+    const r = await fetch('stats/' + id + '.json');
     return r.ok ? await r.json() : null;
   } catch { statsIndex = null; return null; }
 }

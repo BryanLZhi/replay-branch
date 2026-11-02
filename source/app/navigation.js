@@ -1,7 +1,7 @@
 // Moving around the study: what the current position is, going to another one, arrow keys and pick shortcuts.
 import {S, $id, clearPicks} from './state.js';
 import {isReplayPos, replayTurn, parentOf, childrenOf, siblings, compute, replayTurnPos, previewPos} from './study.js';
-import {isDoubles} from './replay.js';
+import {watchOnly} from './replay.js';
 import {isPlaying, showPosition} from './viewer.js';
 import {pickerOn, renderPicker, closeMenu} from './picker.js';
 import {renderDice} from './dice.js';
@@ -12,7 +12,7 @@ import {renderStudyPanel} from './panels.js';
 export function position() {
   if (!isReplayPos(S.cur)) { const r = compute(S.cur); return {kind: 'line', battle: r.battle, rolls: r.rolls}; }
   const t = replayTurn(S.cur);
-  const canPick = pickerOn() && !isDoubles() && !isPlaying();
+  const canPick = pickerOn() && !watchOnly() && !isPlaying();
   if (canPick && t === 0 && S.psb && !S.psb.started) {
     const pv = previewPos(S.study.sets);
     if (pv) return {kind: 'preview', t, battle: pv.battle};

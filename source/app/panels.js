@@ -43,7 +43,7 @@ function renderStudy() {
   const row = (id, no, cells, extra = '') => `<div class="rb-mrow ${extra} ${S.cur === id ? 'cur' : ''}" data-go="${esc(id)}"><div class="no">${no}</div>${cells}</div>`;
   const rows = [
     row('r0', '', `<div class="a">Team preview</div>`, 'start'), linesFrom('r0'),
-    row('r1', 0, `<div class="a">→ ${esc(leads.p1 || '?')}</div><div class="a">→ ${esc(leads.p2 || '?')}</div>`), linesFrom('r1'),
+    row('r1', 0, ['p1', 'p2'].map(p => `<div class="a">→ ${esc([leads[p + 'a'], leads[p + 'b']].filter(Boolean).join(', ') || '?')}</div>`).join('')), linesFrom('r1'),
   ];
   for (let t = 1; t <= S.rep.lastTurn; t++) {
     const id = 'r' + (t + 1); const s = turnSummary(t); const note = S.study.notes[id] || {};

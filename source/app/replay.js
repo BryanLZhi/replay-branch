@@ -1,7 +1,9 @@
 // Facts read straight from the replay's protocol log.
 import {S, E, pid, nameOf} from './state.js';
 
-export const isDoubles = () => S.rep.lines.some(l => l === '|gametype|doubles' || l === '|gametype|triples');
+export const isDoubles = () => S.rep.lines.includes('|gametype|doubles');
+// (triples, free-for-all and multi battles can only be watched)
+export const watchOnly = () => S.rep.lines.some(l => /^\|gametype\|(triples|freeforall|multi)/.test(l));
 export const startIndex = () => S.rep.lines.findIndex(l => l === '|start');
 export const playerName = si => S.cbEnd[pid(si)].name || 'Player ' + (si + 1);
 export const teamIndex = (si, name) => S.cbEnd[pid(si)].team.findIndex(p => p.name === name);
@@ -13,47 +15,36 @@ export function turnLines(t) {
 }
 export const turnSummary = t => E.summarize(turnLines(t));
 
-// The once-per-battle mechanic a protocol line shows a player using, as the choice names it.
-const GIMMICKS = {'-terastallize': 'terastallize', '-mega': 'mega', '-burst': 'ultra', '-zpower': 'zmove'};
-const gimmickOf = (kind, what) => GIMMICKS[kind] || (kind === '-start' && what === 'Dynamax' ? 'dynamax' : '');
 const family = g => g && g.startsWith('mega') ? 'mega' : g || '';   // Mega Evolution X / Y are both Mega Evolution
 
-// What a player actually did: their lead at team preview (t = 0), else their first action of turn t
-// ({kind, name, gimmick}; a Z-Move or Max Move is named as such).
-export function playedChoice(t, si) {
+// What a Pokemon actually did: the lead in its place at team preview (t = 0), else its first action of turn t
+// ({kind, name, target, gimmick}; a Z-Move or Max Move is named as such; see engine playedActions). Nothing shown (the
+// battle ended first) counts as any move.
+const acted = new WeakMap();
+export function playedChoice(t, si, place = 0) {
   const p = pid(si);
-  if (t === 0) { const lead = E.replayLeads(S.rep)[p]; return lead ? {kind: 'lead', name: lead} : null; }
-  let first = null, gimmick = '';
-  for (const line of turnLines(t)) {
-    const [, kind, who = '', what] = line.split('|');
-    if (!who.startsWith(p)) continue;
-    gimmick ||= gimmickOf(kind, what);
-    if (first) continue;
-    // (fainted before acting: the choice never showed, and the switch-in that follows is not it)
-    if (kind === 'faint') first = {kind: 'cant'};
-    else if (kind === 'move' && !line.includes('[from]')) first = {kind: 'move', name: what};
-    else if (kind === 'switch') first = {kind: 'switch', name: nameOf(who)};
-    // (a move it could not use, like one blocked by Taunt, shows: that was the choice)
-    else if (kind === 'cant') first = line.split('|')[4] ? {kind: 'move', name: line.split('|')[4]} : {kind: 'cant'};
-  }
-  return first && {...first, gimmick};
+  if (t === 0) { const lead = E.replayLeads(S.rep)[p + 'abc'[place]]; return lead ? {kind: 'lead', name: lead} : null; }
+  if (!acted.has(S.rep)) acted.set(S.rep, new Map());
+  const turns = acted.get(S.rep);
+  if (!turns.has(t)) turns.set(t, E.playedActions(S.rep, t));
+  return turns.get(t)[si][place] || {kind: 'cant', gimmick: ''};
 }
 
 // The names move n can show up under in the log: itself, its Z-Move, its Max Move.
-// (The log calls every Hidden Power just that, and Return / Frustration without the power the request adds in old gens.)
-export function moveNames(active, n) {
-  return [active.moves[n - 1]?.move, active.canZMove?.[n - 1]?.move, active.maxMoves?.maxMoves?.[n - 1]?.move].filter(Boolean)
-    .map(m => E.toID(m).replace(/^hiddenpower.+/, 'hiddenpower').replace(/^(return|frustration)\d+$/, '$1'));
-}
+export const moveNames = (active, n) => E.moveNames(active, n);
 
-// Does a pick ('move 2', 'switch 4', 'team 1', with its gimmick) match what was played?
-export function matchesPlayed(side, pick, gimmick, played) {
+// Does a pick ('move 2', 'move 2 1', 'switch 4', 'team 1', with its gimmick) of a Pokemon in this place match what it did?
+// (def: the pick the replay's choice reads as; in doubles a move aimed elsewhere than the log shows does not match)
+export function matchesPlayed(side, pick, gimmick, played, place = 0, def = null) {
   if (!played || !pick) return false;
-  const [kind, n] = pick.split(' ');
+  const [kind, n, target] = pick.split(' ');
   const req = side.activeRequest;
   if (played.kind === 'lead') return nameOf(req.side.pokemon[n - 1].ident) === played.name;
   if (played.kind === 'cant') return kind === 'move';   // fully paralyzed, asleep...: any move matches
   if (kind !== played.kind) return false;
-  if (kind === 'move') return moveNames(req.active[0], n).includes(E.toID(played.name)) && family(gimmick) === family(played.gimmick);
+  if (kind === 'move') {
+    if (played.target && def && def.pick.split(' ')[2] !== target) return false;
+    return moveNames(req.active[place], n).includes(E.toID(played.name)) && family(gimmick) === family(played.gimmick);
+  }
   return nameOf(req.side.pokemon[n - 1].ident) === played.name;
 }

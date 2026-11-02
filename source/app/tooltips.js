@@ -4,14 +4,14 @@
 import {S, esc} from './state.js';
 
 let tips = null;
-let request = null;   // {si, req}: whose choice the picker shows
+let request = null;   // {si, req, place}: whose choice the picker shows
 
 export function listenForTooltips(el) {
   tips = new BattleTooltips(S.psb);
   tips.showTooltip = showTooltip;
   tips.listen(el);
 }
-export function setTooltipRequest(si, req) { request = req ? {si, req} : null; BattleTooltips.hideTooltip(); }
+export function setTooltipRequest(si, req, place = 0) { request = req ? {si, req, place} : null; BattleTooltips.hideTooltip(); }
 
 // A request's Pokemon as Showdown's client keeps them (its "server Pokemon").
 function serverPokemon(p) {
@@ -24,15 +24,15 @@ function serverPokemon(p) {
 function showTooltip(elem) {
   if (!request) return false;
   const [type, n, as] = elem.dataset.tooltip.split('|');
-  const {si, req} = request;
+  const {si, req, place} = request;
   tips.battle = S.psb;
   let html;
   try {
     if (type === 'move') {
-      const active = S.psb.sides[si].active[0];
+      const active = S.psb.sides[si].active[place];
       if (!active) return false;
-      const move = req.active[0].moves[n];
-      html = tips.showMoveTooltip(S.psb.dex.moves.get(move.id || move.move), as || 'move', active, serverPokemon(req.side.pokemon.find(p => p.active)));
+      const move = req.active[place].moves[n];
+      html = tips.showMoveTooltip(S.psb.dex.moves.get(move.id || move.move), as || 'move', active, serverPokemon(req.side.pokemon[place]));
     } else {
       html = tips.showPokemonTooltip(null, serverPokemon(req.side.pokemon[n]));
     }

@@ -15,6 +15,7 @@ const browserPath = [process.env.CHROME, 'C:/Program Files (x86)/Microsoft/Edge/
 // the oldest gens.
 const FORMATS = ['gen9ou', 'gen7ou', 'gen8randombattle', 'gen9randombattle', 'gen4ou', 'gen3ou', 'gen2ou', 'gen1ou'];
 const GIMMICK_FORMATS = ['gen7ou', 'gen8randombattle'];   // where a Mega Evolution / Z-Power / Dynamax box should turn up
+const DOUBLES_FORMATS = ['gen9vgc2025regi', 'gen9doublesou'];
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 let failures = 0;
@@ -485,6 +486,44 @@ try {
       await settled();
       check(!await text('#pickSec .rb-err'), `${format}: playing a turn with ${kind} works`, await text('#pickSec .rb-err'));
     }
+  }
+
+  // ---------------------------------------------------------------- doubles (VGC, Doubles OU): two slots a player, targets
+  for (const format of DOUBLES_FORMATS) {
+    const found = await page.evaluate(async f => {
+      const r = await fetch(`https://replay.pokemonshowdown.com/search.json?format=${f}`);
+      return r.ok ? (await r.json()).map(x => x.id) : [];
+    }, format);
+    if (!found.length) { check(false, `${format}: find a replay`); continue; }
+    await page.click('#btnLoad'); await sleep(200);
+    await page.type('#replayUrl', `https://replay.pokemonshowdown.com/${found[0]}`);
+    await page.click('#btnDoLoad');
+    await until(() => document.querySelector('#loader').hidden, null, 30000); await sleep(800);
+    check(!await text('#loadErr'), `${format}: loads ${found[0]}`);
+    await barReady();
+    const live = () => page.$$eval('#pickSec .rb-slot:not(.quiet)', s => s.length);
+    check(await live() === 4, `${format}: team preview asks each player for two leads`, String(await live()));
+    await control('ff'); await sleep(600); await barReady(); await settled();
+    const slots = await page.$$eval('#pickSec .rb-slot:not(.quiet)', s => s.map(x => x.textContent.trim()));
+    check(slots.length === 4 && slots.every(s => s !== 'Choose'), `${format}: turn 1 shows each Pokemon's choice from the replay`, slots.join(' | '));
+    // change the first Pokemon's move: a move that takes a target asks for one
+    await page.click('#pickSec [data-slot="0"][data-place="0"]');
+    await until(() => document.querySelector('#pickSec .rb-menu'), null, 10000);
+    const moves = await page.$$('#pickSec .rb-menu .rb-mv:not(:disabled):not(.played)');
+    if (moves.length) {
+      await moves[0].click(); await sleep(200);
+      if (await page.$('#pickSec .rb-menu [data-target]')) {
+        check(/choose a target/.test(await question()), `${format}: a move with a target asks for it`, await question());
+        await page.click('#pickSec .rb-menu [data-target]:not(:disabled)'); await sleep(200);
+      }
+    } else await press('Escape');
+    check(await page.$('#pickSec [data-slot="0"][data-place="0"].changed'), `${format}: the slot shows the changed choice`, await text('#pickSec [data-slot="0"][data-place="0"]'));
+    await page.click('#btnPlayTurn');
+    await until(() => document.querySelector('#rbTitle .rb-mode') || document.querySelector('#pickSec .rb-err'), null, 30000); await settled();
+    const err = await text('#pickSec .rb-err');
+    check(await inLine() && !err, `${format}: playing the changed turn starts a line`, err);
+    await barReady();
+    check(await live() >= 1 && !await text('#pickSec .rb-err'), `${format}: the line asks for the next turn`, String(await live()));
   }
 
   // ---------------------------------------------------------------- dark mode, phone width
