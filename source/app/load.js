@@ -37,15 +37,20 @@ export function showPage(page) {
   document.body.dataset.page = page;
   if (page === 'landing') document.title = 'Replay Branch';
 }
+// (a pasted log is kept with its study; a shared copy's key is "<replay id>~<n>")
 async function openKey(key) {
-  const log = loadSaved(key)?.meta?.log;   // (a pasted log is kept with its study)
-  if (log) await loadText(log);
-  else await loadText(await fetchReplay(key), {replayId: key});
+  const meta = loadSaved(key)?.meta || {};
+  if (meta.log) await loadText(meta.log, {key});
+  else {
+    const id = meta.replayId || key.split('~')[0];
+    await loadText(await fetchReplay(id), {replayId: id, key});
+  }
 }
 
 // Load a replay or an exported study ({rbv, log, study}). shown: the viewer already shows this replay;
-// replayId: it is replay.pokemonshowdown.com/<replayId> (share links use it); study: open this study of it.
-export async function loadText(text, {shown = false, replayId = null, study = null} = {}) {
+// replayId: it is replay.pokemonshowdown.com/<replayId> (share links use it); study: open this study of it;
+// key: keep it under this key (not the replay's own); shared: it came from someone's link.
+export async function loadText(text, {shown = false, replayId = null, study = null, key = null, shared = false} = {}) {
   const t = String(text || '').trim();
   let exported = null;
   if (t.startsWith('{')) { try { const j = JSON.parse(t); if (j && j.rbv && j.log) exported = j; } catch {} }
@@ -53,14 +58,16 @@ export async function loadText(text, {shown = false, replayId = null, study = nu
 
   S.rep = rep;
   S.replayId = replayId;
-  S.key = rep.meta.id || 'log-' + hash(rep.lines.slice(0, 40).join('\n') + rep.lines.length);
+  S.key = key || replayKey(rep);
   S.lines.clear(); S.replayPos.clear();
   S.stats = await fetchStats(rep.formatid);
   S.cbEnd = E.clientAt(rep, rep.lastTurn + 1);
   S.base = E.revealedTeams(rep).map(team => team.map(known => E.suggestSet(known, S.stats, rep.gen)));
   S.study = cleanStudy(study || exported?.study || loadSaved(S.key) || newStudy(), S.base);
   // what the landing page lists (a log that is not on the replay site is kept, to open it again)
-  S.study.meta = {format: rep.tier || rep.formatid, players: [S.cbEnd.p1.name, S.cbEnd.p2.name], ...(replayId ? {} : {log: rep.lines.join('\n')})};
+  const was = S.study.meta || {};
+  S.study.meta = {format: rep.tier || rep.formatid, players: [S.cbEnd.p1.name, S.cbEnd.p2.name],
+    ...(replayId ? {replayId} : {log: rep.lines.join('\n')}), ...(shared || was.shared ? {shared: true} : {})};
   S.study.opened = Date.now();
   save();
   document.title = `${S.study.meta.players.join(' vs. ')} - Replay Branch`;
@@ -70,6 +77,9 @@ export async function loadText(text, {shown = false, replayId = null, study = nu
   S.cur = '';
   go('r0');
 }
+
+// Where a replay's study is kept: its replay id, or for a log that has none a hash of it.
+const replayKey = rep => rep.meta.id || 'log-' + hash(rep.lines.slice(0, 40).join('\n') + rep.lines.length);
 
 // Usage stats for a format (null for formats without them).
 let statsIndex = null;
@@ -120,7 +130,14 @@ export async function openSharedLink() {
   const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
   const payload = JSON.parse(await new Response(stream).text());
   const text = payload.id ? await fetchReplay(payload.id) : payload.log;
-  await loadText(text, {replayId: payload.id || null, study: payload.study});
+  // Someone else's study never replaces yours: if you have lines or notes on this replay that differ, theirs is kept
+  // beside yours, as "<replay>~<its hash>" (the same link opens the same copy again).
+  const own = replayKey(E.parseReplayInput(text));
+  const mine = loadSaved(own);
+  const hasWork = s => s && (Object.keys(s.nodes || {}).length || Object.values(s.notes || {}).some(n => n?.comment || n?.glyph));
+  const theirs = JSON.stringify(payload.study || {});
+  const key = hasWork(mine) && JSON.stringify(mine.nodes) !== JSON.stringify(payload.study?.nodes) ? own + '~' + hash(theirs) : own;
+  await loadText(text, {replayId: payload.id || null, study: payload.study, key, shared: true});
   history.replaceState(null, '', '?r=' + encodeURIComponent(S.key));
 }
 

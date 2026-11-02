@@ -47,8 +47,9 @@ export function hash(s) {
 export function stored(key, fallback) {
   try { const v = localStorage.getItem(key); return v === null ? fallback : v; } catch { return fallback; }
 }
+// Returns whether it was stored (the browser's storage for the site can be full, or off).
 export function store(key, value) {
-  try { localStorage.setItem(key, value); } catch {}
+  try { localStorage.setItem(key, value); return true; } catch { return false; }
 }
 export function unstore(key) {
   try { localStorage.removeItem(key); } catch {}

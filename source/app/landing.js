@@ -62,7 +62,7 @@ function renderRecent() {
   const studies = savedStudies();
   list.innerHTML = studies.length ? studies.map(s => {
     const lines = s.lines ? ` · ${s.lines} line${s.lines > 1 ? 's' : ''}` : '';
-    return entry(s.key, `${esc(s.meta.format || s.key)}${lines}${s.opened ? ' · ' + ago(s.opened) : ''}`, players(s.meta.players),
+    return entry(s.key, `${esc(s.meta.format || s.key)}${s.meta.shared ? ' · shared with you' : ''}${lines}${s.opened ? ' · ' + ago(s.opened) : ''}`, players(s.meta.players),
       `<button class="rb-linkbtn" data-remove="${esc(s.key)}">${removeArmed === s.key ? 'Remove for good?' : 'Remove'}</button>`);
   }).join('') : `<p class="rb-dim">Nothing yet. <a href="?r=${SAMPLE}" data-visit="${SAMPLE}">Open a sample replay</a></p>`;
   for (const link of list.querySelectorAll('[data-visit]')) link.onclick = e => {

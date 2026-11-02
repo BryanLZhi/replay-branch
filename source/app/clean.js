@@ -63,7 +63,8 @@ export function cleanStudy(raw, base) {
   }
   if (raw?.meta && typeof raw.meta === 'object') {   // (only ever this browser's own)
     study.meta = {format: str(raw.meta.format), players: (Array.isArray(raw.meta.players) ? raw.meta.players : []).slice(0, 2).map(p => str(p, 40)),
-      ...(typeof raw.meta.log === 'string' ? {log: raw.meta.log} : {})};
+      ...(typeof raw.meta.log === 'string' ? {log: raw.meta.log} : {}),
+      ...(/^[a-z0-9-]{1,120}$/.test(raw.meta.replayId || '') ? {replayId: raw.meta.replayId} : {}), ...(raw.meta.shared ? {shared: true} : {})};
   }
   if (Number.isFinite(raw?.opened)) study.opened = raw.opened;
   return study;

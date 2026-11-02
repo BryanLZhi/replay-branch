@@ -125,8 +125,12 @@ function menuHTML(pos) {
   const forced = req.forceSwitch && req.forceSwitch[0];
   const active = nameOf((req.side.pokemon.find(p => p.active) || {ident: ''}).ident);
   const who = esc(playerName(si));
-  const question = pos.kind === 'preview' ? `${who}: choose a lead` : forced ? `${who}: switch in a Pok&eacute;mon` : `${who}: what will ${esc(active)} do?`;
-  const body = pos.kind === 'preview' ? leadButtons(req, s) : (forced ? '' : moveButtons(pos, si, req, active, s)) + switchButtons(req, forced, s);
+  const reviving = req.side.pokemon.some(p => p.reviving);
+  const question = pos.kind === 'preview' ? `${who}: choose a lead` : reviving ? `${who}: choose a Pok&eacute;mon to revive`
+    : forced ? `${who}: switch in a Pok&eacute;mon` : `${who}: what will ${esc(active)} do?`;
+  // (a trapping ability the player has not seen yet only makes the request say "maybe trapped"; we know the sets)
+  const trapped = !forced && !!(req.active?.[0].trapped || pos.battle.sides[si].active[0]?.trapped);
+  const body = pos.kind === 'preview' ? leadButtons(req, s) : (forced ? '' : moveButtons(pos, si, req, active, s)) + switchButtons(req, forced, s, trapped);
   return `<div class="rb-menu" role="dialog" aria-label="${who}'s choice"><h3><span>${question}</span>` +
     `<button type="button" class="rb-linkbtn" id="btnCloseMenu" aria-label="Close">&times;</button></h3>${body}</div>`;
 }
@@ -182,7 +186,9 @@ function moveButtons(pos, si, req, active, s) {
     const name = !as ? m.move : shown.exists ? shown.name : as.move;
     const type = (shown?.exists ? shown : E.Dex.moves.get(m.id || m.move)).type || 'Normal';
     const was = playedHere(s, pick);
-    const guessed = k >= 0 && !pasted && !known.includes(E.toID(m.move)) && !['struggle', 'recharge'].includes(E.toID(m.move));
+    // (a Pokemon that transformed has the other's moves: nothing about them is a guess)
+    const transformed = pos.battle.sides[si].active[0]?.transformed;
+    const guessed = k >= 0 && !pasted && !transformed && !known.includes(E.toID(m.move)) && !['struggle', 'recharge'].includes(E.toID(m.move));
     const note = guessed ? 'Guessed' : was ? 'Used in the replay' : '';
     const disabled = m.disabled || m.pp === 0 || (mode === 'zmove' && !as);
     return `<div class="rb-mvwrap"><button type="button" class="rb-mv has-tooltip t-${esc(type)} ${was} ${pickedHere(s, pick)} ${guessed ? 'guess' : ''}" data-pick="${pick}" ` +
@@ -196,15 +202,17 @@ function moveButtons(pos, si, req, active, s) {
   return `<div class="rb-moves">${moves.join('')}</div>${boxes ? `<p class="rb-row" style="margin-top:6px">${boxes}</p>` : ''}`;
 }
 
-function switchButtons(req, forced, s) {
-  const trapped = !forced && req.active && req.active[0].trapped;
+// (after Revival Blessing the choice is which fainted Pokemon comes back)
+function switchButtons(req, forced, s, trapped) {
+  const reviving = req.side.pokemon.some(p => p.reviving);
   return `<div class="rb-switches">${req.side.pokemon.map((p, n) => {
     if (p.active && !forced) return '';
     const pick = 'switch ' + (n + 1), was = playedHere(s, pick);
     const fainted = /fnt/.test(p.condition);
+    const unavailable = reviving ? !fainted : fainted || p.active || trapped;
     const [hp, max] = p.condition.split(' ')[0].split('/');
     return `<button type="button" class="button rb-sw has-tooltip ${was} ${pickedHere(s, pick)}" data-pick="${pick}" data-tooltip="switchpokemon|${n}" ` +
-      `${was ? 'data-note="Used in the replay"' : ''} ${fainted || p.active || trapped ? 'disabled' : ''}>` +
+      `${was ? 'data-note="Used in the replay"' : ''} ${unavailable ? 'disabled' : ''}>` +
       `<span class="rb-picon" style="${icon(p.details.split(',')[0])}"></span>${esc(nameOf(p.ident))} <small>${fainted ? 0 : Math.round(hp / max * 100)}%</small></button>`;
   }).join('')}</div>`;
 }

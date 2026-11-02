@@ -413,7 +413,9 @@ export function takeover(rep, t, sets, seed) {
         const frac = cp.maxhp ? cp.hp / cp.maxhp : 1;
         sp.hp = Math.max(1, Math.min(sp.maxhp, Math.round(frac * sp.maxhp)));
         if (cp.status) {
-          sp.status = cp.status; const st = effState(battle, {id: cp.status, target: sp});
+          // (in gens 1-2 Toxic turns into regular poison once its Pokemon is out of battle)
+          const status = battle.gen <= 2 && cp.status === 'tox' && cs.active[0] !== cp ? 'psn' : cp.status;
+          sp.status = status; const st = effState(battle, {id: status, target: sp});
           if (cp.status === 'slp') { st.startTime = 3; st.time = Math.max(1, 3 - (cp.statusState?.sleepTurns || 0)); }
           if (cp.status === 'tox') st.stage = cp.statusState?.toxicTurns || 0;
           sp.statusState = st;
@@ -450,6 +452,10 @@ export function takeover(rep, t, sets, seed) {
           if (vid === 'leechseed') { const foe = battle.sides[1 - si].active[0]; if (foe) st.sourceSlot = foe.getSlot(); }
           if (vid === 'partiallytrapped') { const foe = battle.sides[1 - si].active[0]; st.source = foe; st.duration = 3; st.sourceEffect = Dex.moves.get(v.id || 'wrap'); }
           sp.volatiles[vid] = st;
+        }
+        // gens 1-2 keep Toxic's count in a hidden effect of its own (gen 2 cannot do without it)
+        if (battle.gen <= 2 && cp.status === 'tox') {
+          sp.volatiles.residualdmg = effState(battle, {id: 'residualdmg', target: sp, counter: Math.max(1, cp.statusState?.toxicTurns || 1)});
         }
         // choice lock
         const it = Dex.items.get(sp.item);
@@ -512,11 +518,15 @@ export function step(json, choices, forced, seed) {
   ctl.forced = forced ? forced.slice() : [];
   installRng(battle, ctl);
   const start = battle.log.length;
-  for (const s of ['p1', 'p2']) {
-    const req = battle.sides[s === 'p1' ? 0 : 1].activeRequest;
-    if (!req || req.wait) continue;
+  // Only choices still owed, and none once the battle has moved on: a side can already be done choosing (its choice
+  // made before the save), and then the first choice runs the turn and the next request is a different one.
+  const asked = battle.requestState, turn = battle.turn;
+  for (const [i, s] of [[0, 'p1'], [1, 'p2']]) {
+    const side = battle.sides[i], req = side.activeRequest;
+    if (battle.requestState !== asked || battle.turn !== turn || battle.ended) break;
+    if (!req || req.wait || side.isChoiceDone()) continue;
     const ok = battle.choose(s, choices[s] || 'default');
-    if (!ok) throw new Error(`${s}: ${battle.sides[s === 'p1' ? 0 : 1].choice.error || 'invalid choice'}`);
+    if (!ok) throw new Error(`${s}: ${side.choice.error || 'invalid choice'}`);
   }
   const lines = omniscient(battle.log.slice(start)).filter(l => !l.startsWith('|t:|'));
   return {battle, lines, rolls: ctl.log, forced: ctl.forced};

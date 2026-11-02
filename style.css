@@ -67,6 +67,7 @@ body.dark .rb-landing h2 { color: #ccc; }
 #openUrl { flex: 1 1 320px; min-width: 0; }
 #searchUser, #searchFormat { flex: 0 1 180px; min-width: 0; }
 .rb-landing .rb-err:empty { display: none; }
+.rb-saveerr { background: var(--rb-panel); border: 1px solid var(--rb-bad); border-radius: 6px; padding: 8px 10px; margin: 12px 0 0; }
 .rb-links { margin-top: 8px; }
 .rb-links .blocklink { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
 .rb-dim { opacity: .75; }
@@ -158,6 +159,8 @@ body.dark .rb-edit { background: rgba(255,255,255,.12); }
 /* dice */
 .rb-dicehead { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 6px; }
 .rb-dicehead h2 { margin: 0; }
+.rb-odds { font-size: 9pt; color: var(--rb-muted); margin-left: auto; margin-right: 6px; white-space: nowrap; }
+.rb-odds b { color: var(--rb-fg); }
 .rb-dice { display: flex; flex-direction: column; gap: 5px; }
 .rb-dgroup { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; font-size: 9pt; }
 .rb-dhead { min-width: 0; }

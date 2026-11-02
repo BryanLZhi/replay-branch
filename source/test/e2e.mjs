@@ -211,6 +211,8 @@ try {
   await press('Enter');   // (Enter plays the turn)
   await until(() => document.querySelector('#rbTitle .rb-mode'), null, 30000); await settled();
   check(await inLine(), 'Enter plays the changed turn as a line');
+  if (await page.$('.rb-odds')) check(/This turn \d/.test(await text('.rb-odds')), 'the dice show the odds of the outcomes', await text('.rb-odds'));
+  else console.log('(no chance-based outcomes in this turn)');
   const logBefore = await text('.battle-log');
   const chip = await page.$('#diceSec button.rb-chip[title]');   // a yes/no outcome (speed-tie chips have no title)
   if (chip) {
@@ -282,6 +284,36 @@ try {
     const result = await p3.evaluate(() => ({pwned: !!window.pwned, injected: document.querySelectorAll('img[src="x"]').length}));
     check(!result.pwned && !result.injected, 'a crafted share link cannot run anything', JSON.stringify(result));
     await other.close();
+  }
+  {
+    // someone's study of the same replay, opened here: it goes beside yours, not over it
+    const theirs = {nodes: {n1: {parent: 'r1', choices: {p1: 'move 1', p2: 'move 1'}, seed: [5, 6, 7, 8], comment: 'their idea'}}, kids: {r1: ['n1']}};
+    const link2 = url.replace(/[?#].*$/, '') + '#s=' + zlib.deflateRawSync(Buffer.from(JSON.stringify({rbv: 1, id: 'smogtours-gen9uu-987009', study: theirs}))).toString('base64url');
+    const mineBefore = await page.$$eval('#studySec .rb-tok', t => t.length);
+    await page.goto(link2, {waitUntil: 'domcontentloaded'});
+    await page.waitForSelector('#studySec .rb-tok', {timeout: 60000});
+    const opened = await page.$$eval('#studySec .rb-tok', t => t.map(x => x.textContent));
+    await page.click('#home'); await sleep(400);
+    const recentNow = await page.$$eval('#recent [data-visit]', r => r.map(x => x.textContent));
+    check(opened.length === 1 && opened[0].includes('their idea') && recentNow.some(r => /shared with you/.test(r)) && recentNow.some(r => /wssi vs\. wintminter/.test(r) && !/shared/.test(r)),
+      "a shared study of a replay you studied opens beside yours", recentNow.join(' | '));
+    await page.click('#recent [data-visit]:not([data-visit*="~"])');
+    await until(n => document.querySelectorAll('#studySec .rb-tok').length === n, mineBefore, 60000).catch(() => {});
+    check(await page.$$eval('#studySec .rb-tok', t => t.length) === mineBefore, 'and yours is untouched', mineBefore + ' lines');
+  }
+  {
+    // the browser's storage full: the page says changes are not being saved, and stops saying so once they are
+    await page.evaluate(() => {
+      const chunk = 'x'.repeat(1 << 20);
+      try { for (let i = 0; i < 20; i++) localStorage.setItem('fill' + i, chunk); } catch {}
+      try { for (let i = 0; i < 1024; i++) localStorage.setItem('fillk' + i, 'x'.repeat(1 << 10)); } catch {}
+    });
+    const note = v => page.$eval('#comment', (el, v) => { el.value = v; el.dispatchEvent(new Event('input')); }, v);
+    await note('a long note '.repeat(400)); await sleep(300);   // (a few KB more than there is room for)
+    const shownFull = await visible('#saveErr');
+    await page.evaluate(() => { for (const k of Object.keys(localStorage)) if (k.startsWith('fill')) localStorage.removeItem(k); });
+    await note(''); await sleep(300);
+    check(shownFull && !await visible('#saveErr'), 'a full storage is reported, and the report goes once saving works');
   }
   await page.click('#studySec .rb-tok'); await sleep(300); await settled();
   await page.click('#btnDelete'); await sleep(100);

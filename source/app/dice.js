@@ -1,7 +1,8 @@
 // The dice of the step that led to a line position: every random outcome, editable. Changing one replays the step
-// (as a new line if this one already continues). Outcomes moved off the most likely result are outlined.
+// (as a new line if this one already continues). Outcomes moved off the most likely result are outlined, and the odds of
+// the outcomes (this turn, and the whole line) are shown.
 import {S, $id, esc} from './state.js';
-import {kids, addNode, deleteNode, compute, forget, save} from './study.js';
+import {kids, addNode, deleteNode, compute, forget, save, pathTo} from './study.js';
 import {renderPanels, go} from './navigation.js';
 
 export function renderDice(pos) {
@@ -10,7 +11,11 @@ export function renderDice(pos) {
   if (el.hidden) return;
   const node = S.study.nodes[S.cur];
   const rolls = pos.rolls;
-  el.innerHTML = `<div class="rb-dicehead"><h2>Dice</h2><span>` +
+  const line = pathTo(S.cur).reduce((p, id) => p * odds(compute(id).rolls), 1);
+  const turn = odds(rolls);
+  const oddsHTML = rolls.some(r => r.kind !== 'roll' && !(r.kind === 'int' && r.hi - r.lo > 10)) ? `<span class="rb-odds" title="Chance of these outcomes (damage rolls not counted)">` +
+    `This turn <b>${percent(turn)}</b>${line !== turn ? ` · Line <b>${percent(line)}</b>` : ''}</span>` : '';
+  el.innerHTML = `<div class="rb-dicehead"><h2>Dice</h2>${oddsHTML}<span>` +
     `<button class="button" id="btnRandomize" title="Roll real dice for every outcome"><i class="fa fa-random" aria-hidden="true"></i> Randomize</button> ` +
     `<button class="button" id="btnLikely" title="Back to the most likely outcomes" ${node.forced.length ? '' : 'disabled'}>Most likely</button></span></div>` +
     (rolls.length ? `<div class="rb-dice">${groups(rolls).map(groupHTML).join('')}</div>` : '');
@@ -38,6 +43,25 @@ function replay(forced, seed) {
     try { compute(S.cur); } catch (e) { S.err = e.message; }
     go(S.cur, {animate: true, force: true});
   }
+}
+
+// The chance of the outcomes as they are. Damage rolls are left out (each exact roll is 1 in 16, which says little), and so
+// are wide random numbers (0-99 and the like, which effects compare against a threshold rather than use as such).
+function odds(rolls) {
+  let p = 1;
+  for (const r of rolls) {
+    if (r.kind === 'chance') p *= r.value ? r.p : 1 - r.p;
+    else if (r.kind === 'int' && r.hi - r.lo <= 10) p /= Math.max(1, r.hi - r.lo);
+    else if (r.kind === 'pick') p /= Math.max(1, r.options.length);
+    else if (r.kind === 'order') p /= factorial(r.options.length);
+  }
+  return p;
+}
+const factorial = n => n <= 1 ? 1 : n * factorial(n - 1);
+function percent(p) {
+  if (p <= 0) return '0%';   // (an outcome that cannot happen, like a sure hit missing)
+  const x = p * 100;
+  return (x >= 10 ? Math.round(x) : x >= 1 ? x.toFixed(1) : x >= 0.01 ? x.toPrecision(2) : '< 0.01') + '%';
 }
 
 // What the engine picks when nothing is forced (null where it is not known here).

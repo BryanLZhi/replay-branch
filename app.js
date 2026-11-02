@@ -77,7 +77,9 @@ function stored(key, fallback) {
 function store(key, value) {
   try {
     localStorage.setItem(key, value);
+    return true;
   } catch {
+    return false;
   }
 }
 function unstore(key) {
@@ -96,7 +98,9 @@ function newStudy() {
   return { rbv: 1, sets: null, nodes: {}, kids: {}, notes: {}, seq: 0 };
 }
 function save() {
-  store("rbv:" + S.key, JSON.stringify(S.study));
+  const ok = store("rbv:" + S.key, JSON.stringify(S.study));
+  const warning = document.getElementById("saveErr");
+  if (warning) warning.hidden = ok;
 }
 function loadSaved(key) {
   try {
@@ -605,8 +609,10 @@ function menuHTML(pos) {
   const forced = req.forceSwitch && req.forceSwitch[0];
   const active = nameOf((req.side.pokemon.find((p) => p.active) || { ident: "" }).ident);
   const who = esc(playerName(si));
-  const question = pos.kind === "preview" ? `${who}: choose a lead` : forced ? `${who}: switch in a Pok&eacute;mon` : `${who}: what will ${esc(active)} do?`;
-  const body = pos.kind === "preview" ? leadButtons(req, s) : (forced ? "" : moveButtons(pos, si, req, active, s)) + switchButtons(req, forced, s);
+  const reviving = req.side.pokemon.some((p) => p.reviving);
+  const question = pos.kind === "preview" ? `${who}: choose a lead` : reviving ? `${who}: choose a Pok&eacute;mon to revive` : forced ? `${who}: switch in a Pok&eacute;mon` : `${who}: what will ${esc(active)} do?`;
+  const trapped = !forced && !!(req.active?.[0].trapped || pos.battle.sides[si].active[0]?.trapped);
+  const body = pos.kind === "preview" ? leadButtons(req, s) : (forced ? "" : moveButtons(pos, si, req, active, s)) + switchButtons(req, forced, s, trapped);
   return `<div class="rb-menu" role="dialog" aria-label="${who}'s choice"><h3><span>${question}</span><button type="button" class="rb-linkbtn" id="btnCloseMenu" aria-label="Close">&times;</button></h3>${body}</div>`;
 }
 function wireMenu(pos) {
@@ -663,7 +669,8 @@ function moveButtons(pos, si, req, active, s) {
     const name = !as ? m.move : shown.exists ? shown.name : as.move;
     const type = (shown?.exists ? shown : E.Dex.moves.get(m.id || m.move)).type || "Normal";
     const was = playedHere(s, pick);
-    const guessed = k >= 0 && !pasted && !known.includes(E.toID(m.move)) && !["struggle", "recharge"].includes(E.toID(m.move));
+    const transformed = pos.battle.sides[si].active[0]?.transformed;
+    const guessed = k >= 0 && !pasted && !transformed && !known.includes(E.toID(m.move)) && !["struggle", "recharge"].includes(E.toID(m.move));
     const note = guessed ? "Guessed" : was ? "Used in the replay" : "";
     const disabled = m.disabled || m.pp === 0 || mode === "zmove" && !as;
     return `<div class="rb-mvwrap"><button type="button" class="rb-mv has-tooltip t-${esc(type)} ${was} ${pickedHere(s, pick)} ${guessed ? "guess" : ""}" data-pick="${pick}" data-tooltip="move|${i}|${mode}" ${note ? `data-note="${note}"` : ""} ${calcs[i]?.desc ? `data-calc="${esc(calcs[i].desc)}"` : ""} ${disabled ? "disabled" : ""}><b>${esc(name)}</b><small><span>${esc(type)}</span>${calcs[i] ? `<span class="rb-dmg">${esc(calcs[i].range)}</span>` : ""}<span>${m.maxpp ? `${m.pp}/${m.maxpp}` : ""}</span></small></button>` + (guessed ? `<button type="button" class="rb-edit" data-edit="${esc(m.move)}" title="Change this guessed move" aria-label="Change ${esc(m.move)}"><i class="fa fa-pencil" aria-hidden="true"></i></button>` : "") + `</div>`;
@@ -671,14 +678,15 @@ function moveButtons(pos, si, req, active, s) {
   const boxes = gimmicks(act).map(([value, label2]) => `<label><input type="checkbox" data-gimmick="${value}" ${s.gimmick === value ? "checked" : ""}> ${label2}</label>` + (value === "terastallize" ? " " + typeTag2(act.canTerastallize) : "")).join(" ");
   return `<div class="rb-moves">${moves.join("")}</div>${boxes ? `<p class="rb-row" style="margin-top:6px">${boxes}</p>` : ""}`;
 }
-function switchButtons(req, forced, s) {
-  const trapped = !forced && req.active && req.active[0].trapped;
+function switchButtons(req, forced, s, trapped) {
+  const reviving = req.side.pokemon.some((p) => p.reviving);
   return `<div class="rb-switches">${req.side.pokemon.map((p, n) => {
     if (p.active && !forced) return "";
     const pick = "switch " + (n + 1), was = playedHere(s, pick);
     const fainted = /fnt/.test(p.condition);
+    const unavailable = reviving ? !fainted : fainted || p.active || trapped;
     const [hp, max] = p.condition.split(" ")[0].split("/");
-    return `<button type="button" class="button rb-sw has-tooltip ${was} ${pickedHere(s, pick)}" data-pick="${pick}" data-tooltip="switchpokemon|${n}" ${was ? 'data-note="Used in the replay"' : ""} ${fainted || p.active || trapped ? "disabled" : ""}><span class="rb-picon" style="${icon2(p.details.split(",")[0])}"></span>${esc(nameOf(p.ident))} <small>${fainted ? 0 : Math.round(hp / max * 100)}%</small></button>`;
+    return `<button type="button" class="button rb-sw has-tooltip ${was} ${pickedHere(s, pick)}" data-pick="${pick}" data-tooltip="switchpokemon|${n}" ${was ? 'data-note="Used in the replay"' : ""} ${unavailable ? "disabled" : ""}><span class="rb-picon" style="${icon2(p.details.split(",")[0])}"></span>${esc(nameOf(p.ident))} <small>${fainted ? 0 : Math.round(hp / max * 100)}%</small></button>`;
   }).join("")}</div>`;
 }
 function editGuessedMove(pos, si, button) {
@@ -786,7 +794,10 @@ function renderDice(pos) {
   if (el.hidden) return;
   const node = S.study.nodes[S.cur];
   const rolls = pos.rolls;
-  el.innerHTML = `<div class="rb-dicehead"><h2>Dice</h2><span><button class="button" id="btnRandomize" title="Roll real dice for every outcome"><i class="fa fa-random" aria-hidden="true"></i> Randomize</button> <button class="button" id="btnLikely" title="Back to the most likely outcomes" ${node.forced.length ? "" : "disabled"}>Most likely</button></span></div>` + (rolls.length ? `<div class="rb-dice">${groups(rolls).map(groupHTML).join("")}</div>` : "");
+  const line = pathTo(S.cur).reduce((p, id) => p * odds(compute(id).rolls), 1);
+  const turn = odds(rolls);
+  const oddsHTML = rolls.some((r) => r.kind !== "roll" && !(r.kind === "int" && r.hi - r.lo > 10)) ? `<span class="rb-odds" title="Chance of these outcomes (damage rolls not counted)">This turn <b>${percent(turn)}</b>${line !== turn ? ` \xB7 Line <b>${percent(line)}</b>` : ""}</span>` : "";
+  el.innerHTML = `<div class="rb-dicehead"><h2>Dice</h2>${oddsHTML}<span><button class="button" id="btnRandomize" title="Roll real dice for every outcome"><i class="fa fa-random" aria-hidden="true"></i> Randomize</button> <button class="button" id="btnLikely" title="Back to the most likely outcomes" ${node.forced.length ? "" : "disabled"}>Most likely</button></span></div>` + (rolls.length ? `<div class="rb-dice">${groups(rolls).map(groupHTML).join("")}</div>` : "");
   const set = (i, value) => replay(rolls.map((r, j) => ({ key: r.key, value: j === i ? value : r.value })), node.seed);
   for (const c of el.querySelectorAll("[data-roll]")) {
     const i = +c.dataset.roll, r = rolls[i];
@@ -822,6 +833,22 @@ function replay(forced, seed) {
     }
     go(S.cur, { animate: true, force: true });
   }
+}
+function odds(rolls) {
+  let p = 1;
+  for (const r of rolls) {
+    if (r.kind === "chance") p *= r.value ? r.p : 1 - r.p;
+    else if (r.kind === "int" && r.hi - r.lo <= 10) p /= Math.max(1, r.hi - r.lo);
+    else if (r.kind === "pick") p /= Math.max(1, r.options.length);
+    else if (r.kind === "order") p /= factorial(r.options.length);
+  }
+  return p;
+}
+var factorial = (n) => n <= 1 ? 1 : n * factorial(n - 1);
+function percent(p) {
+  if (p <= 0) return "0%";
+  const x = p * 100;
+  return (x >= 10 ? Math.round(x) : x >= 1 ? x.toFixed(1) : x >= 0.01 ? x.toPrecision(2) : "< 0.01") + "%";
 }
 function mostLikely(r) {
   if (r.kind === "chance") return r.p >= 0.5;
@@ -1294,7 +1321,9 @@ function cleanStudy(raw, base) {
     study.meta = {
       format: str(raw.meta.format),
       players: (Array.isArray(raw.meta.players) ? raw.meta.players : []).slice(0, 2).map((p) => str(p, 40)),
-      ...typeof raw.meta.log === "string" ? { log: raw.meta.log } : {}
+      ...typeof raw.meta.log === "string" ? { log: raw.meta.log } : {},
+      .../^[a-z0-9-]{1,120}$/.test(raw.meta.replayId || "") ? { replayId: raw.meta.replayId } : {},
+      ...raw.meta.shared ? { shared: true } : {}
     };
   }
   if (Number.isFinite(raw?.opened)) study.opened = raw.opened;
@@ -1362,7 +1391,7 @@ function renderRecent() {
     const lines = s.lines ? ` \xB7 ${s.lines} line${s.lines > 1 ? "s" : ""}` : "";
     return entry(
       s.key,
-      `${esc(s.meta.format || s.key)}${lines}${s.opened ? " \xB7 " + ago(s.opened) : ""}`,
+      `${esc(s.meta.format || s.key)}${s.meta.shared ? " \xB7 shared with you" : ""}${lines}${s.opened ? " \xB7 " + ago(s.opened) : ""}`,
       players(s.meta.players),
       `<button class="rb-linkbtn" data-remove="${esc(s.key)}">${removeArmed === s.key ? "Remove for good?" : "Remove"}</button>`
     );
@@ -1455,11 +1484,14 @@ function showPage(page) {
   if (page === "landing") document.title = "Replay Branch";
 }
 async function openKey(key) {
-  const log = loadSaved(key)?.meta?.log;
-  if (log) await loadText(log);
-  else await loadText(await fetchReplay(key), { replayId: key });
+  const meta = loadSaved(key)?.meta || {};
+  if (meta.log) await loadText(meta.log, { key });
+  else {
+    const id = meta.replayId || key.split("~")[0];
+    await loadText(await fetchReplay(id), { replayId: id, key });
+  }
 }
-async function loadText(text, { shown = false, replayId = null, study = null } = {}) {
+async function loadText(text, { shown = false, replayId = null, study = null, key = null, shared = false } = {}) {
   const t = String(text || "").trim();
   let exported = null;
   if (t.startsWith("{")) {
@@ -1472,14 +1504,20 @@ async function loadText(text, { shown = false, replayId = null, study = null } =
   const rep = E.parseReplayInput(exported ? exported.log : t);
   S.rep = rep;
   S.replayId = replayId;
-  S.key = rep.meta.id || "log-" + hash(rep.lines.slice(0, 40).join("\n") + rep.lines.length);
+  S.key = key || replayKey(rep);
   S.lines.clear();
   S.replayPos.clear();
   S.stats = await fetchStats(rep.formatid);
   S.cbEnd = E.clientAt(rep, rep.lastTurn + 1);
   S.base = E.revealedTeams(rep).map((team) => team.map((known) => E.suggestSet(known, S.stats, rep.gen)));
   S.study = cleanStudy(study || exported?.study || loadSaved(S.key) || newStudy(), S.base);
-  S.study.meta = { format: rep.tier || rep.formatid, players: [S.cbEnd.p1.name, S.cbEnd.p2.name], ...replayId ? {} : { log: rep.lines.join("\n") } };
+  const was = S.study.meta || {};
+  S.study.meta = {
+    format: rep.tier || rep.formatid,
+    players: [S.cbEnd.p1.name, S.cbEnd.p2.name],
+    ...replayId ? { replayId } : { log: rep.lines.join("\n") },
+    ...shared || was.shared ? { shared: true } : {}
+  };
   S.study.opened = Date.now();
   save();
   document.title = `${S.study.meta.players.join(" vs. ")} - Replay Branch`;
@@ -1489,6 +1527,7 @@ async function loadText(text, { shown = false, replayId = null, study = null } =
   S.cur = "";
   go("r0");
 }
+var replayKey = (rep) => rep.meta.id || "log-" + hash(rep.lines.slice(0, 40).join("\n") + rep.lines.length);
 var statsIndex = null;
 async function fetchStats(formatid) {
   try {
@@ -1529,7 +1568,12 @@ async function openSharedLink() {
   const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("deflate-raw"));
   const payload = JSON.parse(await new Response(stream).text());
   const text = payload.id ? await fetchReplay(payload.id) : payload.log;
-  await loadText(text, { replayId: payload.id || null, study: payload.study });
+  const own = replayKey(E.parseReplayInput(text));
+  const mine = loadSaved(own);
+  const hasWork = (s) => s && (Object.keys(s.nodes || {}).length || Object.values(s.notes || {}).some((n) => n?.comment || n?.glyph));
+  const theirs = JSON.stringify(payload.study || {});
+  const key = hasWork(mine) && JSON.stringify(mine.nodes) !== JSON.stringify(payload.study?.nodes) ? own + "~" + hash(theirs) : own;
+  await loadText(text, { replayId: payload.id || null, study: payload.study, key, shared: true });
   history.replaceState(null, "", "?r=" + encodeURIComponent(S.key));
 }
 function wireDialogs() {

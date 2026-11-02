@@ -11,7 +11,12 @@ export const isReplayPos = id => id[0] === 'r';
 export const replayTurn = id => +id.slice(1);
 
 export function newStudy() { return {rbv: 1, sets: null, nodes: {}, kids: {}, notes: {}, seq: 0}; }
-export function save() { store('rbv:' + S.key, JSON.stringify(S.study)); }
+// (a failed save says so, under the viewer, until one works)
+export function save() {
+  const ok = store('rbv:' + S.key, JSON.stringify(S.study));
+  const warning = document.getElementById('saveErr');
+  if (warning) warning.hidden = ok;
+}
 export function loadSaved(key) { try { return JSON.parse(stored('rbv:' + key, 'null')); } catch { return null; } }
 
 export const kids = id => S.study.kids[id] || [];
