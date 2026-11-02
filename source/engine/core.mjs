@@ -390,6 +390,144 @@ export function installRng(battle, ctl) {
 
 // ---------------------------------------------------------------- takeover: client state at turn t -> live sim battle
 function effState(battle, o) { return battle.initEffectState ? battle.initEffectState(o) : o; }
+// Effects the log shows starting in the turns before t that the client does not keep (or keeps differently), set up with the
+// simulator's own functions and then wound on by the turn that passed: a two-turn move being charged (Fly, Dig, Solar Beam...),
+// an Outrage-style lock, Protect's falling odds when used in a row, Rollout / Ice Ball, Future Sight / Doom Desire, Wish,
+// Lock-On / Mind Reader, a trap tied to its maker (Mean Look, Block, Spider Web), the Metronome item's count, the last move
+// used (Copycat) and the Pokemon that fainted last turn (Retaliate).
+function fromRecentTurns(rep, t, battle, notes) {
+  if (t < 2 || rep.turnIdx[t - 1] === undefined) return;
+  const linesOf = u => rep.lines.slice(rep.turnIdx[u] + 1, rep.turnIdx[u + 1] ?? rep.lines.length);
+  const parse = l => { const a = l.split('|'); return {kind: a[1], who: a[2] || '', what: a[3] || '', whom: a[4] || '', line: l}; };
+  const monOf = ident => {
+    const m = /^p([12])([a-c])?: (.+)$/.exec(ident || '');
+    return m ? battle.sides[+m[1] - 1].pokemon.find(p => p.name === m[3]) || null : null;
+  };
+  const isActive = p => p && p.isActive && !p.fainted;
+  const last = linesOf(t - 1).map(parse);
+  // moves each Pokemon used in turn u (not ones another move called), in order
+  const usesIn = (u, mon) => linesOf(u).map(parse).filter(x => x.kind === 'move' && monOf(x.who) === mon && !/\[from\]/.test(x.line));
+  const settle = st => { if (st && st.duration > 1) st.duration--; };   // (the end of turn t - 1 has passed)
+
+  for (const side of battle.sides) for (const mon of side.active) {
+    if (!isActive(mon)) continue;
+    const used = usesIn(t - 1, mon), lastUse = used[used.length - 1];
+    const cant = last.some(x => x.kind === 'cant' && monOf(x.who) === mon);
+    if (cant && battle.gen === 1) mon.cantLastTurn = true;   // (gen 1 records that it could not move as its selection)
+    if (lastUse) {
+      const rest = last.slice(last.indexOf(lastUse) + 1), next = rest.findIndex(x => x.kind === 'move');
+      const own = next < 0 ? rest : rest.slice(0, next);
+      if (/\[(still|notarget|miss)\]/.test(lastUse.line) || own.some(x => ['-fail', '-miss', '-immune'].includes(x.kind))) mon.moveLastTurnResult = false;
+    }
+    // a two-turn move charged last turn and not yet used
+    const prep = last.filter(x => x.kind === '-prepare' && monOf(x.who) === mon).pop();
+    // (a Power Herb used up right after it means the move went off at once)
+    const fired = prep && last.slice(last.indexOf(prep) + 1).some(x => (x.kind === 'move' && monOf(x.who) === mon) ||
+      (x.kind === '-enditem' && monOf(x.who) === mon && /Power Herb/.test(x.what)));
+    if (prep && !fired) {
+      const move = battle.dex.getActiveMove(prep.what), target = monOf(prep.whom) || mon.side.foe.active.find(isActive) || mon;
+      mon.addVolatile('twoturnmove', target, move);
+      settle(mon.volatiles.twoturnmove); settle(mon.volatiles[move.id]);
+    }
+    if (!lastUse) continue;
+    const move = battle.dex.getActiveMove(lastUse.what);
+    const after = last.slice(last.indexOf(lastUse) + 1);
+    const failed = after.find(x => x.kind === 'move' || x.kind === 'turn') ? false : false;
+    // Outrage, Thrash, Petal Dance...: locked in unless it tired out (confused by fatigue) this turn
+    if (move.self?.volatileStatus === 'lockedmove' && !after.some(x => x.kind === '-start' && monOf(x.who) === mon && /fatigue/.test(x.line))) {
+      mon.addVolatile('lockedmove', mon, move); settle(mon.volatiles.lockedmove);
+    }
+    // Protect and the like, used successfully in a row up to last turn
+    if (move.stallingMove) {
+      let n = 0;
+      for (let u = t - 1; u >= 1; u--) {
+        const x = usesIn(u, mon).pop();
+        if (!x || !battle.dex.moves.get(x.what).stallingMove) break;
+        const rest = linesOf(u).map(parse); const i = rest.findIndex(y => y.line === x.line);
+        if (rest.slice(i + 1, i + 3).some(y => y.kind === '-fail' && monOf(y.who) === mon)) break;
+        n++;
+      }
+      for (let k = 0; k < n; k++) mon.addVolatile('stall');
+      settle(mon.volatiles.stall);
+    }
+    // Rollout / Ice Ball: the hits in a row so far
+    if (['rollout', 'iceball'].includes(move.id) && !after.slice(0, 2).some(x => x.kind === '-miss' || x.kind === '-fail')) {
+      let n = 0;
+      for (let u = t - 1; u >= 1 && usesIn(u, mon).some(x => toID(x.what) === move.id); u--) n++;
+      if (n < 5) { mon.addVolatile(move.id); const st = mon.volatiles[move.id]; if (st) { st.hitCount = n; st.contactHitCount = n; st.duration = 1; } }
+    }
+    // Lock-On / Mind Reader: sure to hit that Pokemon this turn
+    if (['lockon', 'mindreader'].includes(move.id)) {
+      const target = monOf(lastUse.whom);
+      if (isActive(target)) { mon.addVolatile('lockon', target); settle(mon.volatiles.lockon); }
+    }
+  }
+  // traps tied to the Pokemon that made them (they end when it leaves)
+  for (let u = t - 1; u >= 1; u--) for (const x of linesOf(u).map(parse)) {
+    if (x.kind !== 'move' || !['meanlook', 'block', 'spiderweb'].includes(toID(x.what))) continue;
+    const maker = monOf(x.who), target = monOf(x.whom);
+    if (isActive(maker) && isActive(target) && !target.volatiles.trapped) target.addVolatile('trapped', maker, battle.dex.getActiveMove(x.what), 'trapper');
+  }
+  // Future Sight / Doom Desire still to land: on the slot of the Pokemon it was aimed at
+  for (let u = Math.max(1, t - 2); u <= t - 1; u++) for (const x of linesOf(u).map(parse)) {
+    if (x.kind !== '-start' || !/^(move: )?(Future Sight|Doom Desire)$/.test(x.what)) continue;   // (gens 2-4 leave out "move: ")
+    const source = monOf(x.who), id = toID(x.what.replace('move: ', ''));
+    const use = linesOf(u).map(parse).find(y => y.kind === 'move' && monOf(y.who) === source && toID(y.what) === id);
+    const target = monOf(use?.whom) || source?.side.foe.active[0];
+    if (!source || !target || !target.isActive) continue;
+    const landed = rep.lines.slice(rep.turnIdx[u] + 1, rep.turnIdx[t]).some(l => l.startsWith('|-end|') && l.includes(x.what.replace('move: ', '')));
+    if (landed || !target.side.addSlotCondition(target, 'futuremove', source)) continue;
+    const m = battle.dex.moves.get(id);
+    // (gens 2-4 count it down; later ones wait for the turn it lands on)
+    Object.assign(target.side.slotConditions[target.position].futuremove, {move: id, source, endingTurn: u + 1, ...(battle.gen <= 4 ? {duration: 3 - (t - u)} : {}),
+      moveData: {id, name: m.name, accuracy: m.accuracy, basePower: m.basePower, category: m.category, priority: m.priority, flags: m.flags,
+        ignoreImmunity: false, effectType: 'Move', type: m.type}});
+  }
+  // Wish made last turn, to heal at the end of this one
+  for (const x of last) {
+    if (x.kind !== 'move' || toID(x.what) !== 'wish') continue;
+    const user = monOf(x.who);
+    if (!user || !user.side.active.includes(user)) continue;
+    if (user.side.addSlotCondition(user, 'wish', user)) settle(user.side.slotConditions[user.position].wish);
+  }
+  // the Metronome item: the move used and how many times in a row
+  for (const side of battle.sides) for (const mon of side.active) {
+    if (!isActive(mon) || mon.item !== 'metronome') continue;
+    let lastId = '', n = 0;
+    for (let u = t - 1; u >= 1; u--) {
+      const x = usesIn(u, mon).pop();
+      if (!x) break;
+      if (!lastId) lastId = toID(x.what); else if (toID(x.what) !== lastId) break;
+      n++;
+    }
+    mon.addVolatile('metronome');
+    if (mon.volatiles.metronome) { mon.volatiles.metronome.lastMove = lastId; mon.volatiles.metronome.numConsecutive = Math.max(0, n - 1); }
+  }
+  // the last move used in the battle (Copycat), and each side's Pokemon that fainted last turn (Retaliate)
+  const moves = rep.lines.slice(0, rep.turnIdx[t]).filter(l => l.startsWith('|move|'));
+  if (moves.length) battle.lastMove = battle.dex.getActiveMove(moves[moves.length - 1].split('|')[3]);
+  for (const x of last) if (x.kind === 'faint') { const mon = monOf(x.who); if (mon) mon.side.faintedLastTurn = mon; }
+}
+
+// Extra PP that Pressure took (from gen 3): a move aimed at a foe with Pressure costs one more. By side, Pokemon name and move id.
+// (Pressure as the sets have it, or as the log shows it; the client counts it only in a few cases, which this leaves out)
+function pressureCosts(rep, t, sets) {
+  const out = [{}, {}];
+  if (rep.gen < 3) return out;
+  const shown = new Set(rep.lines.filter(l => /^\|-ability\|p[12][a-c]?: [^|]+\|Pressure/.test(l)).map(l => l.split('|')[2].replace(/^(p[12])[a-c]?: /, '$1 ')));
+  const has = (side, name) => shown.has(`p${side + 1} ${name}`) || toID(sets[side]?.find(s => s?.name === name)?.ability) === 'pressure';
+  const end = rep.turnIdx[t] ?? rep.lines.length;
+  for (let i = 0; i < end; i++) {
+    const a = rep.lines[i].split('|');
+    if (a[1] !== 'move' || /\[from\]/.test(rep.lines[i])) continue;
+    const at = /^p([12])[a-c]?: (.+)$/.exec(a[2] || ''), on = /^p([12])[a-c]?: (.+)$/.exec(a[4] || '');
+    if (!at || !on || at[1] === on[1] || !has(+on[1] - 1, on[2])) continue;
+    const mine = out[+at[1] - 1][at[2]] ||= {}, id = toID(a[3]);
+    mine[id] = (mine[id] || 0) + 1;
+  }
+  return out;
+}
+
 // Gen 1 stats as the game keeps them: stat stages applied (capped at 999), then burn halving Attack and paralysis quartering Speed.
 function gen1Stats(sp) {
   const mult = [25, 28, 33, 40, 50, 66, 100, 150, 200, 250, 300, 350, 400];
@@ -454,6 +592,7 @@ export function takeover(rep, t, sets, seed) {
   const sides = [cb.p1, cb.p2];
   const teams = sides.map((cs, si) => withLaterReveals(cs.team, endOf(rep).sides[si].team));
   const order = [], transformed = [];
+  const pressure = pressureCosts(rep, t, sets);
   const used0 = si => gimmicks[si];
   const seen = teams.map((team, si) => team.map((p, k) => { const e = endOf(rep).sides[si].team[k]; return !!(p.maxhp || e?.maxhp); }));
   sides.forEach((cs, si) => {
@@ -503,6 +642,7 @@ export function takeover(rep, t, sets, seed) {
     const ss = battle.sides[si];
     ss.sideConditions = {};
     for (const [id, c] of Object.entries(cs.sideConditions || {})) {
+      if (id === 'futuresight' || id === 'doomdesire') continue;
       const st = effState(battle, {id, target: ss});
       if (['spikes', 'toxicspikes'].includes(id)) st.layers = c.level || 1;
       if (c.minDuration > 0) st.duration = c.minDuration; else if (['reflect', 'lightscreen', 'auroraveil', 'tailwind', 'safeguard', 'mist', 'luckychant'].includes(id)) st.duration = Math.max(1, c.maxDuration || 5);
@@ -546,9 +686,26 @@ export function takeover(rep, t, sets, seed) {
         } else { sp.status = ''; sp.statusState = effState(battle, {id: '', target: sp}); }
       }
       // PP
+      // (where the client is unsure of Pressure it gives a range [without, with]: take the lower; pressureCosts adds Pressure)
+      const ppOf = km => Array.isArray(km.ppUsed) ? km.ppUsed[0] : (km.ppUsed || 0);
       for (const ms of sp.moveSlots) {
         const km = cp.moveSlots.find(m => toID(m.name) === ms.id);
-        if (km) { const used = Array.isArray(km.ppUsed) ? km.ppUsed[0] : (km.ppUsed || 0); ms.pp = Math.max(0, ms.maxpp - used); ms.used = used > 0; }
+        if (km) { const used = ppOf(km); ms.pp = Math.max(0, ms.maxpp - used); ms.used = used > 0; }
+      }
+      // (the log names a Max Move or Z-Move, not the move it came from: charge that move when only one of the set fits)
+      for (const km of cp.moveSlots) {
+        const z = Dex.moves.get(km.name);
+        if (!z.exists || !(z.isMax || z.isZ)) continue;
+        const fits = sp.moveSlots.filter(ms => {
+          const m = Dex.moves.get(ms.id);
+          return z.category === 'Status' ? m.category === 'Status' : m.category !== 'Status' && m.type === z.type;
+        });
+        const used = ppOf(km);
+        if (fits.length === 1 && used) { fits[0].pp = Math.max(0, fits[0].pp - used); fits[0].used = true; }
+      }
+      for (const [id, n] of Object.entries(pressure[si]?.[cp.name] || {})) {
+        const ms = sp.moveSlots.find(m => m.id === id);
+        if (ms) ms.pp = Math.max(0, ms.pp - n);
       }
       // Tera
       if (cp.terastallized) {
@@ -574,6 +731,7 @@ export function takeover(rep, t, sets, seed) {
               sourceEffect: Dex.moves.get(vid), boundDivisor: battle.gen >= 6 ? (band ? 6 : 8) : (band ? 8 : 16)});
             continue;
           }
+          if (vid === 'trapped') continue;   // (tied to the Pokemon that trapped it: fromRecentTurns)
           if (!VOLATILES.includes(vid)) { notes.push(`${cp.name}: "${vid}" not carried over.`); continue; }
           const st = effState(battle, {id: vid, target: sp});
           if (vid === 'substitute') st.hp = Math.floor(sp.maxhp / 4);
@@ -610,6 +768,11 @@ export function takeover(rep, t, sets, seed) {
         sp.activeMoveActions = cp.movesUsedWhileActive ? cp.movesUsedWhileActive.length : 1;
         sp.activeTurns = Math.max(1, sp.activeMoveActions);
         sp.lastMove = cp.lastMove && cp.lastMove !== 'switch-in' ? battle.dex.getActiveMove(cp.lastMove) : null;   // (an active move: a plain Move does not survive save and restore)
+        // (the move it chose, as the log shows it - Metronome, Sleep Talk - rather than the one that called up)
+        const chosen = rep.lines.slice(0, rep.turnIdx[t] ?? rep.lines.length).filter(l => l.startsWith('|move|') && !/\[from\]/.test(l) &&
+          l.split('|')[2].replace(/^p\d[a-c]?: /, '') === cp.name && l.split('|')[2].startsWith('p' + (si + 1))).pop();
+        if (battle.gen >= 3 && sp.lastMove && chosen && Dex.moves.get(chosen.split('|')[3]).exists) sp.lastMove = battle.dex.getActiveMove(chosen.split('|')[3]);
+        if (battle.gen === 2 && sp.lastMove) sp.lastMoveEncore = sp.lastMove;
         if (used.dynamaxTurns > 0 && cp.volatiles?.dynamax) {   // still Dynamaxed: doubles its HP, as it was
           sp.addVolatile('dynamax');
           if (sp.volatiles.dynamax) { sp.volatiles.dynamax.turns = used.dynamaxTurns; delete sp.volatiles.dynamax.duration; }
@@ -630,10 +793,19 @@ export function takeover(rep, t, sets, seed) {
       battle.sides[1 - si].active.find(p => p && toID(p.species.name) === toID(species)) || battle.sides[1 - si].active[0];
     if (into) try { sp.transformInto(into, Dex.moves.get('transform')); } catch (e) { notes.push(`${sp.name}: could not carry its Transform over.`); }
   }
+  try { fromRecentTurns(rep, t, battle, notes); } catch (e) { notes.push('Effects of the turns before: ' + e.message); }
+  // who is trapped this turn: worked out at the end of each turn (as the simulator's endTurn does), which taking over skips
+  for (const side of battle.sides) for (const p of side.active) {
+    if (!p || p.fainted) continue;
+    p.trapped = p.maybeTrapped = false;
+    battle.runEvent('TrapPokemon', p);
+    if (!p.knownType || battle.dex.getImmunity('trapped', p)) battle.runEvent('MaybeTrapPokemon', p);
+  }
   if (battle.gen === 1) {
     for (const ss of battle.sides) {
       const act = ss.active[0], last = act && !act.fainted && act.lastMove ? act.lastMove.id : '';
-      ss.lastSelectedMove = last || 'nomove';
+      ss.lastSelectedMove = act?.cantLastTurn ? 'cannotmove' : last || 'nomove';
+      if (act) delete act.cantLastTurn;
       ss.lastSelectedMoveSlot = last ? Math.max(0, act.moveSlots.findIndex(m => m.id === last)) : 0;
       ss.lastEnemySelectedMove = ss.lastSelectedMove;   // (kept on the side whose move it was)
     }
