@@ -371,7 +371,7 @@ export function takeover(rep, t, sets, seed) {
   const f = battle.field, cf = cb.field;
   f.weather = ''; f.weatherState = effState(battle, {id: ''}); f.terrain = ''; f.terrainState = effState(battle, {id: ''}); f.pseudoWeather = {};
   if (cf.weatherState && cf.weatherState.id) {
-    const id = cf.weatherState.id;
+    const id = cf.weatherState.id === 'snow' ? 'snowscape' : cf.weatherState.id;   // (the client's name for Snowscape)
     f.weather = id; f.weatherState = effState(battle, {id, duration: cf.weatherState.minDuration > 0 ? cf.weatherState.minDuration : undefined});
     if (!(cf.weatherState.minDuration > 0) && !['desolateland', 'primordialsea', 'deltastream'].includes(id)) { f.weatherState.duration = 5; notes.push('Weather turns left unknown: set to 5.'); }
   }

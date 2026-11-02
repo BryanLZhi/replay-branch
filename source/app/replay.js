@@ -29,9 +29,12 @@ export function playedChoice(t, si) {
     if (!who.startsWith(p)) continue;
     gimmick ||= gimmickOf(kind, what);
     if (first) continue;
-    if (kind === 'move' && !line.includes('[from]')) first = {kind: 'move', name: what};
+    // (fainted before acting: the choice never showed, and the switch-in that follows is not it)
+    if (kind === 'faint') first = {kind: 'cant'};
+    else if (kind === 'move' && !line.includes('[from]')) first = {kind: 'move', name: what};
     else if (kind === 'switch') first = {kind: 'switch', name: nameOf(who)};
-    else if (kind === 'cant') first = {kind: 'cant'};
+    // (a move it could not use, like one blocked by Taunt, shows: that was the choice)
+    else if (kind === 'cant') first = line.split('|')[4] ? {kind: 'move', name: line.split('|')[4]} : {kind: 'cant'};
   }
   return first && {...first, gimmick};
 }

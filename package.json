@@ -9,7 +9,8 @@
     "test": "node source/test/e2e.mjs",
     "test:paste": "node source/test/paste-check.mjs 60",
     "test:takeover": "node source/test/takeover-check.mjs 3",
-    "test:playout": "node source/test/playout-check.mjs 4"
+    "test:playout": "node source/test/playout-check.mjs 4",
+    "test:realdice": "node source/test/realdice-check.mjs 3"
   },
   "devDependencies": {
     "@pkmn/client": "^0.7.4",

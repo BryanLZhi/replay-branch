@@ -59,7 +59,7 @@ export async function loadText(text, {shown = false, replayId = null, study = nu
   S.rep = rep;
   S.replayId = replayId;
   S.key = key || replayKey(rep);
-  S.lines.clear(); S.replayPos.clear();
+  S.lines.clear(); S.replayPos.clear(); S.realDice.clear();
   S.stats = await fetchStats(rep.formatid);
   S.cbEnd = E.clientAt(rep, rep.lastTurn + 1);
   S.base = E.revealedTeams(rep).map(team => team.map(known => E.suggestSet(known, S.stats, rep.gen)));

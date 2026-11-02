@@ -43,8 +43,10 @@ var S = {
   wasPlaying: false,
   lines: /* @__PURE__ */ new Map(),
   // computed line positions by node id
-  replayPos: /* @__PURE__ */ new Map()
+  replayPos: /* @__PURE__ */ new Map(),
   // simulator positions on the replay (team preview, start of a turn) by turn + sets
+  realDice: /* @__PURE__ */ new Map()
+  // the dice each replay turn rolled, as found from its log, by turn + sets
 };
 var E = null;
 function setEngine(engine) {
@@ -221,9 +223,10 @@ function playedChoice(t, si) {
     if (!who.startsWith(p)) continue;
     gimmick || (gimmick = gimmickOf(kind, what));
     if (first) continue;
-    if (kind === "move" && !line.includes("[from]")) first = { kind: "move", name: what };
+    if (kind === "faint") first = { kind: "cant" };
+    else if (kind === "move" && !line.includes("[from]")) first = { kind: "move", name: what };
     else if (kind === "switch") first = { kind: "switch", name: nameOf(who) };
-    else if (kind === "cant") first = { kind: "cant" };
+    else if (kind === "cant") first = line.split("|")[4] ? { kind: "move", name: line.split("|")[4] } : { kind: "cant" };
   }
   return first && { ...first, gimmick };
 }
@@ -494,6 +497,7 @@ function showTooltip(elem) {
 
 // source/app/dice.js
 var same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+var REAL_SEED = [5, 6, 7, 8];
 var turnName = (t) => t ? "Turn " + t : "Team preview";
 function sameStep(parent, choices, forced, seed) {
   return kids(parent).find((k) => {
@@ -501,13 +505,30 @@ function sameStep(parent, choices, forced, seed) {
     return same(n.choices, choices) && same(n.forced, forced) && (!seed || same(n.seed, seed));
   });
 }
+function realDice(t, turn) {
+  const k = t + ":" + hash(JSON.stringify(turn.sets));
+  if (!S.realDice.has(k)) {
+    let forced = [];
+    try {
+      forced = E.realDice(startOf(turn.parent, turn.sets), turn.choices, REAL_SEED, E.turnLog(S.rep, t)).forced;
+    } catch {
+    }
+    S.realDice.set(k, forced);
+  }
+  return S.realDice.get(k);
+}
 function upcomingDice(pos) {
   const turn = barTurn(pos);
-  if (!turn || turn.replay) return null;
-  const key = turn.parent + " " + JSON.stringify(turn.choices) + " " + (turn.sets ? hash(JSON.stringify(turn.sets)) : "");
+  if (!turn) return null;
+  const key = turn.parent + " " + JSON.stringify(turn.choices) + " " + (turn.sets ? hash(JSON.stringify(turn.sets)) : "") + (turn.replay ? " real" : "");
   if (S.next?.key !== key) {
-    const played = kids(turn.parent).map((k) => S.study.nodes[k]).find((n) => same(n.choices, turn.choices));
-    S.next = { key, turn, forced: played ? played.forced : [], seed: played ? played.seed : newSeed() };
+    if (turn.replay) {
+      const real = realDice(pos.t, turn);
+      S.next = { key, turn, real, forced: real, seed: REAL_SEED };
+    } else {
+      const played = kids(turn.parent).map((k) => S.study.nodes[k]).find((n) => same(n.choices, turn.choices));
+      S.next = { key, turn, forced: played ? played.forced : [], seed: played ? played.seed : newSeed() };
+    }
     S.next.base = S.next.seed;
   }
   const now = JSON.stringify(S.next.forced);
@@ -532,7 +553,10 @@ function renderDice(pos) {
   const el = $id("diceSec");
   const next = upcomingDice(pos);
   el.hidden = next ? !next.rolls.length : pos.kind !== "line";
-  if (el.hidden) return;
+  if (el.hidden) {
+    el.textContent = "";
+    return;
+  }
   let rolls, forced, before, when, apply2;
   if (next) {
     ({ rolls, forced } = next);
@@ -549,7 +573,7 @@ function renderDice(pos) {
   }
   const turn = odds(rolls), line = before.reduce((p, id) => p * odds(compute(id).rolls), turn);
   const oddsHTML = rolls.some((r) => r.kind !== "roll" && !(r.kind === "int" && r.hi - r.lo > 10)) ? `<span class="rb-odds" title="Chance of these outcomes (damage rolls not counted)">This turn <b>${percent(turn)}</b>${before.length ? ` \xB7 Line <b>${percent(line)}</b>` : ""}</span>` : "";
-  el.innerHTML = `<div class="rb-dicehead"><h2>Dice <small class="rb-dturn">${when}</small></h2>${oddsHTML}<span><button class="button" id="btnRandomize" title="Roll real dice for every outcome"><i class="fa fa-random" aria-hidden="true"></i> Randomize</button> <button class="button" id="btnLikely" title="Back to the most likely outcomes" ${forced.length ? "" : "disabled"}>Most likely</button></span></div>` + (rolls.length ? `<div class="rb-dice">${groups(rolls).map(groupHTML).join("")}</div>` : "");
+  el.innerHTML = `<div class="rb-dicehead"><h2>Dice <small class="rb-dturn">${when}</small></h2>${oddsHTML}<span><button class="button" id="btnRandomize" title="Roll real dice for every outcome"><i class="fa fa-random" aria-hidden="true"></i> Randomize</button> <button class="button" id="btnLikely" title="Back to the most likely outcomes" ${forced.length ? "" : "disabled"}>Most likely</button>` + (next?.real ? ` <button class="button" id="btnReal" title="Back to how the turn went" ${same(forced, next.real) ? "disabled" : ""}>As played</button>` : "") + `</span></div>` + (rolls.length ? `<div class="rb-dice">${groups(rolls).map(groupHTML).join("")}</div>` : "");
   const set = (i, value) => apply2(rolls.map((r, j) => ({ key: r.key, value: j === i ? value : r.value })));
   for (const c of el.querySelectorAll("[data-roll]")) {
     const i = +c.dataset.roll, r = rolls[i];
@@ -558,6 +582,7 @@ function renderDice(pos) {
   }
   $id("btnRandomize").onclick = () => apply2(rolls.map((r) => ({ key: r.key, value: randomOutcome(r) })));
   $id("btnLikely").onclick = () => apply2([]);
+  if (next?.real) $id("btnReal").onclick = () => apply2(next.real);
 }
 function replay(forced, seed) {
   const node = S.study.nodes[S.cur];
@@ -969,7 +994,8 @@ function playTurn(pos) {
     clearPicks();
     S.err = "";
   };
-  if (turn.replay) {
+  const dice = upcomingDice(pos);
+  if (turn.replay && (!dice || JSON.stringify(dice.forced) === JSON.stringify(dice.real))) {
     reset();
     S.stopAt = pos.t + 1;
     if (pos.t === 0) S.psb.reset();
@@ -978,7 +1004,7 @@ function playTurn(pos) {
     renderPanels();
     return;
   }
-  const { choices, parent, sets } = turn, dice = upcomingDice(pos);
+  const { choices, parent, sets } = turn;
   const forced = dice ? dice.forced : [], seed = dice?.seed;
   let id = sameStep(parent, choices, forced, seed);
   if (!id) {
@@ -1567,6 +1593,7 @@ async function loadText(text, { shown = false, replayId = null, study = null, ke
   S.key = key || replayKey(rep);
   S.lines.clear();
   S.replayPos.clear();
+  S.realDice.clear();
   S.stats = await fetchStats(rep.formatid);
   S.cbEnd = E.clientAt(rep, rep.lastTurn + 1);
   S.base = E.revealedTeams(rep).map((team) => team.map((known) => E.suggestSet(known, S.stats, rep.gen)));

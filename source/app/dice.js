@@ -1,5 +1,6 @@
 // The dice of a turn, every random outcome editable: the turn on the bar once both choices are in (set them, then Play
-// turn), else in a line the step that led here (changing one replays it, as a new line if this one already continues).
+// turn; on the replay they start as the turn went), else in a line the step that led here (changing one replays it, as
+// a new line if this one already continues).
 // Outcomes moved off the most likely result are outlined, and the odds of the outcomes (this turn, and the whole line)
 // are shown.
 import {S, E, $id, esc, hash} from './state.js';
@@ -8,6 +9,7 @@ import {renderPanels, go} from './navigation.js';
 import {barTurn} from './picker.js';
 
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+const REAL_SEED = [5, 6, 7, 8];
 const turnName = t => t ? 'Turn ' + t : 'Team preview';
 
 // A line from `parent` with these choices and dice (and this seed, when given), if there is one.
@@ -15,15 +17,31 @@ export function sameStep(parent, choices, forced, seed) {
   return kids(parent).find(k => { const n = S.study.nodes[k]; return same(n.choices, choices) && same(n.forced, forced) && (!seed || same(n.seed, seed)); });
 }
 
-// The dice of the turn on the bar, before it is played (null when nothing is to be played, or it is the replay's own
-// turn). They start as those of a line already played with these choices, if any.
+// The dice the replay's turn t rolled, as found from its log (engine realDice).
+function realDice(t, turn) {
+  const k = t + ':' + hash(JSON.stringify(turn.sets));
+  if (!S.realDice.has(k)) {
+    let forced = [];
+    try { forced = E.realDice(startOf(turn.parent, turn.sets), turn.choices, REAL_SEED, E.turnLog(S.rep, t)).forced; } catch {}
+    S.realDice.set(k, forced);
+  }
+  return S.realDice.get(k);
+}
+
+// The dice of the turn on the bar, before it is played (null when nothing is to be played). On the replay's own turn
+// they start as it went (real: those dice); else as those of a line already played with these choices, if any.
 export function upcomingDice(pos) {
   const turn = barTurn(pos);
-  if (!turn || turn.replay) return null;
-  const key = turn.parent + ' ' + JSON.stringify(turn.choices) + ' ' + (turn.sets ? hash(JSON.stringify(turn.sets)) : '');
+  if (!turn) return null;
+  const key = turn.parent + ' ' + JSON.stringify(turn.choices) + ' ' + (turn.sets ? hash(JSON.stringify(turn.sets)) : '') + (turn.replay ? ' real' : '');
   if (S.next?.key !== key) {
-    const played = kids(turn.parent).map(k => S.study.nodes[k]).find(n => same(n.choices, turn.choices));
-    S.next = {key, turn, forced: played ? played.forced : [], seed: played ? played.seed : newSeed()};
+    if (turn.replay) {
+      const real = realDice(pos.t, turn);
+      S.next = {key, turn, real, forced: real, seed: REAL_SEED};
+    } else {
+      const played = kids(turn.parent).map(k => S.study.nodes[k]).find(n => same(n.choices, turn.choices));
+      S.next = {key, turn, forced: played ? played.forced : [], seed: played ? played.seed : newSeed()};
+    }
     S.next.base = S.next.seed;
   }
   const now = JSON.stringify(S.next.forced);
@@ -46,7 +64,7 @@ export function renderDice(pos) {
   const el = $id('diceSec');
   const next = upcomingDice(pos);
   el.hidden = next ? !next.rolls.length : pos.kind !== 'line';
-  if (el.hidden) return;
+  if (el.hidden) { el.textContent = ''; return; }
   let rolls, forced, before, when, apply;
   if (next) {
     ({rolls, forced} = next);
@@ -65,7 +83,9 @@ export function renderDice(pos) {
     `This turn <b>${percent(turn)}</b>${before.length ? ` · Line <b>${percent(line)}</b>` : ''}</span>` : '';
   el.innerHTML = `<div class="rb-dicehead"><h2>Dice <small class="rb-dturn">${when}</small></h2>${oddsHTML}<span>` +
     `<button class="button" id="btnRandomize" title="Roll real dice for every outcome"><i class="fa fa-random" aria-hidden="true"></i> Randomize</button> ` +
-    `<button class="button" id="btnLikely" title="Back to the most likely outcomes" ${forced.length ? '' : 'disabled'}>Most likely</button></span></div>` +
+    `<button class="button" id="btnLikely" title="Back to the most likely outcomes" ${forced.length ? '' : 'disabled'}>Most likely</button>` +
+    (next?.real ? ` <button class="button" id="btnReal" title="Back to how the turn went" ${same(forced, next.real) ? 'disabled' : ''}>As played</button>` : '') +
+    `</span></div>` +
     (rolls.length ? `<div class="rb-dice">${groups(rolls).map(groupHTML).join('')}</div>` : '');
 
   const set = (i, value) => apply(rolls.map((r, j) => ({key: r.key, value: j === i ? value : r.value})));
@@ -76,6 +96,7 @@ export function renderDice(pos) {
   }
   $id('btnRandomize').onclick = () => apply(rolls.map(r => ({key: r.key, value: randomOutcome(r)})));
   $id('btnLikely').onclick = () => apply([]);
+  if (next?.real) $id('btnReal').onclick = () => apply(next.real);
 }
 
 // Play the current step again with these forced outcomes.

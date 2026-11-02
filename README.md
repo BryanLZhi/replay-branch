@@ -27,17 +27,18 @@ The repository root is the site (GitHub Pages). Everything in it except `sample.
 | &nbsp;&nbsp;`navigation.js` | the current position, going to another one, keyboard |
 | &nbsp;&nbsp;`picker.js` | the turn bar: both players' choices for the turn on screen (what the replay did, until you change one), their move menus, Play turn |
 | &nbsp;&nbsp;`tooltips.js` | Showdown's hover tooltips on the picker's buttons |
-| &nbsp;&nbsp;`dice.js` | the dice of the turn on the bar (set before playing it), else of a line's last step; their odds |
+| &nbsp;&nbsp;`dice.js` | the dice of the turn on the bar (set before playing it; on the replay, as the turn went), else of a line's last step; their odds |
 | &nbsp;&nbsp;`panels.js` | the study panel and its Study tab |
 | &nbsp;&nbsp;`teams.js` | the Teams tab, and importing a team (checked against the replay) |
 | &nbsp;&nbsp;`load.js` | loading replays and studies, share links, which page the address shows |
-| `source/engine/` | bundled into `engine.js`: `core.mjs` (replay parsing, sets, the simulator with controllable RNG), `calc.mjs` (Smogon's damage calc), `paste.mjs` (team import and its checks) |
+| `source/engine/` | bundled into `engine.js`: `core.mjs` (replay parsing, sets, the simulator with controllable RNG), `calc.mjs` (Smogon's damage calc), `paste.mjs` (team import and its checks), `realdice.mjs` (the dice a replay turn rolled, found from its log) |
 | `source/embed/` | Showdown's `replay-embed.js` and the small changes made to it for `js/replay-embed.js` |
 | `source/index.template.html`, `source/style.css` | the page |
 | `source/stats/build_stats.py` | rebuilds `stats/` |
 | `source/test/e2e.mjs` | end-to-end test that drives the page like a visitor |
 | `source/test/paste-check.mjs` | simulates battles between known teams to test the import checks (true sets pass, wrong ones are caught) |
 | `source/test/takeover-check.mjs` | takes over every turn of recent replays and checks the position offers what the players did (moves, switches, Mega Evolution, Z-Moves, Dynamax, Tera) |
+| `source/test/realdice-check.mjs` | finds the dice of every turn of recent replays from their logs and counts the turns that then play out as logged, and the misses, crits and effects recovered |
 
 ## Development
 

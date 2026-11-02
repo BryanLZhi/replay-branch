@@ -268,13 +268,14 @@ export function barTurn(pos) {
   return {choices, replay, parent: onReplay ? 'r' + pos.t : S.cur, sets: onReplay ? S.study.sets : undefined};
 }
 
-// Play the turn as the bar shows it: the replay's own turn if nothing differs from it, else a line (with the dice as
-// set before playing).
+// Play the turn as the bar shows it: the replay's own turn if nothing differs from it (choices or dice), else a line
+// (with the dice as set before playing).
 export function playTurn(pos) {
   const turn = barTurn(pos);
   if (!turn) return;
   const reset = () => { clearPicks(); S.err = ''; };
-  if (turn.replay) {
+  const dice = upcomingDice(pos);
+  if (turn.replay && (!dice || JSON.stringify(dice.forced) === JSON.stringify(dice.real))) {
     reset();
     S.stopAt = pos.t + 1;
     if (pos.t === 0) S.psb.reset(); else S.psb.seekTurn(pos.t);
@@ -282,7 +283,7 @@ export function playTurn(pos) {
     renderPanels();
     return;
   }
-  const {choices, parent, sets} = turn, dice = upcomingDice(pos);
+  const {choices, parent, sets} = turn;
   const forced = dice ? dice.forced : [], seed = dice?.seed;
   let id = sameStep(parent, choices, forced, seed);
   if (!id) {

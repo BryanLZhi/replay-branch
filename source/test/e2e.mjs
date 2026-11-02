@@ -133,7 +133,11 @@ try {
   check(!await inLine(), 'Play turn as the replay played it follows the replay');
   await barReady();
   check(await turnLabel() === 'Turn 1', 'and the bar moves on to turn 1', await turnLabel());
-  check(!await visible('#diceSec'), "the replay's own turn, unchanged, has no dice to set");
+  // the replay's own turn: its dice as they went (found from the log), and changing one makes it your line
+  await until(() => !document.querySelector('#diceSec').hidden, null, 10000).catch(() => {});
+  if (await visible('#diceSec')) {
+    check(await page.$eval('#btnReal', b => b.disabled), "the replay's own turn shows its dice as played");
+  } else console.log('(no dice in turn 1)');
   await openSlot(0);
   check(/what will .+ do\?/.test(await question()), 'with the move menu', await question());
   const bench = await page.$$eval('#pickSec .rb-menu .rb-sw', b => [b.length, b.filter(x => !x.disabled).length]);
@@ -200,7 +204,18 @@ try {
     await press('Escape');
   } else check(false, 'a guessed move to edit');
   await control('reset'); await sleep(400);
-  for (let i = 0; i < 4; i++) { await control('ff'); await sleep(250); }
+  for (let i = 0; i < 3; i++) { await control('ff'); await sleep(250); }
+
+  // ---------------------------------------------------------------- the replay's own dice (turn 3: a Knock Off)
+  await barReady(); await settled();
+  await until(() => document.querySelector('#diceSec button.rb-chip[title]'), null, 10000).catch(() => {});
+  if (await page.$('#diceSec button.rb-chip[title]')) {
+    await page.click('#diceSec button.rb-chip[title]'); await sleep(300);
+    check(!await page.$eval('#btnReal', b => b.disabled) && !await inLine(), "an outcome of the replay's turn can be changed, and put back");
+    await page.click('#btnReal'); await sleep(300);
+    check(await page.$eval('#btnReal', b => b.disabled), 'As played puts it back');
+  } else check(false, 'a yes/no outcome in the dice of this replay turn');
+  await control('ff'); await sleep(250);
 
   // ---------------------------------------------------------------- a line, its dice
   await barReady();

@@ -24,6 +24,7 @@ export const S = {
   wasPlaying: false,
   lines: new Map(),   // computed line positions by node id
   replayPos: new Map(), // simulator positions on the replay (team preview, start of a turn) by turn + sets
+  realDice: new Map(),  // the dice each replay turn rolled, as found from its log, by turn + sets
 };
 
 // The engine module (engine.js); set once at start-up.
