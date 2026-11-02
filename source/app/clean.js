@@ -34,6 +34,7 @@ function cleanForced(list) {
 
 export function cleanStudy(raw, base) {
   const study = {rbv: 1, sets: cleanSets(raw?.sets, base), nodes: {}, kids: {}, notes: {}, seq: 0};
+  if (str(raw?.name, 80).trim()) study.name = str(raw.name, 80).trim();
   const nodes = raw?.nodes && typeof raw.nodes === 'object' ? raw.nodes : {};
   // lines: n<k> under r<turn> or under another kept line (parents first)
   const ids = Object.keys(nodes).filter(id => /^n\d{1,6}$/.test(id)).sort((a, b) => +a.slice(1) - +b.slice(1));

@@ -128,6 +128,11 @@ body.dark .rb-slot { color: #eee; background: linear-gradient(color-mix(in srgb,
 .rb-place::after { content: ':'; }
 /* new battle: the format menu, as Showdown's (sections that fold away), and the two teams */
 .rb-formatpick { position: relative; display: inline-block; }
+/* the study's name: a pencil by the title renames it */
+.rb-rename { font-size: 11pt; opacity: .55; vertical-align: middle; }
+.rb-rename:hover { opacity: 1; }
+#rbTitle .rb-sub { font-size: 12pt; font-weight: normal; color: var(--rb-muted); }
+.rb-nameinput { font-size: 16pt; width: min(520px, 90%); text-align: center; }
 .rb-sheet.rb-raised { position: relative; z-index: 30; }
 .rb-formatbtn { min-width: 210px; text-align: left; display: flex; justify-content: space-between; align-items: center; gap: 8px; }
 .rb-formatmenu { position: absolute; z-index: 20; top: calc(100% + 4px); left: 0; width: min(560px, 92vw); max-height: min(440px, 70vh); overflow-y: auto;

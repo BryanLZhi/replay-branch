@@ -1436,7 +1436,34 @@ function showPosition(animate) {
   showTitle();
 }
 function showTitle() {
-  $id("rbTitle").innerHTML = `<strong>${esc(S.rep.tier || S.rep.formatid)}</strong><br>${esc(playerName(0))} vs. ${esc(playerName(1))}` + (isReplayPos(S.cur) ? "" : ' <span class="rb-mode">Your line</span>');
+  const name = S.study?.name, who = `${esc(playerName(0))} vs. ${esc(playerName(1))}`, format = esc(S.rep.tier || S.rep.formatid);
+  $id("rbTitle").innerHTML = (name ? `<strong>${esc(name)}</strong><br><small class="rb-sub">${format} \xB7 ${who}</small>` : `<strong>${format}</strong><br>${who}`) + (isReplayPos(S.cur) ? "" : ' <span class="rb-mode">Your line</span>') + ` <button type="button" class="rb-linkbtn rb-rename" id="btnRename" title="Name this study" aria-label="Name this study"><i class="fa fa-pencil" aria-hidden="true"></i></button>`;
+  $id("btnRename").onclick = rename;
+}
+function rename() {
+  const title = $id("rbTitle");
+  title.innerHTML = `<input class="textbox rb-nameinput" id="studyName" maxlength="80" placeholder="${esc(S.rep.tier || S.rep.formatid)}" value="${esc(S.study.name || "")}" aria-label="Study name">`;
+  const input = $id("studyName");
+  input.focus();
+  input.select();
+  let done = false;
+  const finish = (keep) => {
+    if (done) return;
+    done = true;
+    if (keep) {
+      const v = input.value.trim().slice(0, 80);
+      if (v) S.study.name = v;
+      else delete S.study.name;
+      save();
+      document.title = `${v || S.study.meta?.players?.join(" vs. ") || "Replay"} - Replay Branch`;
+    }
+    showTitle();
+  };
+  input.onkeydown = (e) => {
+    if (e.key === "Enter") finish(true);
+    else if (e.key === "Escape") finish(false);
+  };
+  input.onblur = () => finish(true);
 }
 
 // source/app/clean.js
@@ -1475,6 +1502,7 @@ function cleanForced(list) {
 function cleanStudy(raw, base) {
   var _a;
   const study = { rbv: 1, sets: cleanSets(raw?.sets, base), nodes: {}, kids: {}, notes: {}, seq: 0 };
+  if (str(raw?.name, 80).trim()) study.name = str(raw.name, 80).trim();
   const nodes = raw?.nodes && typeof raw.nodes === "object" ? raw.nodes : {};
   const ids = Object.keys(nodes).filter((id) => /^n\d{1,6}$/.test(id)).sort((a, b) => +a.slice(1) - +b.slice(1));
   for (const id of ids) {
@@ -1645,7 +1673,7 @@ function savedStudies() {
       if (!k.startsWith("rbv:")) continue;
       try {
         const study = JSON.parse(localStorage.getItem(k));
-        out.push({ key: k.slice(4), meta: study.meta || {}, lines: Object.keys(study.nodes || {}).length, opened: study.opened || 0 });
+        out.push({ key: k.slice(4), meta: study.meta || {}, name: typeof study.name === "string" ? study.name : "", lines: Object.keys(study.nodes || {}).length, opened: study.opened || 0 });
       } catch {
       }
     }
@@ -1662,10 +1690,11 @@ function renderRecent() {
   const studies = savedStudies();
   list.innerHTML = studies.length ? studies.map((s) => {
     const lines = s.lines ? ` \xB7 ${s.lines} line${s.lines > 1 ? "s" : ""}` : "";
+    const details = `${esc(s.meta.format || s.key)}${s.name ? " \xB7 " + (s.meta.players || []).map(esc).join(" vs. ") : ""}`;
     return entry(
       s.key,
-      `${esc(s.meta.format || s.key)}${s.meta.shared ? " \xB7 shared with you" : ""}${lines}${s.opened ? " \xB7 " + ago(s.opened) : ""}`,
-      players(s.meta.players),
+      `${details}${s.meta.shared ? " \xB7 shared with you" : ""}${lines}${s.opened ? " \xB7 " + ago(s.opened) : ""}`,
+      s.name ? `<strong>${esc(s.name)}</strong>` : players(s.meta.players),
       `<button class="rb-linkbtn" data-remove="${esc(s.key)}">${removeArmed === s.key ? "Remove for good?" : "Remove"}</button>`
     );
   }).join("") : `<p class="rb-dim">Nothing yet. <a href="?r=${SAMPLE}" data-visit="${SAMPLE}">Open a sample replay</a></p>`;
@@ -1800,7 +1829,7 @@ async function loadText(text, { shown = false, replayId = null, study = null, ke
   };
   S.study.opened = Date.now();
   save();
-  document.title = `${S.study.meta.players.join(" vs. ")} - Replay Branch`;
+  document.title = `${S.study.name || S.study.meta.players.join(" vs. ")} - Replay Branch`;
   clearPicks();
   S.err = "";
   if (!shown) S.psMode = "";

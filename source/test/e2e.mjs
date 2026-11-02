@@ -575,7 +575,13 @@ try {
     const guesses = await page.$$eval('#pickSec .rb-menu .rb-mv.guess', g => g.length), moves = await page.$$eval('#pickSec .rb-menu .rb-mv b', b => b.map(x => x.textContent));
     check(await inLine() && await turnLabel() === 'Turn 1' && guesses === 0 && moves.includes('Earthquake'), "its leads play, and both teams' moves are known (no guesses)", moves.join('/'));
     await press('Escape');
+    // naming the study: the name heads the title, and Recent lists it by name
+    await page.click('#btnRename');
+    await page.waitForSelector('#studyName');
+    await page.type('#studyName', 'Chomp vs Tusk'); await page.keyboard.press('Enter'); await sleep(200);
+    check(/Chomp vs Tusk/.test(await text('#rbTitle strong')) && /Player 1 vs\. Player 2/.test(await text('#rbTitle')), 'a study can be named', await text('#rbTitle'));
     await page.click('#home'); await sleep(300);
+    check((await page.$$eval('#recent [data-visit]', r => r.map(x => x.textContent))).some(r => /Chomp vs Tusk/.test(r)), 'Recent lists it by its name');
     await page.$eval('#freshFormat', el => { el.value = 'gen9ou'; });
     await page.$eval('#freshTeam1', el => { el.value = 'not a team'; });
     await page.click('#freshForm button[type=submit]'); await sleep(500);

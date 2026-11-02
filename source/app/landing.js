@@ -95,7 +95,7 @@ function savedStudies() {
       if (!k.startsWith('rbv:')) continue;
       try {
         const study = JSON.parse(localStorage.getItem(k));
-        out.push({key: k.slice(4), meta: study.meta || {}, lines: Object.keys(study.nodes || {}).length, opened: study.opened || 0});
+        out.push({key: k.slice(4), meta: study.meta || {}, name: typeof study.name === 'string' ? study.name : '', lines: Object.keys(study.nodes || {}).length, opened: study.opened || 0});
       } catch {}
     }
   } catch {}
@@ -115,7 +115,9 @@ function renderRecent() {
   const studies = savedStudies();
   list.innerHTML = studies.length ? studies.map(s => {
     const lines = s.lines ? ` · ${s.lines} line${s.lines > 1 ? 's' : ''}` : '';
-    return entry(s.key, `${esc(s.meta.format || s.key)}${s.meta.shared ? ' · shared with you' : ''}${lines}${s.opened ? ' · ' + ago(s.opened) : ''}`, players(s.meta.players),
+    // (a named study goes by its name, the players beside the format)
+    const details = `${esc(s.meta.format || s.key)}${s.name ? ' · ' + (s.meta.players || []).map(esc).join(' vs. ') : ''}`;
+    return entry(s.key, `${details}${s.meta.shared ? ' · shared with you' : ''}${lines}${s.opened ? ' · ' + ago(s.opened) : ''}`, s.name ? `<strong>${esc(s.name)}</strong>` : players(s.meta.players),
       `<button class="rb-linkbtn" data-remove="${esc(s.key)}">${removeArmed === s.key ? 'Remove for good?' : 'Remove'}</button>`);
   }).join('') : `<p class="rb-dim">Nothing yet. <a href="?r=${SAMPLE}" data-visit="${SAMPLE}">Open a sample replay</a></p>`;
   for (const link of list.querySelectorAll('[data-visit]')) link.onclick = e => {

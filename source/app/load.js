@@ -80,7 +80,7 @@ export async function loadText(text, {shown = false, replayId = null, study = nu
     ...(replayId ? {replayId} : {log: rep.lines.join('\n')}), ...(shared || was.shared ? {shared: true} : {})};
   S.study.opened = Date.now();
   save();
-  document.title = `${S.study.meta.players.join(' vs. ')} - Replay Branch`;
+  document.title = `${S.study.name || S.study.meta.players.join(' vs. ')} - Replay Branch`;
 
   clearPicks(); S.err = '';
   if (!shown) S.psMode = '';   // rebuild the viewer for this replay
