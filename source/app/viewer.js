@@ -23,6 +23,9 @@ export function attachToEmbed() {
   settings.append('<div class="chooser pickerchooser"> <em>Move&nbsp;picker:</em> <div><button value="on">On</button><button value="off">Off</button></div> </div>');
   settings.find('.pickerchooser button').on('click', e => { e.preventDefault(); e.stopPropagation(); setPicker(e.currentTarget.value === 'on'); });
   showPickerSetting();
+  // (the embed follows the system's dark mode without showing it in its Color scheme setting)
+  const dark = document.body.classList.contains('dark');
+  Replays.$('.colorchooser button').each((_, b) => { b.classList.toggle('sel', (b.value === 'dark') === dark); });
   S.psb = Replays.battle; S.psMode = 'main';
   listen(S.psb);
 }

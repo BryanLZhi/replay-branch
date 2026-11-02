@@ -1003,6 +1003,10 @@ function attachToEmbed() {
     setPicker(e.currentTarget.value === "on");
   });
   showPickerSetting();
+  const dark = document.body.classList.contains("dark");
+  Replays.$(".colorchooser button").each((_, b) => {
+    b.classList.toggle("sel", b.value === "dark" === dark);
+  });
   S.psb = Replays.battle;
   S.psMode = "main";
   listen(S.psb);
@@ -1148,21 +1152,29 @@ function savedStudies() {
   }
   return out.sort((a, b) => b.opened - a.opened);
 }
+var players = (list) => (list || []).map((p) => `<strong>${esc(p)}</strong>`).join(" vs. ");
+var entry = (key, details, who, end = "") => `<a class="blocklink" href="?r=${encodeURIComponent(key)}" data-visit="${esc(key)}"><span><small>${details}</small><br>${who}</span>${end}</a>`;
+var opensHere = (e) => !(e.ctrlKey || e.metaKey || e.shiftKey || e.button === 1);
 var removeArmed = null;
 function renderRecent() {
   const list = $id("recent");
   const studies = savedStudies();
-  if (!studies.length) {
-    list.innerHTML = `<tr><td class="rb-dim">Nothing yet. <a href="?r=${SAMPLE}" data-visit="${SAMPLE}">Open a sample replay</a></td></tr>`;
-  } else {
-    list.innerHTML = `<tr><th>Format</th><th>Players</th><th>Lines</th><th>Opened</th><th></th></tr>` + studies.map((s) => `<tr data-visit="${esc(s.key)}"><td>${esc(s.meta.format || s.key)}</td><td>${esc((s.meta.players || []).join(" vs. "))}</td><td>${s.lines || ""}</td><td>${s.opened ? ago(s.opened) : ""}</td><td class="rb-end"><button class="rb-linkbtn" data-remove="${esc(s.key)}">${removeArmed === s.key ? "Remove for good?" : "Remove"}</button></td></tr>`).join("");
-  }
-  for (const row of list.querySelectorAll("[data-visit]")) row.onclick = (e) => {
-    if (e.target.closest("[data-remove]")) return;
+  list.innerHTML = studies.length ? studies.map((s) => {
+    const lines = s.lines ? ` \xB7 ${s.lines} line${s.lines > 1 ? "s" : ""}` : "";
+    return entry(
+      s.key,
+      `${esc(s.meta.format || s.key)}${lines}${s.opened ? " \xB7 " + ago(s.opened) : ""}`,
+      players(s.meta.players),
+      `<button class="rb-linkbtn" data-remove="${esc(s.key)}">${removeArmed === s.key ? "Remove for good?" : "Remove"}</button>`
+    );
+  }).join("") : `<p class="rb-dim">Nothing yet. <a href="?r=${SAMPLE}" data-visit="${SAMPLE}">Open a sample replay</a></p>`;
+  for (const link of list.querySelectorAll("[data-visit]")) link.onclick = (e) => {
+    if (e.target.closest("[data-remove]") || !opensHere(e)) return;
     e.preventDefault();
-    visit(row.dataset.visit);
+    visit(link.dataset.visit);
   };
-  for (const b of list.querySelectorAll("[data-remove]")) b.onclick = () => {
+  for (const b of list.querySelectorAll("[data-remove]")) b.onclick = (e) => {
+    e.preventDefault();
     if (removeArmed === b.dataset.remove) {
       unstore("rbv:" + b.dataset.remove);
       removeArmed = null;
@@ -1173,7 +1185,7 @@ function renderRecent() {
 var lastResult = null;
 async function search(after) {
   const user = $id("searchUser").value.trim(), format = $id("searchFormat").value.trim();
-  const table = $id("searchResults"), err = $id("searchErr");
+  const list = $id("searchResults"), err = $id("searchErr");
   err.textContent = "";
   if (!user && !format) {
     err.textContent = "Enter a username or a format.";
@@ -1195,12 +1207,21 @@ async function search(after) {
   const more = found.length > 50;
   found = found.slice(0, 50);
   lastResult = found[found.length - 1];
-  const rows = found.map((x) => `<tr data-visit="${esc(x.id)}"><td>${esc(x.format)}</td><td>${esc(x.players.join(" vs. "))}</td><td>${x.rating || ""}</td><td>${date(x.uploadtime * 1e3)}</td></tr>`).join("");
-  if (!after) table.innerHTML = `<tr><th>Format</th><th>Players</th><th>Rating</th><th>Uploaded</th></tr>`;
-  table.insertAdjacentHTML("beforeend", rows || `<tr><td class="rb-dim">No replays found.</td></tr>`);
-  table.hidden = false;
+  const entries = found.map((x) => entry(
+    x.id,
+    esc(x.format) + (x.rating ? ` \xB7 Rating: ${x.rating}` : ""),
+    players(x.players),
+    `<small>${date(x.uploadtime * 1e3)}</small>`
+  )).join("");
+  if (!after) list.innerHTML = "";
+  list.insertAdjacentHTML("beforeend", entries || `<p class="rb-dim">No replays found.</p>`);
+  list.hidden = false;
   $id("searchMore").hidden = !more;
-  for (const row of table.querySelectorAll("[data-visit]")) row.onclick = () => visit(row.dataset.visit);
+  for (const link of list.querySelectorAll("[data-visit]")) link.onclick = (e) => {
+    if (!opensHere(e)) return;
+    e.preventDefault();
+    visit(link.dataset.visit);
+  };
 }
 
 // source/app/load.js

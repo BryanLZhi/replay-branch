@@ -1,6 +1,5 @@
 /* Showdown's saved-replay page styles (from its replay file template) */
 html, body { font-family: Verdana, sans-serif; font-size: 10pt; margin: 0; padding: 0; }
-body { padding: 12px 0; }
 .battle-log { font-family: Verdana, sans-serif; font-size: 10pt; }
 .battle-log .inner { padding: 4px 8px 0 8px; }
 .battle-log .inner-preempt { padding: 0 8px 4px 8px; }
@@ -10,6 +9,7 @@ body { padding: 12px 0; }
 .battle-log .chat strong { color: #40576a; }
 .battle-log .chat em { padding: 1px 4px 1px 3px; color: #000; font-style: normal; }
 .subtle { color: #3a4a66; }
+body.dark .subtle { color: #a8b4c8; }
 
 /* ---- Replay Branch ---- */
 [hidden] { display: none !important; }
@@ -23,38 +23,62 @@ body.dark {
   --rb-panel: #26292e; --rb-panel2: #31353b; --rb-line: #50565e; --rb-fg: #ddd; --rb-muted: #a0a9b3;
   --rb-sel: #5a4713; --rb-selline: #d2a42c; --rb-cur: #24406a; --rb-curline: #6c9ce0;
   --rb-branch: #6fd68c; --rb-branchbg: #1c2e22; --rb-bad: #ff8a80; --rb-btn1: #4a4f56; --rb-btn2: #3a3e44; --rb-btnline: #666;
-  background: #1b1d21; color: #ddd;
 }
 
-/* layout */
-/* (the rule under the header spans the content, not its side padding) */
-.rb-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; width: calc(100% - 32px); max-width: 1148px;
-  margin: 0 auto 10px; padding: 0 0 8px; border-bottom: 1px solid var(--rb-line); }
-.rb-head #home { font-size: 13pt; font-weight: bold; color: var(--rb-fg); text-decoration: none; }
+/* ---- the look of Showdown's replay site (pokemonshowdown.com/style/global.css): starfield, frosted panels, blue buttons ---- */
+html { background: #010327 url(https://pokemonshowdown.com/images/bg-starfield.jpg); background-size: 30%; min-height: 100%; }
+html body, html body.dark {   /* (beats replay.css, which colours the page body) */
+  background: transparent url(https://pokemonshowdown.com/images/bg-horizon-fade@2x.jpg) no-repeat bottom right !important;
+  background-size: 100% auto !important; min-height: 100vh; padding-bottom: 20vw; color: #fff;
+}
+.rb-sheet {   /* Showdown's .section */
+  color: #000; background: rgba(255, 255, 255, .75); border: 1px solid rgba(255, 255, 255, .6); border-radius: 10px;
+  padding: 20px; margin: 20px auto; box-sizing: border-box; backdrop-filter: blur(4px);
+}
+body.dark .rb-sheet { color: #ddd; background: rgba(0, 0, 0, .5); border-color: rgba(255, 255, 255, .2); }
+.rb-blue, .rb-head .button {   /* Showdown's .button / .nav a */
+  color: #fff; background: linear-gradient(to bottom, #4c63a3, #273661); border: 1px solid #222c4a; border-radius: 8px;
+  box-shadow: .5px 1px 2px rgba(255, 255, 255, .45), inset .5px 1px 1px rgba(255, 255, 255, .5); text-shadow: #000 0 -1px 0;
+  font: inherit; font-size: 10pt; padding: 4px 12px; cursor: pointer;
+}
+.rb-blue:hover, .rb-head .button:hover { background: linear-gradient(to bottom, #5a77c7, #2f447f); border-color: #222c4a; }
+.rb-blue:active, .rb-head .button:active { background: linear-gradient(to bottom, #273661, #4c63a3); }
+.blocklink {   /* Showdown's list entries */
+  display: block; margin: 4px 0; padding: 3px 8px 4px; border: 1px solid #bbccdd; background: rgba(248, 251, 253, .5);
+  border-radius: 4px; color: #336699; text-decoration: none; text-shadow: #fff 0 -1px 0; cursor: pointer; font-size: 10pt; overflow: hidden;
+}
+.blocklink small { font-size: 8pt; }
+.blocklink:hover { border-color: #778899; background: #e5eaed; color: #224466; }
+body.dark .blocklink { color: #a8c8e8; text-shadow: none; background: rgba(0, 0, 0, .25); border-color: rgba(255, 255, 255, .2); }
+body.dark .blocklink:hover { background: rgba(255, 255, 255, .1); border-color: rgba(255, 255, 255, .4); color: #cde; }
+
+/* header */
+.rb-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; height: 44px; margin: 0;
+  padding: 8px max(16px, calc(50% - 590px)); background: linear-gradient(to bottom, rgba(255, 255, 255, .3), transparent); }
+.rb-head #home { font-size: 15pt; font-weight: bold; color: #fff; text-decoration: none; text-shadow: #000 0 -1px 0; }
 .rb-head span { display: flex; gap: 6px; }
-body:not(.dark) { color: var(--rb-fg); }
+body[data-page=landing] .rb-head { padding-left: max(16px, calc(50% - 400px)); padding-right: max(16px, calc(50% - 400px)); }
 
 /* landing page */
-body[data-page=landing] .rb-head { max-width: 828px; }
-body[data-page=viewer] .rb-head { max-width: 1180px; }   /* (as wide as the viewer) */
-.rb-landing { max-width: 860px; margin: 0 auto; padding: 0 16px 24px; box-sizing: border-box; color: var(--rb-fg); }
-.rb-landing section { margin: 18px 0 0; }
-.rb-landing h2 { font-size: 11pt; margin: 0 0 6px; }
+.rb-landing { max-width: 800px; margin: 0 auto; padding: 0 16px; }
+.rb-landing .rb-sheet { margin: 16px 0 0; }
+.rb-landing h2 { font-size: 13pt; margin: 0 0 10px; font-weight: normal; }
+body.dark .rb-landing h2 { color: #ccc; }
 .rb-landing form { margin: 0; }
-.rb-landing form .textbox { font-size: 10pt; padding: 4px 6px; }
+.rb-landing form .textbox { font-size: 10pt; padding: 5px 7px; border-radius: 4px; }
 #openUrl { flex: 1 1 320px; min-width: 0; }
 #searchUser, #searchFormat { flex: 0 1 180px; min-width: 0; }
 .rb-landing .rb-err:empty { display: none; }
-.rb-table { width: 100%; border-collapse: collapse; font-size: 9pt; margin-top: 8px; }
-.rb-table th { text-align: left; font-weight: normal; color: var(--rb-muted); padding: 3px 6px; border-bottom: 1px solid var(--rb-line); }
-.rb-table td { padding: 4px 6px; border-bottom: 1px solid var(--rb-line); overflow-wrap: anywhere; }
-.rb-table tr[data-visit] { cursor: pointer; }
-.rb-table tr[data-visit]:hover td { background: var(--rb-panel2); }
-.rb-table .rb-end { text-align: right; width: 1%; white-space: nowrap; }
-.rb-dim { color: var(--rb-muted); }
-.rb-landing a { color: var(--rb-curline); }
-.rb-linkbtn { font: inherit; font-size: 8.5pt; border: 0; background: none; color: var(--rb-muted); cursor: pointer; padding: 0; }
-.rb-linkbtn:hover { color: var(--rb-bad); text-decoration: underline; }
+.rb-links { margin-top: 8px; }
+.rb-links .blocklink { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.rb-dim { opacity: .75; }
+.rb-landing a:not(.blocklink) { color: #336699; }
+body.dark .rb-landing a:not(.blocklink) { color: #a8c8e8; }
+.rb-linkbtn { font: inherit; font-size: 8pt; border: 0; background: none; color: inherit; opacity: .7; cursor: pointer; padding: 0; white-space: nowrap; }
+.rb-linkbtn:hover { opacity: 1; text-decoration: underline; }
+
+/* the viewer on its sheet */
+#viewer { max-width: 1222px; padding: 20px; }
 .replay-wrapper { max-width: 1180px; margin: 0 auto; }
 .replay-wrapper h1 { font-weight: normal; text-align: center; }
 .rb-under { clear: both; max-width: 640px; padding-top: 6px; }
@@ -170,7 +194,7 @@ body.dark .rb-edit { background: rgba(255,255,255,.12); }
 .rb-modal .rb-section { width: min(640px, 100%); max-height: 90vh; overflow: auto; box-sizing: border-box; margin: 0; }
 .rb-modal textarea { min-height: 160px; font-family: Consolas, monospace; font-size: 8.5pt; }
 .rb-modal input[type=url] { width: 100%; box-sizing: border-box; }
-#gate { position: fixed; inset: 0; z-index: 100; background: #2a3a4f; display: flex; align-items: center; justify-content: center; padding: 16px; }
+#gate { position: fixed; inset: 0; z-index: 100; background: #010327 url(https://pokemonshowdown.com/images/bg-starfield.jpg); background-size: 30%; display: flex; align-items: center; justify-content: center; padding: 16px; }
 #gate form { background: #fff; color: #222; border-radius: 8px; padding: 20px; width: min(320px, 100%); box-sizing: border-box; display: flex; flex-direction: column; gap: 10px; }
 #gate h1 { margin: 0; font-size: 14pt; font-weight: normal; }
 #gate label { color: #555; }
@@ -186,7 +210,7 @@ body.dark .rb-edit { background: rgba(255,255,255,.12); }
   .replay-wrapper .rb-under { order: 4; max-width: none; padding: 0 4px; }
   .replay-wrapper .battle-log { position: static !important; order: 5; height: 260px; margin: 10px 4px 0; width: auto !important; }
   .replay-wrapper h1 { order: 6; font-size: 14pt; }
-  .rb-wrap, .rb-landing { padding-left: 8px; padding-right: 8px; }
-  .rb-head { width: calc(100% - 16px); }
-  .rb-table th:nth-child(4), .rb-table td:nth-child(4) { display: none; }   /* (dates) */
+  .rb-wrap { padding-left: 8px; padding-right: 8px; }
+  #viewer { padding: 10px 4px; margin: 10px 6px; }
+  .rb-landing { padding: 0 6px; }
 }

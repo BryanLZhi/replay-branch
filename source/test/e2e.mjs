@@ -287,12 +287,12 @@ try {
 
   // ---------------------------------------------------------------- back to the landing page: recent studies, search
   await page.click('#home'); await sleep(300);
-  const recent = await page.$$eval('#recent tr[data-visit]', r => r.map(x => x.textContent));
+  const recent = await page.$$eval('#recent [data-visit]', r => r.map(x => x.textContent));
   check(await visible('#landing') && recent.some(r => /wssi vs\. wintminter/.test(r) && /\b\d+\b/.test(r)), 'Recent lists the study with its lines', recent[0]);
   await page.type('#searchFormat', 'gen9ou'); await page.click('#searchForm button[type=submit]');
-  await until(() => document.querySelectorAll('#searchResults tr[data-visit]').length, null, 30000);
-  const result = await page.$eval('#searchResults tr[data-visit]', r => r.dataset.visit);
-  await page.click('#searchResults tr[data-visit]');
+  await until(() => document.querySelectorAll('#searchResults [data-visit]').length, null, 30000);
+  const result = await page.$eval('#searchResults [data-visit]', r => r.dataset.visit);
+  await page.click('#searchResults [data-visit]');
   await pickerReady().catch(() => {});
   check(page.url().includes(result) && await visible('#viewer'), 'a search result opens', result);
   await page.goBack(); await sleep(400);
