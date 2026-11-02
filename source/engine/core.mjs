@@ -542,26 +542,43 @@ function fromRecentTurns(rep, t, battle, notes) {
       const missed = /\[(miss|notarget|still)\]/.test(lockUse.line) || own.some(x => ['-fail', '-miss', '-immune'].includes(x.kind) ||
         (x.kind === '-activate' && /Protect|Detect|Shield|Bunker|Obstruct|Silk Trap|Bulwark|Max Guard/.test(x.what)));
       let k = 0;   // (its uses in a row so far)
+      const uses = [];   // (their lines)
       for (let u = lockTurn; u >= 1; u--) {
         const y = ownUse(u);
+        if (battle.gen === 1 && !y && u < lockTurn && !ended(u)) continue;   // (gen 1: a turn it could not move)
         if (!y || toID(y.what) !== lockMove.id || (u < lockTurn && tiredIn(u))) break;
-        k++;
+        k++; uses.push(rep.lines.indexOf(y.line, rep.turnIdx[u]));
         if (battle.gen !== 2 && !fromOf(y)) break;
       }
       if (!(battle.gen >= 3 && missed)) {
         mon.addVolatile('lockedmove', mon, lockMove);
         const st = mon.volatiles.lockedmove;
         // (how long it lasts is random: 2 or 3 uses, gen 1 3 or 4; after 2 uses it is the last)
-        if (st && battle.gen === 1) { st.time = k >= 2 ? 1 : 2; st.accuracy = gen1LockAccuracy(mon, k); }
+        if (st && battle.gen === 1) { st.time = k >= 2 ? 1 : 2; st.accuracy = gen1LockAccuracy(rep, battle, mon, uses.reverse().filter(i => reachedAccuracy(rep, i))); }
         else if (st) { settle(st); if (k >= 2) st.duration = 1; if (battle.gen >= 3) st.trueDuration = k >= 2 ? 1 : 2; }
       }
     }
-    // gen 1 Rage: locked in until it leaves
-    if (battle.gen === 1 && lockMove?.id === 'rage') {
-      let k = 0;
-      for (let u = lockTurn; u >= 1 && toID(ownUse(u)?.what || '') === 'rage'; u--) k++;
-      mon.addVolatile('rage');
-      if (mon.volatiles.rage) mon.volatiles.rage.accuracy = gen1LockAccuracy(mon, k);
+    // gen 1 Rage: locked in from its first hit until it leaves (full paralysis and hurting itself in confusion do not end it);
+    // its accuracy is cut from the use after that one on
+    if (battle.gen === 1) {
+      const end = rep.turnIdx[t] ?? rep.lines.length, me = l => l.split('|')[2]?.startsWith(side.id) && l.split('|')[2].replace(/^p\d[a-c]?: /, '') === mon.name;
+      const from = lastWhere(rep.lines, end, l => /^\|(switch|drag)\|/.test(l) && me(l));
+      const uses = [];
+      for (let i = from + 1; i < end; i++) if (/^\|move\|/.test(rep.lines[i]) && me(rep.lines[i]) && toID(rep.lines[i].split('|')[3]) === 'rage') uses.push(i);
+      // (it hit: not a miss, and not breaking a Substitute, which keeps the user from its own effects)
+      const hit = i => {
+        if (/\[(miss|notarget)\]/.test(rep.lines[i])) return false;
+        for (let j = i + 1; j < end && !/^\|(move|turn|upkeep|cant)(\||$)/.test(rep.lines[j]); j++) {
+          if (/^\|-(miss|immune|fail)\|/.test(rep.lines[j]) || (/^\|-end\|/.test(rep.lines[j]) && /\|Substitute$/.test(rep.lines[j]) && !me(rep.lines[j]))) return false;
+        }
+        return true;
+      };
+      const k = uses.findIndex(hit);
+      delete mon.volatiles.rage;
+      if (k >= 0) {
+        mon.addVolatile('rage');
+        if (mon.volatiles.rage) mon.volatiles.rage.accuracy = gen1LockAccuracy(rep, battle, mon, uses.slice(k + 1).filter(i => reachedAccuracy(rep, i)));
+      }
     }
     // Rollout / Ice Ball: the hits in a row so far (a miss ends it, and so does the fifth); Fury Cutter's power likewise
     // (it doubles with each hit in a row, up to 16 times, gen 5 8, gen 6 on 4)
@@ -718,29 +735,45 @@ function fromRecentTurns(rep, t, battle, notes) {
 }
 
 // Gen 1: a two-turn move charged before last turn and not used yet (the Pokemon flinched, slept or was trapped since; full
-// paralysis or hurting itself in confusion ends the charge, but not Dig's or Fly's keeping it out of reach).
+// paralysis or hurting itself in confusion ends the charge). Dig's or Fly's keeping it out of reach outlasts full paralysis,
+// and the moves it uses after, until Dig or Fly goes off, it hurts itself in confusion or it leaves.
 function gen1Charge(rep, t, battle, mon, isActive) {
   const me = who => (who || '').startsWith(mon.side.id) && who.replace(/^p\d[a-c]?: /, '') === mon.name;
-  const end = rep.turnIdx[t] ?? rep.lines.length;
-  let i = end - 1;
+  const end = rep.turnIdx[t] ?? rep.lines.length, target = mon.side.foe.active.find(isActive) || mon;
+  const hurt = l => { const a = l.split('|'); return me(a[2]) && a[1] === '-damage' && /\[from\] confusion/.test(l); };
+  let i = end - 1, moved = false;
   for (; i >= 0; i--) {
     const a = rep.lines[i].split('|');
-    if (((a[1] === 'switch' || a[1] === 'drag') && (a[2] || '').startsWith(mon.side.id)) || (a[1] === 'move' && me(a[2]))) return;
+    if ((a[1] === 'switch' || a[1] === 'drag') && (a[2] || '').startsWith(mon.side.id)) return;
+    if (a[1] === 'move' && me(a[2])) { if (['dig', 'fly'].includes(toID(a[3])) && !/\[still\]/.test(rep.lines[i])) return; moved = true; }
     if (a[1] === '-prepare' && me(a[2])) break;
   }
   if (i < 0) return;
-  const broken = rep.lines.slice(i, end).some(l => { const a = l.split('|'); return me(a[2]) && ((a[1] === 'cant' && a[3] === 'par') || (a[1] === '-damage' && /\[from\] confusion/.test(l))); });
-  const move = battle.dex.getActiveMove(rep.lines[i].split('|')[3]), target = mon.side.foe.active.find(isActive) || mon;
-  if (!broken) mon.addVolatile('twoturnmove', target, move);
-  if (['dig', 'fly'].includes(move.id)) mon.addVolatile('invulnerability', target);
+  const move = battle.dex.getActiveMove(rep.lines[i].split('|')[3]);
+  const broken = rep.lines.slice(i, end).some(l => { const a = l.split('|'); return me(a[2]) && a[1] === 'cant' && a[3] === 'par'; }) || rep.lines.slice(i, end).some(hurt);
+  if (!broken && !moved) mon.addVolatile('twoturnmove', target, move);
+  if (['dig', 'fly'].includes(move.id) && !rep.lines.slice(i, end).some(hurt)) mon.addVolatile('invulnerability', target);
 }
 // Gen 1 Thrash, Petal Dance and Rage keep their accuracy from use to use, cut each time by the user's accuracy and the target's
-// evasion (a cartridge bug; taken with the stat stages as they are now) over k uses.
-function gen1LockAccuracy(mon, k) {
-  const mult = [25, 28, 33, 40, 50, 66, 100, 150, 200, 250, 300, 350, 400], foe = mon.side.foe.active[0];
+// evasion as they were then (a cartridge bug): uses are the lines of the uses that cut it (not one that met a Pokemon out of
+// reach or immune: that stops before the accuracy check).
+function gen1LockAccuracy(rep, battle, mon, uses) {
+  const mult = [25, 28, 33, 40, 50, 66, 100, 150, 200, 250, 300, 350, 400], si = battle.sides.indexOf(mon.side);
   let acc = 255;
-  for (let n = 0; n < k; n++) acc = Math.max(1, Math.min(255, Math.floor(Math.floor(acc * mult[mon.boosts.accuracy + 6] / 100) * mult[6 - (foe?.boosts.evasion || 0)] / 100)));
+  for (const i of uses) {
+    const now = gen1Active(rep, i, battle);
+    acc = Math.floor(acc * (mult[now[si].boosts.accuracy + 6] / 100));
+    acc = Math.max(1, Math.min(255, Math.floor(acc * (mult[-now[1 - si].boosts.evasion + 6] / 100))));
+  }
   return acc;
+}
+// Whether the move used at line i got to its accuracy check (no target, one out of reach or immune does not).
+function reachedAccuracy(rep, i) {
+  if (/\[notarget\]/.test(rep.lines[i])) return false;
+  for (let j = i + 1; j < rep.lines.length && !/^\|(move|turn|upkeep|switch|cant)(\||$)/.test(rep.lines[j]); j++) {
+    if (/^\|-immune\|/.test(rep.lines[j]) || /^\|-message\|.*can't be hit while invulnerable/.test(rep.lines[j])) return false;
+  }
+  return true;
 }
 // The HP range [lo, hi] a Pokemon can have, from what the log last showed at or before line i (full when it never did).
 function hpAt(rep, i, mon) {
@@ -753,11 +786,13 @@ function hpAt(rep, i, mon) {
     if (!m) continue;
     const p = +m[1], d = +m[2];
     if (d !== 100 || M === 100) return [Math.round(p * M / d), Math.round(p * M / d)];
-    // (shown percent p = HP / max rounded up, and under 100% unless full)
-    return p >= 100 ? [M, M] : [Math.floor((p - 1) * M / 100) + 1, Math.min(Math.floor(p * M / 100), M - 1)];
+    // (shown percent p = HP / max rounded up, and under 100% unless full, so 99% runs up to one short of full: gen 1 takes that)
+    return p >= 100 ? [M, M] : [Math.floor((p - 1) * M / 100) + 1, p === 99 && rep.gen === 1 ? M - 1 : Math.min(Math.floor(p * M / 100), M - 1)];
   }
   return [M, M];
 }
+// Whether a log line's Pokemon ("p1a: Name") is side si's Pokemon of that name.
+const isOf = (ident, si, name) => (ident || '').startsWith('p' + (si + 1)) && ident.replace(/^p\d[a-c]?: /, '') === name;
 // The index of the last of lines[0 .. end - 1] that f accepts, or -1.
 function lastWhere(lines, end, f) {
   for (let i = Math.min(end, lines.length) - 1; i >= 0; i--) if (f(lines[i])) return i;
@@ -776,40 +811,79 @@ function trapDamage(rep, hits, foe) {
   return hi === Infinity ? 0 : Math.max(0, Math.round((lo + hi) / 2));
 }
 // Bide: the turns it has left and the damage it has stored (from the HP the log shows it losing to moves since it began, so
-// near), and who hit it last. Gen 1 keeps "time" and "damage" instead (its length is random there, and 3 or 4 turns in gen 2).
+// near), and who hit it last. Gen 1 keeps "time" and "damage" instead (its length is random there, and 3 or 4 turns in gen 2),
+// the damage as it adds it up.
 // Gen 1 Counter (data/mods/gen1 moves.ts): twice the battle's last damage, when the foe's last used move was a damaging Normal
-// or Fighting one. Both from the log, by the simulator's gen 1 rules: a move (not one of GEN1_KEEP_DAMAGE) sets the last damage
-// to 0, then the damage it deals sets it (a Substitute's is not in the log: it stays 0), as do a drain move's heal, confusion,
-// Jump Kick crash and partial-trap damage; poison, burn, Leech Seed and recoil damage leave it. In HP, from the shown percent.
+// or Fighting one. Both from the log, by the simulator's gen 1 rules: a move (not one of GEN1_KEEP_DAMAGE, and not charging)
+// sets the last damage to 0, and so does a miss, then the damage it deals sets it (a Substitute's is not in the log: it stays 0),
+// as do a drain move's heal, confusion, Jump Kick crash (1) and partial-trap damage; poison, burn, Leech Seed, recoil and
+// Substitute's own cost leave it. In HP, from the shown percent.
 const GEN1_KEEP_DAMAGE = new Set(['confuseray', 'conversion', 'counter', 'focusenergy', 'glare', 'haze', 'leechseed', 'lightscreen',
   'mimic', 'mist', 'poisongas', 'poisonpowder', 'recover', 'reflect', 'rest', 'softboiled', 'splash', 'stunspore', 'substitute',
   'supersonic', 'teleport', 'thunderwave', 'toxic', 'transform']);
 const GEN1_COUNTED_FROM = new Set(['confusion', 'jumpkick', 'highjumpkick', 'wrap', 'bind', 'clamp', 'firespin', 'partiallytrapped']);
 function gen1Counter(rep, t, battle) {
+  const {damage, last} = gen1Damage(rep, rep.turnIdx[t] ?? rep.lines.length, battle);
+  battle.lastDamage = damage;
+  last.forEach((id, si) => { const move = id ? battle.dex.getActiveMove(id) : null; Object.assign(battle.sides[si], {lastMove: move, lastEnemyMove: move}); });
+}
+// The battle's last damage and each side's last move used just before line end (as gen1Counter takes them); at(i, damage) is
+// told the last damage before each line i.
+function gen1Damage(rep, end, battle, at) {
   const mid = r => (r[0] + r[1]) / 2;
   const monOf = who => { const m = /^p([12])[a-c]?: (.+)$/.exec(who || ''); return m ? battle.sides[+m[1] - 1].pokemon.find(p => p.name === m[2]) : null; };
   const last = [null, null];
-  let damage = 0;
-  for (let i = 0; i < (rep.turnIdx[t] ?? rep.lines.length); i++) {
+  // (crash: the one whose Jump Kick missed, which takes 1 HP; drain: the side using a draining move)
+  let damage = 0, crash = '', drain = '';
+  for (let i = 0; i < end; i++) {
+    at?.(i, damage);
     const line = rep.lines[i], a = line.split('|'), from = /\[from\] ?([^|]+)/.exec(line);
     if (a[1] === 'move') {
       const side = /^p([12])/.exec(a[2] || ''), id = toID(a[3]);
       if (side && Dex.moves.get(id).exists) last[+side[1] - 1] = id;
-      if (!GEN1_KEEP_DAMAGE.has(id)) damage = 0;
+      drain = side && battle.dex.moves.get(id).drain ? 'p' + side[1] : '';
+      // (a charging turn or no target stops before; a miss sets it to 0 too, unless the target was out of reach)
+      if (/\[(still|notarget)\]/.test(line)) continue;
+      if (!GEN1_KEEP_DAMAGE.has(id) || (/\[miss\]/.test(line) && !/^\|-message\|.*can't be hit while invulnerable/.test(rep.lines[i + 1] || ''))) damage = 0;
+      crash = (/\[miss\]/.test(line) || /^\|-immune\|/.test(rep.lines[i + 1] || '')) && ['jumpkick', 'highjumpkick'].includes(id) ? a[2] : '';
+    } else if (a[1] === '-damage' && !from && a[2] === crash) {
+      damage = 1; crash = '';
+    } else if (a[1] === '-damage' && !from && /^\|-start\|[^|]*\|Substitute$/.test(rep.lines[i - 1] || '') && rep.lines[i - 1].split('|')[2] === a[2]) {
+      continue;   // (what a Substitute costs)
+    } else if (a[1] === '-damage' && from && toID(from[1]) === 'confusion' && monOf(a[2])) {
+      // (hurting itself in confusion: the game's own sum, with no random factor, not cut to the HP it had)
+      const mon = monOf(a[2]), now = gen1Active(rep, i, battle)[+a[2][1] - 1], atk = now.stats?.atk || mon.storedStats.atk, def = now.stats?.def || mon.storedStats.def;
+      damage = Math.floor(Math.floor(((Math.floor(2 * mon.level / 5) + 2) * atk * 40) / def) / 50) + 2;
     } else if (a[1] === '-damage' && (!from || GEN1_COUNTED_FROM.has(toID(from[1])))) {
       const mon = monOf(a[2]);
       if (mon) damage = Math.max(0, Math.round(mid(hpAt(rep, i - 1, mon)) - mid(hpAt(rep, i, mon))));
-    } else if (a[1] === '-heal' && from && toID(from[1]) === 'drain') {
+      // (a draining move sets it to what it drains, half, even at full HP when no heal shows)
+      if (mon && drain && !a[2].startsWith(drain) && !from && damage) { damage = Math.max(1, Math.floor(damage / 2)); drain = ''; }
+    } else if (a[1] === '-heal' && from && toID(from[1]) === 'drain' && drain) {   // (one that hit a Substitute)
       const mon = monOf(a[2]);
       if (mon) damage = Math.max(0, Math.round(mid(hpAt(rep, i, mon)) - mid(hpAt(rep, i - 1, mon))));
     }
   }
-  battle.lastDamage = damage;
-  last.forEach((id, si) => { const move = id ? battle.dex.getActiveMove(id) : null; Object.assign(battle.sides[si], {lastMove: move, lastEnemyMove: move}); });
+  return {damage, last};
 }
 function bideFromLog(rep, t, battle, si, name, sp, st) {
   const s = lastStart(rep, t, si, name, 'bide');
   if (!s) return;
+  if (battle.gen === 1) {
+    // (gen 1 adds the battle's last damage, whoever took it, each turn it goes on: its "|-activate|...|Bide" lines; full
+    // paralysis and hurting itself in confusion end it, unshown: false)
+    const going = new Set();
+    for (let i = s.i + 1; i < (rep.turnIdx[t] ?? rep.lines.length); i++) {
+      const a = rep.lines[i].split('|');
+      if (!isOf(a[2], si, name)) continue;
+      if (a[1] === '-activate' && a[3] === 'Bide') going.add(i);
+      if ((a[1] === 'cant' && a[3] === 'par') || (a[1] === '-damage' && /\[from\] confusion/.test(rep.lines[i]))) return false;
+    }
+    let damage = 0;
+    if (going.size) gen1Damage(rep, Math.max(...going) + 1, battle, (i, d) => { if (going.has(i)) damage += d; });
+    st.damage = damage; st.time = Math.max(1, 3 - (t - s.turn));
+    return;
+  }
   const mid = r => (r[0] + r[1]) / 2;
   let damage = 0, by = null;
   for (let i = s.i + 1; i < (rep.turnIdx[t] ?? rep.lines.length); i++) {
@@ -818,7 +892,6 @@ function bideFromLog(rep, t, battle, si, name, sp, st) {
     damage += Math.max(0, Math.round(mid(hpAt(rep, i - 1, sp)) - mid(hpAt(rep, i, sp))));
     by = battle.sides[1 - si].active.find(p => p && !p.fainted) || by;
   }
-  if (battle.gen === 1) { st.damage = damage; st.time = Math.max(1, 3 - (t - s.turn)); return; }
   st.duration = Math.max(1, 3 - (t - s.turn));
   st.totalDamage = damage;
   if (by && damage) st.lastDamageSource = by;
@@ -887,10 +960,11 @@ function oldLastMoves(rep, t) {
 // move picked, its slot, and the move the foe sees picked. Read off the log turn by turn: picking a move sets all three; a
 // Pokemon locked into a move (Thrash, Wrap, Rage, Bide, a two-turn move, recharging), asleep or frozen keeps the pick (the foe
 // sees the move in its slot); one partially trapped picks "cannotmove"; Metronome and Mirror Move pick the move they call;
-// Haze makes a sleeping or frozen foe's pick "cannotmove"; a switch-in resets the slot.
+// Haze makes a sleeping or frozen foe's pick "cannotmove"; a switch-in resets the slot. A move Disable stops shows the pick too.
 // (a Pokemon that could not move for another reason, fully paralyzed or flinching, picked a move the log does not show)
 function gen1Selection(rep, t, battle) {
   const sides = [0, 1].map(() => ({sel: 'nomove', slot: 0, enemy: 'nomove', name: '', moves: [], trapped: false, lock: '', used: ''}));
+  sides.pp = [];   // (uses whose PP another move paid: {si, name, used, paid})
   const status = new Map();   // "side:name" -> its status
   const parse = l => { const a = l.split('|'), m = /^p([12])[a-c]?: (.+)$/.exec(a[2] || ''); return {kind: a[1], si: m ? +m[1] - 1 : -1, name: m ? m[2] : '', what: a[3] || '', whom: a[4] || '', line: l}; };
   const TRAPS = ['wrap', 'bind', 'clamp', 'firespin'];
@@ -902,8 +976,10 @@ function gen1Selection(rep, t, battle) {
         const s = sides[si], foe = sides[1 - si];
         if (!s.name) continue;
         const sw = L.findIndex(x => x.kind === 'switch' && x.si === si);
-        if (sw >= 0 && (firstAct < 0 || sw < firstAct)) continue;   // (it switched)
+        if (sw >= 0 && (firstAct < 0 || sw < firstAct) && !L.slice(0, sw).some(x => x.kind === 'faint' && x.si === si)) continue;   // (it switched, not in for one that fainted)
         const mine = x => x.si === si && x.name === s.name;
+        // (a trap had ended before the turn if its target moves freely in it)
+        if (s.lock === 'trap' && L.some(x => x.si === 1 - si && x.name === foe.name && x.kind === 'move' && !/\[from\]/.test(x.line))) s.lock = '';
         const first = L.find(x => mine(x) && (x.kind === 'move' || x.kind === 'cant' || (['-activate', '-end'].includes(x.kind) && x.what === 'Bide')));
         // (still trapped unless the trapper picked a new move: its last turn of Wrap was the one before)
         const foeFirst = L.find(x => x.si === 1 - si && x.name === foe.name && (x.kind === 'move' || x.kind === 'cant'));
@@ -915,6 +991,14 @@ function gen1Selection(rep, t, battle) {
           const id = toID(first.what), from = /\[from\] ?([^|]+)/.exec(first.line);
           pick = (from && toID(from[1]) === id) || slpfrz ? 'keep' : id === 'struggle' ? 'struggle' : 'move';   // (thawed out: the move kept)
           if (pick === 'move') { s.sel = s.enemy = s.used = id; s.slot = Math.max(0, s.moves.indexOf(id)); }
+          // (thawed out, it shows the move kept; its PP comes from the move in the slot, which the client does not know)
+          if (slpfrz && !from && id !== 'struggle') {
+            s.sel = id;
+            if (s.moves[s.slot] && s.moves[s.slot] !== id) sides.pp.push({si, name: s.name, used: id, paid: s.moves[s.slot]});
+          }
+        } else if (first?.kind === 'cant' && first.what === 'Disable' && first.whom) {   // (the move it picked, disabled)
+          const id = toID(first.whom);
+          pick = 'shown'; s.sel = s.enemy = id; s.slot = Math.max(0, s.moves.indexOf(id));
         } else if (first && (first.kind !== 'cant' || first.what === 'recharge')) pick = 'keep';   // (Bide going on, recharging)
         else if (s.lock || slpfrz) pick = 'keep';
         else if (trapped) pick = 'cannotmove';
@@ -949,9 +1033,11 @@ function gen1Selection(rep, t, battle) {
           if (['slp', 'frz'].includes(status.get(`${1 - x.si}:${o.name}`))) o.sel = o.enemy = 'cannotmove';
         }
         const hit = !/\[miss\]/.test(x.line) && !L.slice(i + 1, i + 3).some(y => ['-miss', '-fail', '-immune'].includes(y.kind));
-        const target = sides[1 - x.si];
-        s.lock = /\[still\]/.test(x.line) ? 'twoturn' : ['thrash', 'petaldance', 'rage', 'bide'].includes(id) ? id : TRAPS.includes(id) && hit ? 'trap' : '';
-        if (TRAPS.includes(id) && hit && !L.some(y => y.kind === 'faint' && y.si === 1 - x.si && y.name === target.name)) target.trapped = true;
+        const target = sides[1 - x.si], held = hit && !L.some(y => y.kind === 'faint' && ((y.si === 1 - x.si && y.name === target.name) || (y.si === x.si && y.name === s.name)));
+        // (Rage locks in from a hit on; a trap holds while both stand)
+        s.lock = /\[still\]/.test(x.line) ? 'twoturn' : ['thrash', 'petaldance', 'bide'].includes(id) ? id : id === 'rage' ? (hit || s.lock === 'rage' ? 'rage' : '')
+          : TRAPS.includes(id) && held ? 'trap' : '';
+        if (TRAPS.includes(id) && held) target.trapped = true;
       }
     });
   }
@@ -1116,8 +1202,8 @@ function monState(lines, battle, sp, si) {
   }
 }
 
-// A move Mimic copied since the Pokemon came in takes Mimic's place, with PP of its own, until it leaves (gen 1: Mimic's PP;
-// gens 2-4: up to 5, gen 5 on: all).
+// A move Mimic copied since the Pokemon came in takes Mimic's place, with PP of its own, until it leaves (gen 1: Mimic's PP,
+// its uses already taken off by gen1PP; gens 2-4: up to 5, gen 5 on: all).
 function mimicSlot(rep, t, battle, sp, si) {
   const end = rep.turnIdx[t] ?? rep.lines.length;
   const mine = ident => /^p[12]/.test(ident || '') && +ident[1] - 1 === si && ident.replace(/^p\d[a-c]?: /, '') === sp.name;
@@ -1128,14 +1214,20 @@ function mimicSlot(rep, t, battle, sp, si) {
     if (['switch', 'drag', 'replace'].includes(a[1])) at = -1;
     else if ((a[1] === '-start' && a[3] === 'Mimic') || (a[1] === '-activate' && a[3] === 'move: Mimic')) { at = i; name = a[4]; }
   }
-  const k = sp.moveSlots.findIndex(ms => ms.id === 'mimic'), move = battle.dex.moves.get(name);
+  const k = sp.moveSlots.findIndex(ms => ms.id === (battle.gen === 1 && at >= 0 ? gen1MimicSlot(rep, at) : 'mimic')), move = battle.dex.moves.get(name);
   if (at < 0 || k < 0 || !move.exists) return;
   const uses = rep.lines.slice(at + 1, end).filter(l => { const a = l.split('|'); return a[1] === 'move' && mine(a[2]) && toID(a[3]) === move.id && !/\[from\]/.test(l); }).length;
-  const pp = battle.gen === 1 ? sp.moveSlots[k].pp : battle.gen <= 4 ? Math.min(5, move.pp) : move.pp;
-  sp.moveSlots[k] = {move: move.name, id: move.id, pp: Math.max(0, pp - uses), maxpp: battle.gen <= 4 ? battle.calculatePP(move, sp.ppUps?.[k] || 0) : move.pp,
+  const pp = battle.gen === 1 ? sp.moveSlots[k].pp : Math.max(0, (battle.gen <= 4 ? Math.min(5, move.pp) : move.pp) - uses);
+  sp.moveSlots[k] = {move: move.name, id: move.id, pp, maxpp: battle.gen <= 4 ? battle.calculatePP(move, sp.ppUps?.[k] || 0) : move.pp,
     target: move.target, disabled: false, used: uses > 0, virtual: true};
 }
 
+// Gen 1: the move whose slot Mimic (its "|-start|...|Mimic|..." at line at) took, that of the move picked: Metronome or Mirror
+// Move when one of them called it.
+function gen1MimicSlot(rep, at) {
+  const use = lastWhere(rep.lines, at, l => l.startsWith('|move|') && l.split('|')[2] === rep.lines[at].split('|')[2]);
+  return toID((/\[from\] ?(Metronome|Mirror Move)(\||$)/.exec(rep.lines[use] || '') || [])[1] || 'mimic');
+}
 // A move Sketch copied takes Sketch's place for good (from gen 3), with all its PP less the uses since.
 function sketchSlots(rep, t, battle, sp, si) {
   if (battle.gen < 3) return;
@@ -1164,7 +1256,12 @@ function sketchSlots(rep, t, battle, sp, si) {
 // it, which is taken off here when the species has nothing else: a range is taken at its lower end)
 function ppFromLog(rep, t, sets) {
   const extra = [{}, {}], maxUses = [{}, {}];
-  if (rep.gen < 3) { lockedPP(rep, t, extra); return {extra, maxUses}; }
+  if (rep.gen < 3) {
+    const over = [{}, {}];
+    lockedPP(rep, t, extra);
+    if (rep.gen === 1) gen1PP(rep, t, extra, over, sets);
+    return {extra, maxUses, over};
+  }
   const dex = Dex.forGen(rep.gen), cgen = gens.get(rep.gen);
   const shown = new Set(rep.lines.filter(l => /^\|-ability\|p[12][a-c]?: [^|]+\|Pressure/.test(l)).map(l => l.split('|')[2].replace(/^(p[12])[a-c]?: /, '$1 ')));
   const base = (side, name) => shown.has(`p${side + 1} ${name}`) ? 'pressure' : toID(sets[side]?.find(s => s?.name === name)?.ability);
@@ -1314,6 +1411,33 @@ function lockedPP(rep, t, extra) {
   }
   if (rep.gen === 1) for (const [k, c] of Object.entries(charging)) refund(k, c.holder);
 }
+// Gen 1 PP the client does not follow: a move Mimic copied shares the PP of the move in whose slot it is (Mimic's, or Metronome's
+// that called it: the cartridge keeps them in step), so each use of it costs that one (added to extra[side][name]); and a Pokemon
+// transformed that uses Metronome or Mirror Move gives one PP to its own move in that slot, past its most if so (a cartridge bug:
+// over[side][name]).
+function gen1PP(rep, t, extra, over, sets) {
+  const copied = {}, slot = {}, into = {};   // "p1 Name" -> the move Mimic copied, in whose slot, the moves Transform gave it
+  const movesOf = (side, name) => (sets[side]?.find(s => s?.name === name)?.moves || []).map(toID);
+  const add = (o, m, id) => { const mine = o[+m[1][1] - 1][m[2]] ||= {}; mine[id] = (mine[id] || 0) + 1; };
+  const end = rep.turnIdx[t] ?? rep.lines.length;
+  for (let i = 0; i < end; i++) {
+    const line = rep.lines[i], a = line.split('|'), m = /^(p[12])[a-c]?: (.+)$/.exec(a[2] || '');
+    if (!m) continue;
+    const k = `${m[1]} ${m[2]}`, id = toID(a[3]), from = toID((/\[from\] ?([^|]+)/.exec(line) || [])[1] || '');
+    if (['switch', 'drag', 'faint'].includes(a[1])) { delete copied[k]; delete into[k]; }
+    else if (a[1] === '-start' && a[3] === 'Mimic') { copied[k] = toID(a[4]); slot[k] = gen1MimicSlot(rep, i); }
+    else if (a[1] === '-transform') {
+      const y = /^(p[12])[a-c]?: (.+)$/.exec(a[3] || '');
+      if (y) into[k] = into[`${y[1]} ${y[2]}`] || movesOf(+y[1][1] - 1, y[2]);
+    } else if (a[1] === 'move' && into[k] && ['metronome', 'mirrormove'].includes(from)) {
+      const own = movesOf(+m[1][1] - 1, m[2])[into[k].indexOf(from)];
+      if (own) add(over, m, own);
+    } else if (a[1] === 'move' && copied[k] === id && !/\[still\]/.test(line) &&
+      (!from || (['dig', 'fly', 'razorwind', 'skullbash', 'skyattack', 'solarbeam'].includes(id) && from === id))) {
+      add(extra, m, slot[k]);   // (a two-turn move pays on its second turn, "[from]" itself)
+    }
+  }
+}
 // Leppa Berry (gen 2's Mystery Berry) giving a move back PP, which the client leaves out: by side and Pokemon name, in order,
 // {id, i: the line, restore}.
 function ppRestores(rep, t) {
@@ -1384,6 +1508,78 @@ export function gen1Stats(sp) {
   }
   if (sp.status === 'brn') sp.modifiedStats.atk = Math.max(1, Math.floor(sp.modifiedStats.atk / 2));
   if (sp.status === 'par') sp.modifiedStats.spe = Math.max(1, Math.floor(sp.modifiedStats.spe / 4));
+}
+// Gen 1: each side's Pokemon in battle just before line end as the game keeps it ({name, boosts, stored, stats, status}; stats
+// are modifiedStats). Coming in clears the stages and works the stats out again, burn halving Attack and paralysis quartering
+// Speed; a stage change works that stat out again without them (a cartridge bug), unless it is at 999 (or 1) already, which
+// takes the stage back one; burn or paralysis coming on cuts the stat; a move changing stat stages cuts its user's foe's again
+// (a cartridge bug); Haze clears the stages and the cuts; Transform copies the target's stages and stats.
+function gen1Active(rep, end, battle) {
+  const zero = () => ({atk: 0, def: 0, spa: 0, spd: 0, spe: 0, accuracy: 0, evasion: 0});
+  const out = [0, 1].map(() => ({name: '', boosts: zero(), stored: null, stats: null, status: ''}));
+  const cut = o => {
+    if (o.stats && o.status === 'par') o.stats.spe = Math.max(1, Math.floor(o.stats.spe * 0.25));
+    if (o.stats && o.status === 'brn') o.stats.atk = Math.max(1, Math.floor(o.stats.atk * 0.5));
+  };
+  // (the side whose move is going on, and whose move changed a stage; the line taking back a stage at 999)
+  let mover = -1, boosted = -1, undo = -1;
+  for (let i = 0; i < Math.min(end, rep.lines.length); i++) {
+    const line = rep.lines[i], a = line.split('|'), m = /^p([12])[a-c]?: (.+)$/.exec(a[2] || '');
+    if (boosted >= 0 && a[1] !== '-boost' && a[1] !== '-unboost') { cut(out[1 - boosted]); boosted = -1; }
+    if (a[1] === '-clearallboost') { for (const o of out) { o.boosts = zero(); if (o.stored) o.stats = {...o.stored}; } continue; }
+    if (!m) continue;
+    const si = +m[1] - 1, o = out[si];
+    if (a[1] === 'move') mover = si;
+    else if (a[1] === 'switch' || a[1] === 'drag') {
+      const p = battle.sides[si].pokemon.find(q => q.name === m[2]);
+      const {atk, def, spa, spd, spe} = p?.baseStoredStats || {};
+      Object.assign(o, {name: m[2], boosts: zero(), stored: p ? {atk, def, spa, spd, spe} : null, status: /^\d+\/\d+ (\w+)/.exec(a[4] || '')?.[1] || ''});
+      o.stats = o.stored && {...o.stored};
+      cut(o);
+    } else if (a[1] === '-status') { o.status = a[3]; cut(o); }
+    else if (a[1] === '-curestatus') o.status = '';
+    else if (a[1] === '-transform') {
+      const y = out[(a[3] || '').startsWith('p2') ? 1 : 0];
+      Object.assign(o, {boosts: {...y.boosts}, stored: y.stored && {...y.stored}, stats: y.stats && {...y.stats}});
+    } else if ((a[1] === '-boost' || a[1] === '-unboost') && a[3] in o.boosts) {
+      const id = a[3], n = (a[1] === '-boost' ? 1 : -1) * (+a[4] || 0), stage = Math.max(-6, Math.min(6, o.boosts[id] + n));
+      o.boosts[id] = stage;
+      if (i === undo) continue;
+      if (o.stats && id in o.stats) {
+        if (o.stats[id] === (n > 0 ? 999 : 1)) { undo = i + 1; continue; }
+        o.stats[id] = o.stored[id];
+        const mod = stage >= 0 ? [1, 1.5, 2, 2.5, 3, 3.5, 4][stage] : [100, 66, 50, 40, 33, 28, 25][-stage] / 100;
+        o.stats[id] = Math.max(1, Math.floor(o.stats[id] * mod));
+        if (n > 0 && o.stats[id] > 999) o.stats[id] = 999;
+      }
+      if (!/\[from\]/.test(line) && mover >= 0) boosted = mover;
+    }
+  }
+  if (boosted >= 0) cut(out[1 - boosted]);
+  return out;
+}
+// Gen 1 sleep counts down each turn the Pokemon tries to move ("cant slp" until the turn it wakes): the turns slept so far are
+// known, and all of it after Rest (2 turns); what is left of a random one is a guess.
+function gen1Sleep(rep, t, si, cp, st) {
+  const end = rep.turnIdx[t] ?? rep.lines.length, mine = (l, kind) => { const a = l.split('|'); return a[1] === kind && a[3] === 'slp' && isOf(a[2], si, cp.name); };
+  const s = lastWhere(rep.lines, end, l => mine(l, '-status'));
+  const rest = s >= 0 && /\[from\] move: Rest/.test(rep.lines[s]);
+  const slept = s < 0 ? cp.statusState?.sleepTurns || 0 : rep.lines.slice(s, end).filter(l => mine(l, 'cant')).length;   // (the client counts on from an earlier sleep)
+  st.time = Math.max(1, (rest ? 2 : 3) - slept); st.startTime = rest ? 2 : st.time + slept;
+}
+// Gen 1 Toxic's counter (residualdmg) since the Pokemon came in, null for none: Toxic sets it to 0, and each poison or burn
+// damage and each Leech Seed drain counts one more (it stays through Rest; Haze ends it).
+function gen1ToxicCounter(rep, t, si, name) {
+  let counter = null;
+  for (let i = 0; i < (rep.turnIdx[t] ?? rep.lines.length); i++) {
+    const line = rep.lines[i], a = line.split('|');
+    if (!isOf(a[2], si, name)) continue;
+    if (a[1] === 'switch' || a[1] === 'drag') counter = null;
+    else if (a[1] === '-status' && a[3] === 'tox') counter = 0;
+    else if (a[1] === '-end' && a[3] === 'Toxic counter') counter = null;
+    else if (a[1] === '-damage' && counter !== null && /\|\[from\] (psn|brn|Leech Seed)(\||$)/.test(line)) counter++;
+  }
+  return counter;
 }
 const TRAPPING = ['wrap', 'bind', 'firespin', 'whirlpool', 'sandtomb', 'clamp', 'infestation', 'magmastorm', 'snaptrap', 'thundercage'];
 const VOLATILES = ['mist', 'mustrecharge', 'substitute', 'confusion', 'leechseed', 'taunt', 'encore', 'yawn', 'perishsong', 'curse', 'saltcure', 'aquaring', 'ingrain', 'focusenergy',
@@ -1527,11 +1723,13 @@ export function takeover(rep, t, sets, seed) {
           sp.hp = Math.max(1, Math.min(sp.maxhp, Math.round(frac * sp.maxhp)));
         }
         if (cp.status) {
-          // (in gens 1-2 Toxic turns into regular poison once its Pokemon is out of battle)
-          const status = battle.gen <= 2 && cp.status === 'tox' && !cs.active.includes(cp) ? 'psn' : cp.status;
+          // (in gens 1-2 Toxic turns into regular poison once its Pokemon is out of battle; gen 1 Haze does it silently)
+          const hazed = battle.gen === 1 && cp.status === 'tox' && gen1ToxicCounter(rep, t, si, cp.name) === null;
+          const status = (battle.gen <= 2 && cp.status === 'tox' && !cs.active.includes(cp)) || hazed ? 'psn' : cp.status;
           sp.status = status; const st = effState(battle, {id: status, target: sp});
           if (cp.status === 'slp') { st.startTime = 3; st.time = Math.max(1, 3 - (cp.statusState?.sleepTurns || 0)); }
-          if (cp.status === 'tox') st.stage = cp.statusState?.toxicTurns || 0;
+          if (cp.status === 'slp' && battle.gen === 1) gen1Sleep(rep, t, si, cp, st);
+          if (cp.status === 'tox' && battle.gen !== 1) st.stage = cp.statusState?.toxicTurns || 0;   // (gen 1 counts it in residualdmg)
           sp.statusState = st;
         } else { sp.status = ''; sp.statusState = effState(battle, {id: '', target: sp}); }
       }
@@ -1553,6 +1751,10 @@ export function takeover(rep, t, sets, seed) {
       for (const [id, n] of Object.entries(logPP.extra[si]?.[cp.name] || {})) {
         const ms = sp.moveSlots.find(m => m.id === id);
         if (ms) ms.pp = Math.max(0, Math.min(ms.maxpp, ms.pp - n));
+      }
+      for (const [id, n] of Object.entries(logPP.over?.[si]?.[cp.name] || {})) {   // (gen 1: PP past the most, up to 63)
+        const ms = sp.moveSlots.find(m => m.id === id);
+        if (ms) ms.pp = (ms.pp + n) % 64;
       }
       // (the log names a Max Move or Z-Move, not the move it came from: charge the set move whose type it takes. Where several
       // fit (Max Guard comes from any status move) which one paid is unknown: n uses among k such moves charge each one the
@@ -1622,7 +1824,7 @@ export function takeover(rep, t, sets, seed) {
           if (!VOLATILES.includes(vid)) { notes.push(`${cp.name}: "${vid}" not carried over.`); continue; }
           if ((vid === 'reflect' || vid === 'lightscreen') && battle.gen > 1) continue;   // (on the Pokemon only in gen 1)
           const st = effState(battle, {id: vid, target: sp});
-          if (vid === 'substitute') st.hp = Math.floor(sp.maxhp / 4);
+          if (vid === 'substitute') st.hp = Math.floor(sp.maxhp / 4) + (battle.gen === 1 ? 1 : 0);   // (gen 1: one more)
           if (vid === 'confusion') st.time = 2;
           const turnsLeft = effectLeft(rep, t, battle.gen, si, cp.name, vid);   // (undefined where it is random: a guess below)
           if (vid === 'taunt') st.duration = turnsLeft || 3;
@@ -1649,12 +1851,16 @@ export function takeover(rep, t, sets, seed) {
             if (user) { st.source = user; st.sourceSlot = user.getSlot(); }
           }
           if (vid === 'mustrecharge' && battle.gen > 1) st.duration = 1;   // (this turn; gen 1 keeps it until it has recharged)
+          if (vid === 'mustrecharge' && battle.gen === 1) {   // (gen 1: put to sleep meanwhile, it need not)
+            const end = rep.turnIdx[t] ?? rep.lines.length, at = lastWhere(rep.lines, end, l => l.startsWith('|-mustrecharge|') && isOf(l.split('|')[2], si, cp.name));
+            if (rep.lines.slice(at + 1, end).some(l => /^\|-status\|[^|]*\|slp/.test(l) && isOf(l.split('|')[2], si, cp.name))) continue;
+          }
           if (vid === 'imprison') st.source = sp;
           if (vid === 'perishsong') st.duration = v.duration || (v.level || 3) + 1;   // (the client counts it in duration)
           if (vid === 'magnetrise') st.duration = turnsLeft || 5;
           if (vid === 'stockpile') st.layers = v.level || 1;
           if (vid === 'rage' && battle.gen === 1) { st.move = 'rage'; st.accuracy = 255; }   // (fromRecentTurns works out its accuracy)
-          if (vid === 'bide') bideFromLog(rep, t, battle, si, cp.name, sp, st);
+          if (vid === 'bide' && bideFromLog(rep, t, battle, si, cp.name, sp, st) === false) continue;
           if (vid === 'protosynthesis' || vid === 'quarkdrive') st.bestStat = v.stat || sp.getBestStat?.(false, true) || 'spe';
           if (vid === 'leechseed') {   // (the one that seeded it, by the move before "|-start|...|Leech Seed")
             const foe = battle.sides[1 - si].active[0]; if (foe) st.sourceSlot = foe.getSlot();
@@ -1667,10 +1873,11 @@ export function takeover(rep, t, sets, seed) {
         }
         if (cp.volatiles?.transform) transformed.push([sp, si, cp.speciesForme, cp]);
         else mimicSlot(rep, t, battle, sp, si);
-        // gen 1 keeps stats with stat stages, burn and paralysis applied (modifiedStats), which the simulator only updates as they change
-        if (battle.gen === 1 && sp.modifiedStats) gen1Stats(sp);
         // gens 1-2 keep Toxic's count in a hidden effect of its own (gen 2 cannot do without it)
-        if (battle.gen <= 2 && cp.status === 'tox') {
+        if (battle.gen === 1) {
+          const counter = gen1ToxicCounter(rep, t, si, cp.name);
+          if (counter !== null) sp.volatiles.residualdmg = effState(battle, {id: 'residualdmg', target: sp, counter});
+        } else if (battle.gen <= 2 && cp.status === 'tox') {
           sp.volatiles.residualdmg = effState(battle, {id: 'residualdmg', target: sp, counter: Math.max(1, cp.statusState?.toxicTurns || 1)});
         }
         // choice lock
@@ -1754,10 +1961,23 @@ export function takeover(rep, t, sets, seed) {
       if (held.sub) into.volatiles.substitute = held.sub;
     }
     if (!sp.transformed) notes.push(`${sp.name}: could not carry its Transform over.`);
-    // (its copies of the moves start at 5 PP: the client counts the uses of each since)
+    // (gen 1: the types it copied, which Conversion may have changed in the one it copied, or in it since; the client takes the
+    // copied one's own)
+    if (battle.gen === 1 && sp.transformed) {
+      const end = rep.turnIdx[t] ?? rep.lines.length, at = lastWhere(rep.lines, end, l => /^\|-transform\|/.test(l) && isOf(l.split('|')[2], si, sp.name));
+      const changed = (from, upto, side, name) => {
+        const j = lastWhere(rep.lines, upto, l => /^\|(-start|switch|drag)\|/.test(l) && isOf(l.split('|')[2], side, name) && (l.startsWith('|-start|') ? l.split('|')[3] === 'typechange' : true));
+        return j > from && rep.lines[j].startsWith('|-start|') ? rep.lines[j].split('|')[4] : '';
+      };
+      const types = (changed(at, end, si, sp.name) || (into && changed(-1, at, into.side.n, into.name)) || '').split('/').filter(Boolean);
+      if (types.length) try { sp.setType(types); } catch {}
+    }
+    // (its copies of the moves start at 5 PP: the client counts the uses of each since; gen 1 a two-turn move's charge costs
+    // none, which ppFromLog takes back)
     for (const ms of sp.transformed ? sp.moveSlots : []) {
       const km = cp.moveSlots.find(m => m.virtual && toID(m.name) === ms.id);
-      const n = km ? (Array.isArray(km.ppUsed) ? km.ppUsed[0] : km.ppUsed || 0) : 0;
+      const back = battle.gen === 1 && !sp.baseMoveSlots.some(b => b.id === ms.id) ? logPP.extra[si]?.[cp.name]?.[ms.id] || 0 : 0;
+      const n = (km ? (Array.isArray(km.ppUsed) ? km.ppUsed[0] : km.ppUsed || 0) : 0) + back;
       if (n) { ms.pp = Math.max(0, ms.pp - n); ms.used = true; }
     }
     // (it copied the stat stages when it transformed: the client has them as they are now)
@@ -1767,12 +1987,28 @@ export function takeover(rep, t, sets, seed) {
     setAbility(sp, changed[si].get(sp.name));   // (the one it copied then, or got since)
     setStats(sp, si);
   }
+  // gen 1 keeps stats with stat stages, burn and paralysis applied (modifiedStats), which the simulator only updates as they change
+  // (and the stages as the game caps them: the client takes a stage past 6 that a stat at 999 then takes back)
+  if (battle.gen === 1) {
+    const now = gen1Active(rep, rep.turnIdx[t] ?? rep.lines.length, battle);
+    for (const [si, ss] of battle.sides.entries()) for (const sp of ss.active) {
+      if (!sp || sp.fainted || !sp.modifiedStats) continue;
+      if (now[si].name === sp.name) Object.assign(sp.boosts, now[si].boosts);
+      if (now[si].name === sp.name && now[si].stats) Object.assign(sp.modifiedStats, now[si].stats); else gen1Stats(sp);
+    }
+  }
   const split = rep.lines.slice(0, rep.turnIdx[t] ?? rep.lines.length).map(l => l.split('|'));
   for (const [si, ss] of battle.sides.entries()) for (const sp of ss.pokemon) monState(split, battle, sp, si);
   try { fromRecentTurns(rep, t, battle, notes); } catch (e) { notes.push('Effects of the turns before: ' + e.message); }
   refreshLocks(battle);
   if (battle.gen === 1) {
-    gen1Selection(rep, t, battle).forEach((s, si) => Object.assign(battle.sides[si], {lastSelectedMove: s.sel, lastSelectedMoveSlot: s.slot, lastEnemySelectedMove: s.enemy}));
+    const sel = gen1Selection(rep, t, battle);
+    sel.forEach((s, si) => Object.assign(battle.sides[si], {lastSelectedMove: s.sel, lastSelectedMoveSlot: s.slot, lastEnemySelectedMove: s.enemy}));
+    for (const {si, name, used, paid} of sel.pp) {   // (the client charged the move used)
+      const sp = battle.sides[si].pokemon.find(p => p.name === name), slot = id => sp?.transformed ? null : sp?.moveSlots.find(ms => ms.id === id);
+      if (slot(used)) slot(used).pp = Math.min(slot(used).maxpp, slot(used).pp + 1);
+      if (slot(paid)) slot(paid).pp = Math.max(0, slot(paid).pp - 1);
+    }
     gen1Counter(rep, t, battle);
   }
   battle.turn = t;

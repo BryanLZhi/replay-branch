@@ -227,7 +227,8 @@ function snapshot(battle) {
     field: {weather: f.weather || '', weatherState: f.weather ? effectOf(f.weatherState) : {}, terrain: f.terrain || '', terrainState: f.terrain ? effectOf(f.terrainState) : {},
       pseudoWeather: Object.fromEntries(Object.entries(f.pseudoWeather).map(([id, st]) => [id, effectOf(st)])),
       lastMove: battle.lastMove ? battle.lastMove.id : '',   // (Copycat reads it)
-      ...(battle.gen <= 3 ? {quickClawRoll: !!battle.quickClawRoll} : {})},
+      ...(battle.gen <= 3 ? {quickClawRoll: !!battle.quickClawRoll} : {}),
+      ...(battle.gen === 1 ? {lastDamage: battle.lastDamage} : {})},   // (gen 1 Counter and Bide read the battle's last damage)
     sides: battle.sides.map(side => ({
       active: side.active.map(p => !p || p.fainted ? '(empty)' : p.name),
       conditions: Object.fromEntries(Object.entries(side.sideConditions).map(([id, st]) => [id, effectOf(st)])),
@@ -297,6 +298,13 @@ function classify(d, ctx) {
   const anyHas = ids => ctx.teamHas(0, ids) || ctx.teamHas(1, ids);
   if (p[0] === 'field' && p[1] === 'lastMove') return anyHas(['copycat']) ? {key: 'field.lastMove (read by Copycat)'} : {key: 'field.lastMove', harmless: 'only Copycat reads it, and no Pokemon here has it'};
   if (mon && p[3] === 'lastMoveEncore') return anyHas(['encore']) ? {key: 'mon.lastMoveEncore (gen 2 Encore reads it)'} : {key: 'mon.lastMoveEncore', harmless: 'only Encore reads it, and no Pokemon here has it'};
+  if (p[0] === 'field' && p[1] === 'lastDamage') {
+    if (!anyHas(['counter', 'bide'])) return {key: 'field.lastDamage', harmless: 'only Counter and Bide read it, and no Pokemon here has one'};
+    const most = Math.max(...T.sides.flatMap(s => Object.values(s.mons).map(m => m.maxhp)));
+    if (Math.abs(d.t - d.r) <= Math.ceil(2 * most / 100)) return {key: 'field.lastDamage (within the shown percent)', unknowable: 'damage dealt is shown in percent'};
+    if (lastDamageOnSub(log)) return {key: 'field.lastDamage (to a Substitute)', unknowable: 'damage to a substitute is not in the log'};
+    return {key: 'field.lastDamage (read by Counter, Bide)'};
+  }
   if (p[0] === 'field' && p[1] === 'quickClawRoll') return {key: 'field.quickClawRoll', unknowable: 'gens 2-3 roll Quick Claw for the next turn at the end of this one (dice; the take-over leaves it off)'};
   // (only a primal weather reads who set it: it ends when that Pokemon leaves)
   if (p[0] === 'field' && ['by', 'sourceSlot'].includes(p[p.length - 1]) && !(p[1] === 'weatherState' && ['desolateland', 'primordialsea', 'deltastream'].includes(T.field.weather))) {
@@ -319,14 +327,36 @@ function classify(d, ctx) {
   if (mon && p[3] === 'activeTurns' && !d.t === !d.r) return {key: 'mon.activeTurns', harmless: 'only "is it 0" is read (Speed Boost, Moody...)'};
   if (mon && (p[3] === 'statusState' || p[3] === 'volatiles' && !['leechseed', 'partiallytrapped', 'attract', 'trapped', 'syrupbomb', 'octolock', 'imprison', 'skydrop'].includes(p[4]))
     && ['by', 'sourceSlot'].includes(p[p.length - 1])) return {key: `${p[3]}.${p[p.length - 1]}`, harmless: 'which Pokemon caused it is not read for this effect'};
+  if (p[1] === 'gen1Selected') {
+    // (move picked / its slot / the move the foe sees: the one picked, or the one in its slot)
+    const shown = gen1PickShown(rep, t, sideIdx), [a, b] = [d.t, d.r].map(x => String(x).split('/'));
+    const known = [shown.sel, shown.slot, shown.sel && shown.slot];
+    if (a.every((x, k) => x === b[k] || !known[k])) return {key: 'gen1Selected (last pick not in the log)', unknowable: 'a move picked but never used (it fainted, flinched, was fully paralyzed or hurt itself first) is not in the log'};
+  }
+  if (gen === 1 && mon && p[3] === 'volatiles' && GEN1_TRAP.includes(p[4])) {
+    if (p[4] === 'partialtrappinglock' && p[5] === 'damage') {
+      return trapDamageFits(rep, t, sideIdx, mon, d.t, T) ? {key: 'volatile partialtrappinglock.damage (within the shown percent)', unknowable: 'damage dealt is shown in percent'}
+        : {key: 'volatile partialtrappinglock.damage'};
+    }
+    if (gen1TrapRandom(...[T, R].map(S => trapOf(S.sides.map(s => s.mons))), p)) return {key: `volatile ${p.slice(4).join('.')} (how long the trap lasts)`, unknowable: 'a gen 1 partial trap lasts 2 to 5 hits at random, and the log shows it ending only when the trapper next moves'};
+  }
   if (mon && p[3] === 'volatiles' && p.length >= 6) {
     const vid = p[4], key = p[5];
     if (['duration', 'time'].includes(key) && RANDOM_DUR[vid] && RANDOM_DUR[vid](gen)) {
       if (vid === 'partiallytrapped' && /gripclaw/.test(ctx.trueItemOf(tMon.volatiles[vid]?.by))) return {key: `volatile ${vid}.${key} (Grip Claw: fixed)`};
       return {key: `volatile ${vid}.${key}`, unknowable: `${vid} length is random (in this gen)`};
     }
-    if (vid === 'substitute' && key === 'hp' && d.t < Math.floor(tMon.maxhp / 4)) return {key: 'volatile substitute.hp (after hits)', unknowable: 'damage to a substitute is not in the log'};
+    if (vid === 'substitute' && key === 'hp' && d.t < Math.floor(tMon.maxhp / 4) + (gen === 1 ? 1 : 0)) return {key: 'volatile substitute.hp (after hits)', unknowable: 'damage to a substitute is not in the log'};
     if (vid === 'bide' && ['totalDamage', 'lastDamage'].includes(key)) return {key: `volatile bide.${key}`, unknowable: 'damage dealt is shown in percent'};
+    // (gen 1 adds up the battle's last damage, as the log shows it in percent, each turn it goes on: within 2% of the largest
+    // max HP for each; or what a Substitute took)
+    if (vid === 'bide' && key === 'damage' && gen === 1) {
+      const s = lastIndex(log, log.length, l => /^\|-start\|/.test(l) && /\|Bide$/.test(l) && isMon(l.split('|')[2], sideIdx, mon));
+      const going = log.map((l, i) => i).filter(i => i > s && /^\|-activate\|/.test(log[i]) && /\|Bide$/.test(log[i]) && isMon(log[i].split('|')[2], sideIdx, mon));
+      const most = Math.max(...T.sides.flatMap(s => Object.values(s.mons).map(m => m.maxhp)));
+      if (going.length && Math.abs(d.t - d.r) <= going.length * Math.ceil(2 * most / 100)) return {key: 'volatile bide.damage (within the shown percent)', unknowable: 'damage dealt is shown in percent'};
+      if (going.some(i => lastDamageOnSub(log.slice(0, i)))) return {key: 'volatile bide.damage (to a Substitute)', unknowable: 'damage to a substitute is not in the log'};
+    }
     if (vid === 'stall' && key === 'counter') return {key: 'volatile stall.counter'};
     if (vid === 'trapped' && ['linkedPokemon', 'linkedStatus', 'by', 'sourceSlot'].includes(key)) return {key: 'volatile trapped: no link to the trapper (it stays when the trapper leaves)'};
     return {key: `volatile ${vid}.${key}`};
@@ -382,11 +412,132 @@ function lastStatusLine(log, tag, mon) {
   for (let i = log.length - 1; i >= 0; i--) if (log[i].startsWith(`|-status|${tag}`) && log[i].split('|')[2].endsWith(': ' + mon) && log[i].includes('|slp')) return log[i];
   return null;
 }
+// Gen 1: whether the battle's last damage before a point went to a Substitute (how much is not in the log): a hit on one after
+// the last damage the log shows, with only moves that leave it since (the simulator's SKIP_LASTDAMAGE).
+const GEN1_SKIP_LASTDAMAGE = new Set(['confuseray', 'conversion', 'counter', 'focusenergy', 'glare', 'haze', 'leechseed', 'lightscreen',
+  'mimic', 'mist', 'poisongas', 'poisonpowder', 'recover', 'reflect', 'rest', 'softboiled', 'splash', 'stunspore', 'substitute',
+  'supersonic', 'teleport', 'thunderwave', 'toxic', 'transform']);
+function lastDamageOnSub(log) {
+  for (let i = log.length - 1; i >= 0; i--) {
+    const a = log[i].split('|');
+    if ((a[1] === '-activate' && a[3] === 'Substitute' && log[i].includes('[damage]')) || (a[1] === '-end' && a[3] === 'Substitute' && !log[i].includes('[silent]'))) return true;
+    if (a[1] === '-damage' && /^\|-start\|[^|]*\|Substitute$/.test(log[i - 1] || '')) continue;   // (what it costs)
+    if (a[1] === '-damage' && (!/\[from\]/.test(log[i]) || /\[from\] confusion/.test(log[i]))) return false;
+    if (a[1] === 'move' && !/\[still\]/.test(log[i]) && !GEN1_SKIP_LASTDAMAGE.has(toID(a[3]))) return false;
+  }
+  return false;
+}
+const isMon = (ident, si, name) => (ident || '').startsWith('p' + (si + 1)) && ident.replace(/^p\d[a-c]?: /, '') === name;
+const lastIndex = (lines, end, f) => { for (let i = Math.min(end, lines.length) - 1; i >= 0; i--) if (f(lines[i])) return i; return -1; };
+// The HP [lo, hi] a Pokemon (max HP M) can have from what the log last showed at or before line i.
+function hpRange(lines, i, si, name, M) {
+  for (let j = Math.min(i, lines.length - 1); j >= 0; j--) {
+    const a = lines[j].split('|');
+    if (!['-damage', '-heal', '-sethp', 'switch', 'drag'].includes(a[1]) || !isMon(a[2], si, name)) continue;
+    const hp = (a[1] === 'switch' || a[1] === 'drag' ? a[4] : a[3]) || '', m = /^(\d+)\/(\d+)/.exec(hp);
+    if (/^0( |$)/.test(hp)) return [0, 0];
+    if (!m) continue;
+    const p = +m[1];
+    if (+m[2] !== 100) return [p, p];
+    return p >= 100 ? [M, M] : !p ? [0, 0] : [Math.floor((p - 1) * M / 100) + 1, p === 99 ? M - 1 : Math.min(Math.floor(p * M / 100), M - 1)];   // (99%: up to one short of full)
+  }
+  return [M, M];
+}
+// Gen 1 partial traps (on both sides' Pokemon in battle): {lock: the partialtrappinglock, fake: whether either has
+// fakepartiallytrapped}; and whether two of them differ only in how long the trap lasts, 2 to 5 hits at random: 'length'
+// (both going on, as many hits so far) or 'ended' (it ended on the last hit in one: after 2 hits it can have, after 3 or 4
+// the take-over takes it to have).
+const GEN1_TRAP = ['partialtrappinglock', 'partiallytrapped', 'fakepartiallytrapped'];
+function trapOf(sides) {
+  const all = sides.flatMap(mons => Object.values(mons)).filter(m => m.volatiles);
+  return {lock: all.find(m => m.volatiles.partialtrappinglock)?.volatiles.partialtrappinglock, fake: all.some(m => m.volatiles.fakepartiallytrapped)};
+}
+function trapRandom(tt, rt) {
+  const hits = l => l.totalDuration - l.duration;
+  if (tt.lock && rt.lock) return hits(tt.lock) === hits(rt.lock) ? 'length' : '';
+  if (rt.lock && tt.fake) return hits(rt.lock) >= 2 ? 'ended' : '';
+  if (tt.lock && rt.fake) return hits(tt.lock) >= 3 ? 'ended' : '';
+  return '';
+}
+function gen1TrapRandom(tt, rt, p) {
+  const r = trapRandom(tt, rt);
+  return r === 'length' ? p[4] === 'partialtrappinglock' && ['duration', 'totalDuration'].includes(p[5]) : r === 'ended' && p.length === 5;
+}
+// Whether a gen 1 partial trap's damage (every hit does the first one's) fits the HP the log shows each of its hits leave.
+function trapDamageFits(rep, t, si, mon, damage, T) {
+  const lock = T.sides[si].mons[mon].volatiles.partialtrappinglock, foe = lock.locked, M = T.sides[1 - si].mons[foe]?.maxhp;
+  if (!M) return false;
+  let lo = 0, hi = Infinity;
+  for (let u = t - 1; u >= 1; u--) {
+    const a = rep.turnIdx[u], b = rep.turnIdx[u + 1];
+    const at = lastIndex(rep.lines, b, l => l.startsWith('|move|') && isMon(l.split('|')[2], si, mon));
+    if (at <= a || toID(rep.lines[at].split('|')[3]) !== lock.move) break;
+    const hit = rep.lines.findIndex((l, i) => i > at && i < b && l.startsWith('|-damage|') && isMon(l.split('|')[2], 1 - si, foe));
+    if (hit > 0) {
+      const [b0, b1] = hpRange(rep.lines, hit - 1, 1 - si, foe, M), [a0, a1] = hpRange(rep.lines, hit, 1 - si, foe, M);
+      if (a1 > 0) { lo = Math.max(lo, b0 - a1); hi = Math.min(hi, b1 - a0); }
+    }
+    if (!/\[from\]/.test(rep.lines[at])) break;
+  }
+  return damage >= lo && damage <= hi;
+}
+// Gen 1: what the log shows of side si's move selection before turn t: {sel: the move picked, slot: its slot}. A turn its
+// Pokemon did not get to use what it picked in (it fainted first, flinched, was fully paralyzed or hurt itself in confusion)
+// hides the pick, unless it had nothing to pick (asleep, frozen, recharging, locked into a move): then the pick before stands.
+// One trapped since the turn before picks "cannotmove", and Struggle is picked, both keeping the slot; any switch-in resets it.
+function gen1PickShown(rep, t, si) {
+  const tag = 'p' + (si + 1), out = {};
+  for (let u = t - 1; u >= 1 && (out.sel === undefined || out.slot === undefined); u--) {
+    const a = rep.turnIdx[u], b = rep.turnIdx[u + 1] ?? rep.lines.length, L = rep.lines.slice(a + 1, b);
+    const pick = gen1PickIn(rep, u, si);
+    if (out.slot === undefined && L.some(l => l.startsWith('|switch|' + tag))) out.slot = true;
+    if (pick === 'keep' || pick === 'switch') continue;
+    if (out.sel === undefined) out.sel = pick !== 'unknown';
+    if (out.slot === undefined && pick !== 'selonly') out.slot = pick !== 'unknown';
+  }
+  return {sel: out.sel !== false, slot: out.slot !== false};
+}
+// What side si's Pokemon picked in turn u as the log shows it: 'move' (the move and its slot), 'selonly' (the move only:
+// "cannotmove", Struggle), 'keep' (nothing new), 'switch' (it switched) or 'unknown'.
+function gen1PickIn(rep, u, si) {
+  const tag = 'p' + (si + 1), a = rep.turnIdx[u], b = rep.turnIdx[u + 1] ?? rep.lines.length, L = rep.lines.slice(a + 1, b);
+  const inAt = lastIndex(rep.lines, a, l => /^\|(switch|drag)\|/.test(l) && l.split('|')[2].startsWith(tag));
+  if (inAt < 0) return 'keep';
+  const name = rep.lines[inAt].split('|')[2].replace(/^p\d[a-c]?: /, ''), mine = l => isMon(l.split('|')[2], si, name);
+  const first = L.findIndex(l => /^\|(move|cant)\|/.test(l)), sw = L.findIndex(l => l.startsWith('|switch|' + tag));
+  if (sw >= 0 && (first < 0 || sw < first) && !L.slice(0, sw).some(l => l.startsWith('|faint|' + tag))) return 'switch';
+  const act = L.find(l => mine(l) && (/^\|(move|cant)\|/.test(l) || /^\|-(activate|end)\|[^|]*\|Bide$/.test(l)));
+  const st = lastIndex(rep.lines, a, l => mine(l) && /^\|(-status|-curestatus|switch|drag)\|/.test(l));
+  const slpfrz = (st >= 0 && /^\|-status\|[^|]*\|(slp|frz)/.test(rep.lines[st])) || (st === inAt && / (slp|frz)$/.test(rep.lines[st].split('|')[4] || ''));
+  // (thawed out, it uses the move it kept, in the slot it kept)
+  if (act && act.startsWith('|move|') && !/\[from\]/.test(act)) return toID(act.split('|')[3]) === 'struggle' || slpfrz ? 'selonly' : 'move';
+  if (act && /^\|cant\|[^|]*\|Disable/.test(act)) return 'move';
+  // (trapped since the turn before, it picked "cannotmove"; trapped this turn, what it picked before that)
+  if (act && /^\|cant\|[^|]*\|partiallytrapped/.test(act)) return L.some(l => l.startsWith('|move|') && !mine(l) && /\[from\] ?(Wrap|Bind|Clamp|Fire Spin)$/.test(l)) ? 'selonly' : 'unknown';
+  // (asleep or frozen since before the turn, it picked nothing; put to sleep or frozen before moving, what it picked)
+  if (act && /^\|cant\|[^|]*\|(slp|frz)$/.test(act)) return slpfrz ? 'keep' : 'unknown';
+  if (act && (act.startsWith('|move|') || /^\|cant\|[^|]*\|recharge$/.test(act) || /Bide$/.test(act))) return 'keep';
+  // (it had nothing to pick: asleep or frozen, or locked in by what it did the turn before - a trap only after its first hit,
+  // Thrash unless it wore off - or Rage since it came in; trapped by the foe since the turn before, it picked "cannotmove")
+  if (slpfrz) return 'keep';
+  const before = rep.lines.slice(rep.turnIdx[u - 1] ?? 0, a);
+  const hit = (l, from) => { const j = rep.lines.indexOf(l, from); return !/\[miss\]/.test(l) && !/^\|-(miss|fail|immune)\|/.test(rep.lines[j + 1] || ''); };
+  const TRAPS = ['wrap', 'bind', 'clamp', 'firespin'], tired = before.some(l => mine(l) && /^\|-start\|[^|]*\|confusion\|\[silent\]/.test(l));
+  const foeDown = before.some(l => l.startsWith('|faint|') && !l.split('|')[2].startsWith(tag));   // (a trap ends with its target)
+  if (before.some(l => mine(l) && (/^\|(-mustrecharge|-prepare)\|/.test(l) || /^\|-(start|activate)\|[^|]*\|Bide$/.test(l) || (l.startsWith('|move|') && hit(l, rep.turnIdx[u - 1] ?? 0) &&
+    ((['thrash', 'petaldance'].includes(toID(l.split('|')[3])) && !tired) || (TRAPS.includes(toID(l.split('|')[3])) && !/\[from\]/.test(l) && !foeDown)))))) return 'keep';
+  // (a trap ends at the end of a turn its maker fainted in)
+  const trapping = l => l.startsWith('|move|') && !mine(l) && TRAPS.includes(toID(l.split('|')[3]));
+  if ((!foeDown && before.some(l => trapping(l) && !/\[from\]/.test(l) && hit(l, rep.turnIdx[u - 1] ?? 0))) || L.some(l => trapping(l) && /\[from\]/.test(l))) return 'selonly';
+  // (Rage from its first hit on)
+  if (rep.lines.slice(inAt, a).some(l => mine(l) && l.startsWith('|move|') && toID(l.split('|')[3]) === 'rage' && hit(l, inAt))) return 'keep';
+  return 'unknown';
+}
 
 // ---------------------------------------------------------------- playing the turn on from both, with the true dice
 // The true values of what a replay cannot show, put into the taken-over battle, so that a difference in the turn that
 // follows is something else.
-function patchUnknowable(rb, tb) {
+function patchUnknowable(rb, tb, unknown) {
   for (const [si, side] of rb.sides.entries()) {
     for (const p of side.pokemon) {
       const q = tb.sides[si].pokemon.find(x => x.name === p.name);
@@ -395,10 +546,28 @@ function patchUnknowable(rb, tb) {
       if (p.status === 'slp' && q.status === 'slp') { p.statusState.time = q.statusState.time; p.statusState.startTime = q.statusState.startTime; }
       for (const vid of Object.keys(RANDOM_DUR)) {
         const a = p.volatiles[vid], b = q.volatiles[vid];
-        if (a && b) { if (b.duration !== undefined) a.duration = b.duration; if (b.time !== undefined) a.time = b.time; if (vid === 'bide') { a.totalDamage = b.totalDamage; a.lastDamage = b.lastDamage; } }
+        if (a && b) { if (b.duration !== undefined) a.duration = b.duration; if (b.time !== undefined) a.time = b.time; if (vid === 'bide') { a.totalDamage = b.totalDamage; a.lastDamage = b.lastDamage; a.damage = b.damage; } }
       }
       if (p.volatiles.substitute && q.volatiles.substitute) p.volatiles.substitute.hp = q.volatiles.substitute.hp;
+      if (p.volatiles.partialtrappinglock && q.volatiles.partialtrappinglock) p.volatiles.partialtrappinglock.damage = q.volatiles.partialtrappinglock.damage;
     }
+  }
+  // a gen 1 partial trap that differs only in how long it lasts: the true one
+  const inBattle = b => b.sides.map(s => Object.fromEntries(s.active.filter(p => p && !p.fainted).map(p => [p.name, p])));
+  if (tb.gen === 1 && trapRandom(trapOf(inBattle(tb)), trapOf(inBattle(rb)))) {
+    const mine = x => x?.side && x.name ? rb.sides[x.side.n].pokemon.find(p => p.name === x.name) : x;
+    for (const [si, side] of rb.sides.entries()) {
+      const p = side.active[0], q = tb.sides[si].active[0];
+      if (!p || !q) continue;
+      for (const vid of GEN1_TRAP) {
+        delete p.volatiles[vid];
+        if (q.volatiles[vid]) p.volatiles[vid] = Object.fromEntries(Object.entries(q.volatiles[vid]).map(([k, v]) => [k, mine(v)]));
+      }
+    }
+  }
+  // gen 1: the move selection, where the log does not show the last pick
+  if (unknown.has('gen1Selected (last pick not in the log)')) {
+    for (const [si, side] of rb.sides.entries()) for (const k of ['lastSelectedMove', 'lastSelectedMoveSlot', 'lastEnemySelectedMove']) side[k] = tb.sides[si][k];
   }
   // the order of the benched Pokemon (a random pick among them, Roar or Whirlwind, depends on it; the team order is not
   // all in the log, and with unknown dice it changes nothing)
@@ -409,6 +578,8 @@ function patchUnknowable(rb, tb) {
   }
   rb.makeRequest('move');
   if (tb.gen <= 3) rb.quickClawRoll = tb.quickClawRoll;
+  rb.hints = new Set(tb.hints);   // (the hints shown once a battle that it has shown)
+  if (unknown.has('field.lastDamage (within the shown percent)') || unknown.has('field.lastDamage (to a Substitute)')) rb.lastDamage = tb.lastDamage;
   rb.prng = new PRNG(tb.prng.getSeed());
 }
 const norm = lines => E.omniscient(lines).filter(l => l && l !== '|' && !/^\|(t:|takeover|debug)\|/.test(l));
@@ -491,13 +662,14 @@ for (const format of FORMATS) {
       let real = 0;
       const ctx = {gen, T, R, rep, t, trueItemOf, teamHas, trueBattle, realMons: new Set()};
       const where = `gen${gen}${rep.lines.includes('|gametype|doubles') ? 'd' : ''}`;
-      const now = new Set();
+      const now = new Set(), unknown = new Set();   // (unknown: the causes found unknowable, for patchUnknowable)
       ds.sort((a, b) => (a.path[1] === 'req') - (b.path[1] === 'req'));   // (the menu last: see classify)
       for (const d of ds) {
         // (a fainted Pokemon: only that it fainted counts)
         if (d.path[1] === 'mons' && d.path[3] !== 'fainted' && T.sides[+d.path[0][1] - 1].mons[d.path[2]]?.fainted) continue;
         const c = classify(d, ctx);
         if (!c.unknowable && !c.harmless) real++;
+        if (c.unknowable) unknown.add(c.key);
         if (!c.harmless && d.path[1] === 'mons') ctx.realMons.add(`${+d.path[0][1] - 1}:${d.path[2]}`);
         const id = d.path.join('.') + '=' + show(d.t) + '/' + show(d.r);
         now.add(id);
@@ -514,7 +686,7 @@ for (const format of FORMATS) {
       }
       // play the turn on from both
       try {
-        patchUnknowable(tk.battle, tb);
+        patchUnknowable(tk.battle, tb, unknown);
         const focus = process.env.FOCUS === `${seed.join(',')}:${t}`;
         const r = playOn(tk.battle, tb, turns[t].decisions);
         if (focus) {
