@@ -629,7 +629,7 @@ function percent(p) {
 }
 function mostLikely(r) {
   if (r.kind === "chance") return r.p >= 0.5;
-  if (r.kind === "roll") return 7;
+  if (r.kind === "roll") return r.lo + Math.floor((r.hi - 1 - r.lo) / 2);
   if (r.kind === "int") return r.lo + Math.floor((r.hi - 1 - r.lo) / 2);
   if (r.kind === "order") return r.options.map((_, k) => k);
   return null;
@@ -641,7 +641,7 @@ var changed = (r) => {
 function randomOutcome(r) {
   const below = (n) => Math.floor(Math.random() * n);
   if (r.kind === "chance") return Math.random() < r.p;
-  if (r.kind === "roll") return below(16);
+  if (r.kind === "roll") return r.lo + below(r.hi - r.lo);
   if (r.kind === "int") return r.lo + below(r.hi - r.lo);
   if (r.kind === "pick") return below(r.options.length);
   if (r.kind === "order") {
@@ -691,7 +691,7 @@ function itemHTML({ r, part }) {
       return label(esc(r.label) + (r.who ? ` <small>${esc(r.who)}</small>` : "")) + chip(r, r.value ? "Yes" : "No", `${pct} chance. Click to change.`);
     }
     case "roll":
-      return select(r, Array.from({ length: 16 }, (_, v) => [v, `${100 - v}% damage`]));
+      return select(r, Array.from({ length: r.hi - r.lo }, (_, k) => r.lo + k).map((v) => [v, (r.lo ? (v / 2.55).toFixed(1) : 100 - v) + "% damage"]));
     case "int":
       return label(esc(r.label)) + (r.hi - r.lo <= 40 ? select(r, Array.from({ length: r.hi - r.lo }, (_, k) => [r.lo + k, String(r.lo + k)])) : `<span>${r.value}</span>`);
     case "pick":

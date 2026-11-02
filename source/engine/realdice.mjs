@@ -57,7 +57,7 @@ const best = sim => sim.reduce((s, t) => s + (t.hp ? 3 : 2), 0);   // every line
 
 function options(r) {
   if (r.kind === 'chance') return [r.value, !r.value];
-  if (r.kind === 'roll') return [r.value, ...Array.from({length: 16}, (_, v) => v).filter(v => v !== r.value)];
+  if (r.kind === 'roll') return [r.value, ...Array.from({length: r.hi - r.lo}, (_, k) => r.lo + k).filter(v => v !== r.value)];
   if (r.kind === 'int' && r.hi - r.lo <= 12) return [r.value, ...Array.from({length: r.hi - r.lo}, (_, k) => r.lo + k).filter(v => v !== r.value)];
   if (r.kind === 'pick' && r.options.length <= 12) return [r.value, ...r.options.map((_, k) => k).filter(v => v !== r.value)];
   if (r.kind === 'order' && r.options.length <= 3) {

@@ -223,8 +223,19 @@ export class RngControl {
   randomChance(num, den) {
     const r = this.base.randomChance(num, den);
     const c = this.top(); const p = num / den;
-    if (c && c.kind === 'acc') {
+    if (c && c.kind === 'acc' && !c.used) {
+      if (c.once) c.used = true;
       return this.rec({key: 'acc:' + c.move, kind: 'chance', label: `${c.move}: accuracy`, who: c.user, p, yes: 'Hits', no: 'Misses'}, p >= 0.5);
+    }
+    if (c && c.kind === 'endturn') {
+      // gens 2-3 roll Quick Claw for the next turn at the end of each one, held or not
+      const held = this.battle.sides.some(side => side.active.some(p => p && !p.fainted && p.item === 'quickclaw'));
+      if (!held) return r;
+      return this.rec({key: 'quickclaw', kind: 'chance', label: 'Quick Claw (next turn)', p, yes: 'Activates', no: "Doesn't"}, p >= 0.5);
+    }
+    if (c && c.kind === 'sec' && c.old) {
+      const s = c.list[c.n++] || {};
+      return this.rec({key: 'sec:' + c.move + ':' + (c.n - 1), kind: 'chance', label: `${c.move}: ${effectName(s)} (${Math.round(p * 100)}%)`, who: c.user, p, yes: 'Happens', no: "Doesn't"}, p >= 0.5);
     }
     if (c && c.kind === 'dmg') {
       return this.rec({key: 'crit:' + c.move, kind: 'chance', label: `${c.move}: critical hit`, who: c.user, target: c.target, p, yes: 'Crit', no: 'No crit'}, false);
@@ -239,6 +250,23 @@ export class RngControl {
     if (from === undefined) return r; // floats are not offered
     let lo = 0, hi = from; if (to !== undefined) { lo = from; hi = to; }
     const c = this.top();
+    if (c && c.kind === 'sec' && c.old && lo === 0 && hi === 100) return r;   // (gen 2 draws a number it does not use before self boosts)
+    if (c && c.kind === 'dmg' && lo === 217 && hi === 256) {
+      // gens 1-2: damage times 217-255 / 255; most likely = the middle (236)
+      return this.rec({key: 'roll:' + c.move, kind: 'roll', label: `${c.move}: damage roll`, who: c.user, target: c.target, lo, hi}, 236);
+    }
+    if (c && c.kind === 'dmg' && lo === 0 && hi === 256 && this.battle && this.battle.gen === 2) {
+      // gen 2 crits: a number below the crit rate's threshold
+      const b = this.battle;
+      const ratio = b.clampIntRange(b.runEvent('ModifyCritRatio', c.src, c.tgt, c.mv, c.mv.critRatio || 0), 0, 5);
+      const threshold = [0, 17, 32, 64, 85, 128][ratio];
+      const crit = this.rec({key: 'crit:' + c.move, kind: 'chance', label: `${c.move}: critical hit`, who: c.user, target: c.target, p: threshold / 256, yes: 'Crit', no: 'No crit'}, false);
+      return crit ? 0 : 255;
+    }
+    if (c && c.kind === 'acc' && hi - lo <= 6 && lo >= 1) {
+      // gens 1-4: the number of hits of a multi-hit move
+      return this.rec({key: 'hits:' + c.move, kind: 'int', label: `${c.move}: number of hits`, who: c.user, lo, hi}, lo + Math.floor((hi - 1 - lo) / 2));
+    }
     if (c && c.kind === 'dmg' && lo === 0 && hi === 16) {
       // most likely = the middle of the 85-100% range (every roll is equally likely; 93% is the median)
       return this.rec({key: 'roll:' + c.move, kind: 'roll', label: `${c.move}: damage roll`, who: c.user, target: c.target, lo, hi}, 7);
@@ -247,13 +275,12 @@ export class RngControl {
       const s = c.list[c.n++] || {};
       const chance = s.chance;
       if (chance === undefined || chance >= 100) return 0;
-      const what = s.status ? ({brn: 'burn', par: 'paralysis', psn: 'poison', tox: 'bad poison', slp: 'sleep', frz: 'freeze'}[s.status] || s.status)
-        : s.volatileStatus ? s.volatileStatus : s.boosts ? 'stat change' : s.self ? 'self effect' : 'effect';
-      const hit = this.rec({key: 'sec:' + c.move + ':' + (c.n - 1), kind: 'chance', label: `${c.move}: ${what} (${chance}%)`, who: c.user, p: chance / 100, yes: 'Happens', no: "Doesn't"}, chance >= 50);
+      const hit = this.rec({key: 'sec:' + c.move + ':' + (c.n - 1), kind: 'chance', label: `${c.move}: ${effectName(s)} (${chance}%)`, who: c.user, p: chance / 100, yes: 'Happens', no: "Doesn't"}, chance >= 50);
       return hit ? 0 : 99;
     }
     const e = this.effectLabel();
-    const label = e.name ? `${e.name}: number` : 'Random number';
+    const named = {slp: 'Sleep turns', confusion: 'Confusion turns', lockedmove: 'Rampage turns', partiallytrapped: 'Trapped turns'}[e.id];
+    const label = named || (e.name ? `${e.name}: number` : 'Random number');
     return this.rec({key: 'int:' + (e.id || '') + ':' + lo + '-' + hi, kind: 'int', label, who: e.holder, lo, hi}, lo + Math.floor((hi - 1 - lo) / 2));
   }
   sample(items) {
@@ -285,6 +312,10 @@ export class RngControl {
   }
 }
 
+// What a secondary effect does, for its dice label.
+const effectName = s => s.status ? ({brn: 'burn', par: 'paralysis', psn: 'poison', tox: 'bad poison', slp: 'sleep', frz: 'freeze'}[s.status] || s.status)
+  : s.volatileStatus ? s.volatileStatus : s.boosts ? 'stat change' : s.self ? 'self effect' : 'effect';
+
 function wrap(obj, name, mk) {
   const orig = obj[name];
   if (typeof orig !== 'function') return;
@@ -294,8 +325,14 @@ export function installRng(battle, ctl) {
   ctl.battle = battle; battle.prng = ctl;
   const A = battle.actions;
   wrap(A, 'hitStepAccuracy', (targets, pokemon, move) => ({kind: 'acc', move: move.name, user: pokemon.name}));
-  wrap(A, 'getDamage', (source, target, move) => ({kind: 'dmg', move: (typeof move === 'object' ? move.name : Dex.moves.get(move).name), user: source.name, target: target.name}));
+  wrap(A, 'getDamage', (source, target, move) => ({kind: 'dmg', move: (typeof move === 'object' ? move.name : Dex.moves.get(move).name), user: source.name, target: target.name,
+    src: source, tgt: target, mv: typeof move === 'object' ? move : battle.dex.getActiveMove(move)}));
+  // gens 1-3 check accuracy in their own tryMoveHit, and gens 1-2 roll side effects in moveHit
+  if (battle.gen <= 3) wrap(A, 'tryMoveHit', (target, pokemon, move) => ({kind: 'acc', once: true, move: move.name, user: pokemon.name}));
+  if (battle.gen <= 2) wrap(A, 'moveHit', (target, pokemon, move, moveData, isSecondary, isSelf) => isSecondary || isSelf ? null
+    : {kind: 'sec', old: true, move: move.name, user: pokemon.name, list: ((moveData || move).secondaries || []).filter(s => s.chance !== undefined), n: 0});
   wrap(A, 'secondaries', (targets, source, move, moveData) => ({kind: 'sec', move: move.name, user: source.name, list: (moveData && moveData.secondaries) || move.secondaries || [], n: 0}));
+  if (battle.gen === 2 || battle.gen === 3) wrap(battle, 'endTurn', () => ({kind: 'endturn'}));
   const sp = battle.speedSort;
   battle.speedSort = function (...a) { ctl.push({kind: 'speed'}); try { return sp.apply(this, a); } finally { ctl.pop(); } };
   return ctl;
