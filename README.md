@@ -18,6 +18,7 @@ The repository root is the site (GitHub Pages). Everything in it except `sample.
 | --- | --- |
 | `source/app/` | the page script, as ES modules bundled into `app.js` |
 | &nbsp;&nbsp;`main.js` | start-up |
+| &nbsp;&nbsp;`landing.js` | the landing page: open a replay, recent studies, search Showdown's replays |
 | &nbsp;&nbsp;`state.js` | shared state and small helpers |
 | &nbsp;&nbsp;`study.js` | the study tree: replay positions `r<turn>`, your lines `n<id>`, computing positions |
 | &nbsp;&nbsp;`replay.js` | facts read from the replay's log (who played what) |
@@ -28,7 +29,7 @@ The repository root is the site (GitHub Pages). Everything in it except `sample.
 | &nbsp;&nbsp;`dice.js` | the dice of a line's last step |
 | &nbsp;&nbsp;`panels.js` | the study panel and its Study tab |
 | &nbsp;&nbsp;`teams.js` | the Teams tab, and importing a team (checked against the replay) |
-| &nbsp;&nbsp;`load.js` | loading replays and studies, share links |
+| &nbsp;&nbsp;`load.js` | loading replays and studies, share links, which page the address shows |
 | `source/engine/` | bundled into `engine.js`: `core.mjs` (replay parsing, sets, the simulator with controllable RNG), `calc.mjs` (Smogon's damage calc), `paste.mjs` (team import and its checks) |
 | `source/embed/` | Showdown's `replay-embed.js` and the small changes made to it for `js/replay-embed.js` |
 | `source/index.template.html`, `source/style.css` | the page |

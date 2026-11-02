@@ -12,8 +12,39 @@
     <button class="button" type="submit"><strong>Enter</strong></button><span id="gateErr" class="rb-err"></span></form>
 </div>
 
-<div class="rb-topbar"><button class="button" type="button" id="btnLoad">Load replay</button> <button class="button" type="button" id="btnShare">Share</button></div>
+<header class="rb-head">
+  <a href="./" id="home">Replay Branch</a>
+  <span id="viewerBtns" hidden><button class="button" type="button" id="btnLoad">Load replay</button> <button class="button" type="button" id="btnShare">Share</button></span>
+</header>
 
+<main class="rb-landing" id="landing" hidden>
+  <section>
+    <h2>Open a replay</h2>
+    <form class="rb-row" id="openForm">
+      <input class="textbox" id="openUrl" type="url" placeholder="https://replay.pokemonshowdown.com/…" aria-label="Replay link">
+      <button class="button" type="submit"><strong>Open</strong></button>
+      <button class="button" type="button" id="btnPasteLog">Paste a log</button>
+    </form>
+    <p class="rb-err" id="openErr"></p>
+  </section>
+  <section>
+    <h2>Recent</h2>
+    <table class="rb-table" id="recent"></table>
+  </section>
+  <section>
+    <h2>Search replays</h2>
+    <form class="rb-row" id="searchForm">
+      <input class="textbox" id="searchUser" placeholder="Username" aria-label="Username" autocomplete="off">
+      <input class="textbox" id="searchFormat" placeholder="Format" aria-label="Format" list="dl-formats" autocomplete="off">
+      <button class="button" type="submit">Search</button>
+    </form>
+    <p class="rb-err" id="searchErr"></p>
+    <table class="rb-table" id="searchResults" hidden></table>
+    <p id="searchMore" hidden><button class="button" type="button" id="btnMore">More</button></p>
+  </section>
+</main>
+
+<div id="viewer" hidden>
 <!-- Showdown's replay viewer (built by js/replay-embed.js from the log below), with our move picker and dice under its controls -->
 <div class="wrapper replay-wrapper">
 <input type="hidden" name="replayid" value="smogtours-gen9uu-987009" />
@@ -1080,6 +1111,7 @@
 
 <div class="rb-wrap">
   <section class="rb-section" id="studySec"></section>
+</div>
 </div>
 
 <div class="rb-modal" id="loader" hidden>

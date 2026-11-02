@@ -6,6 +6,8 @@ var S = {
   // storage key for this replay's study
   replayId: null,
   // replay.pokemonshowdown.com/<replayId>, when it came from there
+  ready: null,
+  // resolves once the simulator and Showdown's viewer are loaded
   stats: null,
   // usage stats for the format, or null
   base: null,
@@ -72,6 +74,12 @@ function stored(key, fallback) {
 function store(key, value) {
   try {
     localStorage.setItem(key, value);
+  } catch {
+  }
+}
+function unstore(key) {
+  try {
+    localStorage.removeItem(key);
   } catch {
   }
 }
@@ -1090,7 +1098,147 @@ function showTitle() {
   $id("rbTitle").innerHTML = `<strong>${esc(S.rep.tier || S.rep.formatid)}</strong><br>${esc(playerName(0))} vs. ${esc(playerName(1))}` + (isReplayPos(S.cur) ? "" : ' <span class="rb-mode">Your line</span>');
 }
 
+// source/app/landing.js
+function renderLanding() {
+  renderRecent();
+  $id("openUrl").focus();
+}
+function wireLanding() {
+  $id("openForm").onsubmit = (e) => {
+    e.preventDefault();
+    const id = replayIdFrom($id("openUrl").value);
+    $id("openErr").textContent = id ? "" : "Not a replay link.";
+    if (id) visit(id);
+  };
+  $id("btnPasteLog").onclick = () => $id("btnLoad").click();
+  $id("searchForm").onsubmit = (e) => {
+    e.preventDefault();
+    search();
+  };
+  $id("btnMore").onclick = () => search(lastResult);
+  fetch("stats/index.json").then((r) => r.json()).then((formats) => {
+    const d = document.createElement("datalist");
+    d.id = "dl-formats";
+    d.innerHTML = Object.keys(formats).map((f) => `<option value="${f}">`).join("");
+    document.body.appendChild(d);
+  }).catch(() => {
+  });
+}
+var ago = (ms) => {
+  const min = (Date.now() - ms) / 6e4;
+  if (min < 1) return "just now";
+  if (min < 60) return `${Math.floor(min)} min ago`;
+  if (min < 60 * 24) return `${Math.floor(min / 60)} h ago`;
+  return date(ms);
+};
+var date = (ms) => new Date(ms).toLocaleDateString(void 0, { year: "numeric", month: "short", day: "numeric" });
+function savedStudies() {
+  const out = [];
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (!k.startsWith("rbv:")) continue;
+      try {
+        const study = JSON.parse(localStorage.getItem(k));
+        out.push({ key: k.slice(4), meta: study.meta || {}, lines: Object.keys(study.nodes || {}).length, opened: study.opened || 0 });
+      } catch {
+      }
+    }
+  } catch {
+  }
+  return out.sort((a, b) => b.opened - a.opened);
+}
+var removeArmed = null;
+function renderRecent() {
+  const list = $id("recent");
+  const studies = savedStudies();
+  if (!studies.length) {
+    list.innerHTML = `<tr><td class="rb-dim">Nothing yet. <a href="?r=${SAMPLE}" data-visit="${SAMPLE}">Open a sample replay</a></td></tr>`;
+  } else {
+    list.innerHTML = `<tr><th>Format</th><th>Players</th><th>Lines</th><th>Opened</th><th></th></tr>` + studies.map((s) => `<tr data-visit="${esc(s.key)}"><td>${esc(s.meta.format || s.key)}</td><td>${esc((s.meta.players || []).join(" vs. "))}</td><td>${s.lines || ""}</td><td>${s.opened ? ago(s.opened) : ""}</td><td class="rb-end"><button class="rb-linkbtn" data-remove="${esc(s.key)}">${removeArmed === s.key ? "Remove for good?" : "Remove"}</button></td></tr>`).join("");
+  }
+  for (const row of list.querySelectorAll("[data-visit]")) row.onclick = (e) => {
+    if (e.target.closest("[data-remove]")) return;
+    e.preventDefault();
+    visit(row.dataset.visit);
+  };
+  for (const b of list.querySelectorAll("[data-remove]")) b.onclick = () => {
+    if (removeArmed === b.dataset.remove) {
+      unstore("rbv:" + b.dataset.remove);
+      removeArmed = null;
+    } else removeArmed = b.dataset.remove;
+    renderRecent();
+  };
+}
+var lastResult = null;
+async function search(after) {
+  const user = $id("searchUser").value.trim(), format = $id("searchFormat").value.trim();
+  const table = $id("searchResults"), err = $id("searchErr");
+  err.textContent = "";
+  if (!user && !format) {
+    err.textContent = "Enter a username or a format.";
+    return;
+  }
+  const q = new URLSearchParams();
+  if (user) q.set("user", user);
+  if (format) q.set("format", format);
+  if (after) q.set("before", after.uploadtime);
+  let found;
+  try {
+    const r = await fetch("https://replay.pokemonshowdown.com/search.json?" + q);
+    if (!r.ok) throw new Error();
+    found = await r.json();
+  } catch {
+    err.textContent = "Could not search replays.";
+    return;
+  }
+  const more = found.length > 50;
+  found = found.slice(0, 50);
+  lastResult = found[found.length - 1];
+  const rows = found.map((x) => `<tr data-visit="${esc(x.id)}"><td>${esc(x.format)}</td><td>${esc(x.players.join(" vs. "))}</td><td>${x.rating || ""}</td><td>${date(x.uploadtime * 1e3)}</td></tr>`).join("");
+  if (!after) table.innerHTML = `<tr><th>Format</th><th>Players</th><th>Rating</th><th>Uploaded</th></tr>`;
+  table.insertAdjacentHTML("beforeend", rows || `<tr><td class="rb-dim">No replays found.</td></tr>`);
+  table.hidden = false;
+  $id("searchMore").hidden = !more;
+  for (const row of table.querySelectorAll("[data-visit]")) row.onclick = () => visit(row.dataset.visit);
+}
+
 // source/app/load.js
+var SAMPLE = "smogtours-gen9uu-987009";
+async function route() {
+  const key = new URLSearchParams(location.search).get("r");
+  const shared = location.hash.startsWith("#s=");
+  showPage(key || shared ? "viewer" : "landing");
+  if (!key && !shared) {
+    renderLanding();
+    return;
+  }
+  await S.ready;
+  try {
+    if (shared) await openSharedLink();
+    else if (key !== S.key) await openKey(key);
+  } catch (e) {
+    history.replaceState(null, "", location.pathname);
+    showPage("landing");
+    renderLanding();
+    $id("openErr").textContent = e.message || String(e);
+  }
+}
+function visit(key) {
+  history.pushState(null, "", "?r=" + encodeURIComponent(key));
+  route();
+}
+function showPage(page) {
+  $id("landing").hidden = page !== "landing";
+  $id("viewer").hidden = $id("viewerBtns").hidden = page !== "viewer";
+  document.body.dataset.page = page;
+  if (page === "landing") document.title = "Replay Branch";
+}
+async function openKey(key) {
+  const log = loadSaved(key)?.meta?.log;
+  if (log) await loadText(log);
+  else await loadText(await fetchReplay(key), { replayId: key });
+}
 async function loadText(text, { shown = false, replayId = null, study = null } = {}) {
   const t = String(text || "").trim();
   let exported = null;
@@ -1113,7 +1261,10 @@ async function loadText(text, { shown = false, replayId = null, study = null } =
   S.study = study || exported?.study || loadSaved(S.key) || newStudy();
   const fits = S.study.sets?.length === 2 && S.study.sets.every((side, si) => side.length === S.base[si].length);
   if (!fits) S.study.sets = clone(S.base);
-  if (study || exported) save();
+  S.study.meta = { format: rep.tier || rep.formatid, players: [S.cbEnd.p1.name, S.cbEnd.p2.name], ...replayId ? {} : { log: rep.lines.join("\n") } };
+  S.study.opened = Date.now();
+  save();
+  document.title = `${S.study.meta.players.join(" vs. ")} - Replay Branch`;
   clearPicks();
   S.err = "";
   if (!shown) S.psMode = "";
@@ -1141,25 +1292,26 @@ async function fetchReplay(id) {
   if (!r.ok) throw new Error(r.status === 404 ? "Replay not found (it may be private or deleted)." : `Could not load the replay (${r.status}).`);
   return r.text();
 }
+var shareable = () => ({ ...S.study, meta: void 0, opened: void 0 });
 async function shareLink() {
-  const payload = { rbv: 1, study: S.study, ...S.replayId ? { id: S.replayId } : { log: S.rep.lines.join("\n") } };
+  const payload = { rbv: 1, study: shareable(), ...S.replayId ? { id: S.replayId } : { log: S.rep.lines.join("\n") } };
   const stream = new Blob([JSON.stringify(payload)]).stream().pipeThrough(new CompressionStream("deflate-raw"));
   const bytes = new Uint8Array(await new Response(stream).arrayBuffer());
   let binary = "";
   for (let i = 0; i < bytes.length; i += 32768) binary += String.fromCharCode(...bytes.subarray(i, i + 32768));
   const data = btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-  return location.href.replace(/#.*$/, "") + "#s=" + data;
+  return location.origin + location.pathname + "#s=" + data;
 }
 async function openSharedLink() {
   const m = /^#s=([\w-]+)$/.exec(location.hash);
   if (!m) return;
-  history.replaceState(null, "", location.href.replace(/#.*$/, ""));
   const binary = atob(m[1].replace(/-/g, "+").replace(/_/g, "/"));
   const bytes = Uint8Array.from(binary, (c) => c.charCodeAt(0));
   const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("deflate-raw"));
   const payload = JSON.parse(await new Response(stream).text());
   const text = payload.id ? await fetchReplay(payload.id) : payload.log;
   await loadText(text, { replayId: payload.id || null, study: payload.study });
+  history.replaceState(null, "", "?r=" + encodeURIComponent(S.key));
 }
 function wireDialogs() {
   const loader = $id("loader"), sharer = $id("sharer");
@@ -1169,7 +1321,7 @@ function wireDialogs() {
     $id("replayUrl").focus();
   };
   $id("btnShare").onclick = async () => {
-    $id("exportBox").value = JSON.stringify({ rbv: 1, log: S.rep.lines.join("\n"), study: S.study });
+    $id("exportBox").value = JSON.stringify({ rbv: 1, log: S.rep.lines.join("\n"), study: shareable() });
     $id("shareLink").value = await shareLink();
     $id("copyMsg").textContent = "";
     sharer.hidden = false;
@@ -1182,10 +1334,10 @@ function wireDialogs() {
     const id = replayIdFrom($id("replayUrl").value) || replayIdFrom($id("pasteBox").value);
     return id ? { text: await fetchReplay(id), replayId: id } : { text: $id("pasteBox").value };
   });
-  $id("btnSample").onclick = () => loadFrom(async () => {
-    const text = await fetch("sample.json").then((r) => r.text());
-    return { text, replayId: JSON.parse(text).id };
-  });
+  $id("btnSample").onclick = () => {
+    $id("loader").hidden = true;
+    visit(SAMPLE);
+  };
   $id("btnCancel").onclick = () => {
     loader.hidden = true;
   };
@@ -1214,41 +1366,36 @@ function wireDialogs() {
 }
 async function loadFrom(get) {
   $id("loadErr").textContent = "";
+  const wasLanding = !$id("landing").hidden;
   try {
     const { text, replayId } = await get();
+    await S.ready;
+    E.parseReplayInput(text.trim().startsWith("{") ? JSON.parse(text).log || text : text);
+    showPage("viewer");
     await loadText(text, { replayId });
+    history.pushState(null, "", "?r=" + encodeURIComponent(S.key));
     $id("loader").hidden = true;
     $id("pasteBox").value = "";
     $id("replayUrl").value = "";
   } catch (e) {
+    if (wasLanding) showPage("landing");
     $id("loadErr").textContent = e.message || String(e);
   }
 }
 
 // source/app/main.js
 var TEAMBUILDER_TABLES = "https://play.pokemonshowdown.com/data/teambuilder-tables.js?a7";
-async function boot() {
-  try {
-    setEngine(await import("./engine.js"));
-    await until(() => window.Replays && Replays.battle && window.Battle && window.Dex);
-    attachToEmbed();
-    listenForTooltips($id("pickSec"));
-    wireDialogs();
-    document.addEventListener("keydown", onKey);
-    const sample = await fetch("sample.json").then((r) => r.text());
-    await loadText(sample, { shown: true, replayId: JSON.parse(sample).id });
-    await openSharedLink();
-    (window.requestIdleCallback || ((f) => setTimeout(f, 1500)))(() => {
-      const s = document.createElement("script");
-      s.src = TEAMBUILDER_TABLES;
-      document.head.appendChild(s);
-    });
-  } catch (e) {
-    console.error(e);
-    const el = $id("pickSec");
-    el.hidden = false;
-    el.innerHTML = `<p class="rb-err">Could not start: ${esc(e.message || e)}</p>`;
-  }
+async function loadViewer() {
+  setEngine(await import("./engine.js"));
+  await until(() => window.Replays && Replays.battle && window.Battle && window.Dex);
+  attachToEmbed();
+  listenForTooltips($id("pickSec"));
+  document.addEventListener("keydown", onKey);
+  (window.requestIdleCallback || ((f) => setTimeout(f, 1500)))(() => {
+    const s = document.createElement("script");
+    s.src = TEAMBUILDER_TABLES;
+    document.head.appendChild(s);
+  });
 }
 function until(test, ms = 6e4) {
   return new Promise((resolve, reject) => {
@@ -1266,4 +1413,17 @@ function until(test, ms = 6e4) {
     tick();
   });
 }
-boot();
+S.ready = loadViewer();
+S.ready.catch((e) => {
+  console.error(e);
+  $id("openErr").textContent = `Could not start: ${e.message || e}`;
+});
+wireDialogs();
+wireLanding();
+$id("home").onclick = (e) => {
+  e.preventDefault();
+  history.pushState(null, "", location.pathname);
+  route();
+};
+window.addEventListener("popstate", route);
+route();

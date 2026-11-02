@@ -86,6 +86,12 @@ try {
     check(!await visible('#gate'), 'gate opens with the password');
   } else console.log('(no password gate)');
 
+  // ---------------------------------------------------------------- landing page
+  check(await visible('#landing') && !await visible('#viewer'), 'opens on the landing page');
+  await page.click('#recent [data-visit]');   // the sample
+  await until(() => !document.querySelector('#viewer').hidden, null, 10000);
+  check(/\?r=/.test(page.url()), 'a replay gets its own address', page.url());
+
   // ---------------------------------------------------------------- team preview: leads
   await pickerReady();
   check(/choose a lead/.test(await question()), 'starts at team preview with the lead picker', await question());
@@ -278,6 +284,21 @@ try {
   check(both.some(p => /Talonflame U-turn vs\. 252 HP \/ 252\+ Def .*Donphan: .+, the replay shows 7%/.test(p)),
     'with both sides imported, a hit reads like the damage calc', both.filter(p => /Donphan/.test(p)).join(' | '));
   await page.click('[data-tab=study]'); await sleep(200);
+
+  // ---------------------------------------------------------------- back to the landing page: recent studies, search
+  await page.click('#home'); await sleep(300);
+  const recent = await page.$$eval('#recent tr[data-visit]', r => r.map(x => x.textContent));
+  check(await visible('#landing') && recent.some(r => /wssi vs\. wintminter/.test(r) && /\b\d+\b/.test(r)), 'Recent lists the study with its lines', recent[0]);
+  await page.type('#searchFormat', 'gen9ou'); await page.click('#searchForm button[type=submit]');
+  await until(() => document.querySelectorAll('#searchResults tr[data-visit]').length, null, 30000);
+  const result = await page.$eval('#searchResults tr[data-visit]', r => r.dataset.visit);
+  await page.click('#searchResults tr[data-visit]');
+  await pickerReady().catch(() => {});
+  check(page.url().includes(result) && await visible('#viewer'), 'a search result opens', result);
+  await page.goBack(); await sleep(400);
+  check(await visible('#landing'), 'Back returns to the landing page');
+  await page.goForward(); await sleep(1000);
+  check(await visible('#viewer') && page.url().includes(result), 'Forward reopens it');
 
   // ---------------------------------------------------------------- other formats, loaded by link
   for (const format of FORMATS) {

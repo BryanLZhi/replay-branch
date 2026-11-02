@@ -27,7 +27,34 @@ body.dark {
 }
 
 /* layout */
-.rb-topbar { display: flex; justify-content: flex-end; gap: 6px; max-width: 1180px; margin: 0 auto 8px; padding: 0 16px; box-sizing: border-box; }
+/* (the rule under the header spans the content, not its side padding) */
+.rb-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; width: calc(100% - 32px); max-width: 1148px;
+  margin: 0 auto 10px; padding: 0 0 8px; border-bottom: 1px solid var(--rb-line); }
+.rb-head #home { font-size: 13pt; font-weight: bold; color: var(--rb-fg); text-decoration: none; }
+.rb-head span { display: flex; gap: 6px; }
+body:not(.dark) { color: var(--rb-fg); }
+
+/* landing page */
+body[data-page=landing] .rb-head { max-width: 828px; }
+body[data-page=viewer] .rb-head { max-width: 1180px; }   /* (as wide as the viewer) */
+.rb-landing { max-width: 860px; margin: 0 auto; padding: 0 16px 24px; box-sizing: border-box; color: var(--rb-fg); }
+.rb-landing section { margin: 18px 0 0; }
+.rb-landing h2 { font-size: 11pt; margin: 0 0 6px; }
+.rb-landing form { margin: 0; }
+.rb-landing form .textbox { font-size: 10pt; padding: 4px 6px; }
+#openUrl { flex: 1 1 320px; min-width: 0; }
+#searchUser, #searchFormat { flex: 0 1 180px; min-width: 0; }
+.rb-landing .rb-err:empty { display: none; }
+.rb-table { width: 100%; border-collapse: collapse; font-size: 9pt; margin-top: 8px; }
+.rb-table th { text-align: left; font-weight: normal; color: var(--rb-muted); padding: 3px 6px; border-bottom: 1px solid var(--rb-line); }
+.rb-table td { padding: 4px 6px; border-bottom: 1px solid var(--rb-line); overflow-wrap: anywhere; }
+.rb-table tr[data-visit] { cursor: pointer; }
+.rb-table tr[data-visit]:hover td { background: var(--rb-panel2); }
+.rb-table .rb-end { text-align: right; width: 1%; white-space: nowrap; }
+.rb-dim { color: var(--rb-muted); }
+.rb-landing a { color: var(--rb-curline); }
+.rb-linkbtn { font: inherit; font-size: 8.5pt; border: 0; background: none; color: var(--rb-muted); cursor: pointer; padding: 0; }
+.rb-linkbtn:hover { color: var(--rb-bad); text-decoration: underline; }
 .replay-wrapper { max-width: 1180px; margin: 0 auto; }
 .replay-wrapper h1 { font-weight: normal; text-align: center; }
 .rb-under { clear: both; max-width: 640px; padding-top: 6px; }
@@ -159,5 +186,7 @@ body.dark .rb-edit { background: rgba(255,255,255,.12); }
   .replay-wrapper .rb-under { order: 4; max-width: none; padding: 0 4px; }
   .replay-wrapper .battle-log { position: static !important; order: 5; height: 260px; margin: 10px 4px 0; width: auto !important; }
   .replay-wrapper h1 { order: 6; font-size: 14pt; }
-  .rb-topbar, .rb-wrap { padding: 0 8px; }
+  .rb-wrap, .rb-landing { padding-left: 8px; padding-right: 8px; }
+  .rb-head { width: calc(100% - 16px); }
+  .rb-table th:nth-child(4), .rb-table td:nth-child(4) { display: none; }   /* (dates) */
 }

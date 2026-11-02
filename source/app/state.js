@@ -4,6 +4,7 @@ export const S = {
   rep: null,          // the parsed replay (engine.parseReplayInput)
   key: '',            // storage key for this replay's study
   replayId: null,     // replay.pokemonshowdown.com/<replayId>, when it came from there
+  ready: null,        // resolves once the simulator and Showdown's viewer are loaded
   stats: null,        // usage stats for the format, or null
   base: null,         // suggested sets per side: what the replay revealed, filled in from usage stats
   cbEnd: null,        // spectator view of the battle at the end of the replay (team order, names)
@@ -47,4 +48,7 @@ export function stored(key, fallback) {
 }
 export function store(key, value) {
   try { localStorage.setItem(key, value); } catch {}
+}
+export function unstore(key) {
+  try { localStorage.removeItem(key); } catch {}
 }

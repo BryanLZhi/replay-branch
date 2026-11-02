@@ -1,33 +1,24 @@
-// Start-up: load the simulator, wait for Showdown's replay viewer, open the sample replay it already shows, then the study
-// in the address if there is one.
-import {$id, esc, setEngine} from './state.js';
+// Start-up: show the page the address asks for at once (the landing page needs nothing else), while the simulator and
+// Showdown's replay viewer load.
+import {S, $id, setEngine} from './state.js';
 import {attachToEmbed} from './viewer.js';
 import {onKey} from './navigation.js';
-import {loadText, openSharedLink, wireDialogs} from './load.js';
+import {route, wireDialogs} from './load.js';
+import {wireLanding} from './landing.js';
 import {listenForTooltips} from './tooltips.js';
 
 // Hover tooltips for older generations use Showdown's teambuilder tables (16 MB); fetch them once the page is usable.
 const TEAMBUILDER_TABLES = 'https://play.pokemonshowdown.com/data/teambuilder-tables.js?a7';
 
-async function boot() {
-  try {
-    setEngine(await import('./engine.js'));
-    await until(() => window.Replays && Replays.battle && window.Battle && window.Dex);
-    attachToEmbed();
-    listenForTooltips($id('pickSec'));
-    wireDialogs();
-    document.addEventListener('keydown', onKey);
-    const sample = await fetch('sample.json').then(r => r.text());
-    await loadText(sample, {shown: true, replayId: JSON.parse(sample).id});
-    await openSharedLink();
-    (window.requestIdleCallback || (f => setTimeout(f, 1500)))(() => {
-      const s = document.createElement('script'); s.src = TEAMBUILDER_TABLES; document.head.appendChild(s);
-    });
-  } catch (e) {
-    console.error(e);
-    const el = $id('pickSec'); el.hidden = false;
-    el.innerHTML = `<p class="rb-err">Could not start: ${esc(e.message || e)}</p>`;
-  }
+async function loadViewer() {
+  setEngine(await import('./engine.js'));
+  await until(() => window.Replays && Replays.battle && window.Battle && window.Dex);
+  attachToEmbed();
+  listenForTooltips($id('pickSec'));
+  document.addEventListener('keydown', onKey);
+  (window.requestIdleCallback || (f => setTimeout(f, 1500)))(() => {
+    const s = document.createElement('script'); s.src = TEAMBUILDER_TABLES; document.head.appendChild(s);
+  });
 }
 
 function until(test, ms = 60000) {
@@ -43,4 +34,13 @@ function until(test, ms = 60000) {
   });
 }
 
-boot();
+S.ready = loadViewer();
+S.ready.catch(e => {
+  console.error(e);
+  $id('openErr').textContent = `Could not start: ${e.message || e}`;
+});
+wireDialogs();
+wireLanding();
+$id('home').onclick = e => { e.preventDefault(); history.pushState(null, '', location.pathname); route(); };
+window.addEventListener('popstate', route);
+route();
