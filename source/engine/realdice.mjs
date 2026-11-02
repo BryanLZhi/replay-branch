@@ -19,7 +19,8 @@ function tokens(lines) {
     const a = l.split('|'), kind = a[1];
     if (!KEPT.has(kind)) continue;
     const at = /^(p\d)([a-c])?/.exec(a[2] || ''), who = at ? at[1] + (at[2] || 'a') : '';
-    const from = toID((/\[from\] ?([^|]*)/.exec(l) || [])[1] || '');
+    // (older logs name the source bare: "[from] Protean" where today's say "[from] ability: Protean")
+    const from = toID(((/\[from\] ?([^|]*)/.exec(l) || [])[1] || '').replace(/^(ability|item|move): ?/, ''));
     if (HP.has(kind)) out.push({key: [kind, who, from].join('|'), hp: hp(a[3])});
     else out.push({key: [kind, who, toID(a[3] || ''), kind === '-boost' || kind === '-unboost' ? a[4] : '', from].join('|')});
   }

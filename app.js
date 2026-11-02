@@ -292,8 +292,10 @@ function renderTeams(body) {
     const v = input.value.trim();
     let changedNature = false;
     if (f.startsWith("move")) set.moves[+f.slice(4)] = v;
-    else if (f.startsWith("ev_")) changedNature = setEv(set, f.slice(3), v);
-    else if (f === "level") set.level = Math.max(1, Math.min(100, +v || 100));
+    else if (f.startsWith("ev_")) {
+      changedNature = setEv(set, f.slice(3), v);
+      input.value = Number(set.evs[f.slice(3)]) || 0;
+    } else if (f === "level") set.level = Math.max(1, Math.min(100, +v || 100));
     else {
       set[f] = v;
       changedNature = f === "nature";
@@ -1632,7 +1634,7 @@ async function search(after) {
 }
 
 // source/app/load.js
-var SAMPLE = "smogtours-gen9uu-987009";
+var SAMPLE = "oumonotype-82345404";
 async function route() {
   const key = new URLSearchParams(location.search).get("r");
   const shared = location.hash.startsWith("#s=");

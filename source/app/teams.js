@@ -47,7 +47,7 @@ export function renderTeams(body) {
     const set = S.study.sets[input.dataset.side][input.dataset.k]; const f = input.dataset.field; const v = input.value.trim();
     let changedNature = false;
     if (f.startsWith('move')) set.moves[+f.slice(4)] = v;
-    else if (f.startsWith('ev_')) changedNature = setEv(set, f.slice(3), v);
+    else if (f.startsWith('ev_')) { changedNature = setEv(set, f.slice(3), v); input.value = Number(set.evs[f.slice(3)]) || 0; }   // ("252+" reads 252)
     else if (f === 'level') set.level = Math.max(1, Math.min(100, +v || 100));
     else { set[f] = v; changedNature = f === 'nature'; }
     save(); input.classList.remove('guess'); renderPicker(position());

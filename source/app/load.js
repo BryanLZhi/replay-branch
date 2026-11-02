@@ -6,7 +6,7 @@ import {cleanStudy} from './clean.js';
 import {go} from './navigation.js';
 import {renderLanding} from './landing.js';
 
-export const SAMPLE = 'smogtours-gen9uu-987009';
+export const SAMPLE = 'oumonotype-82345404';
 
 // ---------------------------------------------------------------- pages
 // The address says what to show: the landing page, ?r=<replay id, or the key of a saved study of a pasted log>, or

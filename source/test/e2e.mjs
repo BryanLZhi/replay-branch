@@ -16,6 +16,8 @@ const browserPath = [process.env.CHROME, 'C:/Program Files (x86)/Microsoft/Edge/
 const FORMATS = ['gen9ou', 'gen7ou', 'gen8randombattle', 'gen9randombattle', 'gen4ou', 'gen3ou', 'gen2ou', 'gen1ou'];
 const GIMMICK_FORMATS = ['gen7ou', 'gen8randombattle'];   // where a Mega Evolution / Z-Power / Dynamax box should turn up
 const DOUBLES_FORMATS = ['gen9vgc2025regi', 'gen9doublesou'];
+// the sample replay the landing page offers (gen 6 Monotype, Normal vs. Psychic)
+const SAMPLE = 'oumonotype-82345404', SAMPLE_PLAYERS = /kdarewolf vs\. Onox/;
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 let failures = 0;
@@ -53,7 +55,7 @@ async function watchPolicy(p) {
   }));
 }
 await watchPolicy(page);
-page.on('requestfailed', r => { if (!/\.(mp3|wav|ogg)(\?|$)/.test(r.url())) failedRequests.push(r.url() + ' ' + r.failure()?.errorText); });
+page.on('requestfailed', r => { if (!/\.(mp3|wav|ogg)(\?|$)/.test(r.url()) && r.failure()?.errorText !== 'net::ERR_ABORTED') failedRequests.push(r.url() + ' ' + r.failure()?.errorText); });
 page.on('response', r => { if (r.status() >= 400) failedRequests.push(r.url() + ' ' + r.status()); });
 
 // ---------------------------------------------------------------- helpers (all through the page's UI)
@@ -221,10 +223,12 @@ try {
   // ---------------------------------------------------------------- a line, its dice
   await barReady();
   await openSlot(0);
-  const nth = await page.$$eval('#pickSec .rb-menu [data-pick]', b => b.findIndex(x => !x.disabled && !x.classList.contains('played') && !x.classList.contains('chosen')) + 1);
+  const nth = await page.$$eval('#pickSec .rb-menu [data-pick]', b => b.findIndex(x => !x.disabled && !x.classList.contains('played') && !x.classList.contains('chosen') && x.querySelector('.rb-dmg')) + 1);
   await press(String(nth));   // (number keys pick in the menu)
   check(await page.$('#pickSec [data-slot="0"].changed'), 'a number key picks in the menu, and the slot shows it changed');
-  await changeSlot(1);
+  await openSlot(1);
+  const attack = await page.$('#pickSec .rb-menu .rb-mv:not(:disabled):not(.played) .rb-dmg');
+  if (attack) { await attack.click(); await sleep(100); } else { await press('Escape'); await changeSlot(1); }
   // the dice of the turn, set before playing it
   check(await visible('#diceSec') && /Turn \d/.test(await text('#diceSec .rb-dturn')) && !await inLine(),
     'with both choices in, the dice of the coming turn show before playing it', await text('#diceSec .rb-dturn'));
@@ -303,7 +307,7 @@ try {
       kids: {r1: ['n1" onmouseover="window.pwned=1', 'n2']}, notes: {r2: {comment: xss, glyph: xss}},
       sets: [[{name: xss, species: 'Talonflame', evs: {hp: '"><img src=x onerror="window.pwned=1">'}, level: '"><img src=x onerror="window.pwned=1">', moves: [xss]}]],
     };
-    const evil = url.replace(/[?#].*$/, '') + '#s=' + zlib.deflateRawSync(Buffer.from(JSON.stringify({rbv: 1, id: 'smogtours-gen9uu-987009', study}))).toString('base64url');
+    const evil = url.replace(/[?#].*$/, '') + '#s=' + zlib.deflateRawSync(Buffer.from(JSON.stringify({rbv: 1, id: SAMPLE, study}))).toString('base64url');
     const other = await browser.createBrowserContext();
     const p3 = await other.newPage(); await p3.setViewport({width: 1280, height: 1000});
     p3.on('pageerror', e => pageErrors.push(e.message));
@@ -320,14 +324,14 @@ try {
   {
     // someone's study of the same replay, opened here: it goes beside yours, not over it
     const theirs = {nodes: {n1: {parent: 'r1', choices: {p1: 'move 1', p2: 'move 1'}, seed: [5, 6, 7, 8], comment: 'their idea'}}, kids: {r1: ['n1']}};
-    const link2 = url.replace(/[?#].*$/, '') + '#s=' + zlib.deflateRawSync(Buffer.from(JSON.stringify({rbv: 1, id: 'smogtours-gen9uu-987009', study: theirs}))).toString('base64url');
+    const link2 = url.replace(/[?#].*$/, '') + '#s=' + zlib.deflateRawSync(Buffer.from(JSON.stringify({rbv: 1, id: SAMPLE, study: theirs}))).toString('base64url');
     const mineBefore = await page.$$eval('#studySec .rb-tok', t => t.length);
     await page.goto(link2, {waitUntil: 'domcontentloaded'});
     await page.waitForSelector('#studySec .rb-tok', {timeout: 60000});
     const opened = await page.$$eval('#studySec .rb-tok', t => t.map(x => x.textContent));
     await page.click('#home'); await sleep(400);
     const recentNow = await page.$$eval('#recent [data-visit]', r => r.map(x => x.textContent));
-    check(opened.length === 1 && opened[0].includes('their idea') && recentNow.some(r => /shared with you/.test(r)) && recentNow.some(r => /wssi vs\. wintminter/.test(r) && !/shared/.test(r)),
+    check(opened.length === 1 && opened[0].includes('their idea') && recentNow.some(r => /shared with you/.test(r)) && recentNow.some(r => SAMPLE_PLAYERS.test(r) && !/shared/.test(r)),
       "a shared study of a replay you studied opens beside yours", recentNow.join(' | '));
     await page.click('#recent [data-visit]:not([data-visit*="~"])');
     await until(n => document.querySelectorAll('#studySec .rb-tok').length === n, mineBefore, 60000).catch(() => {});
@@ -379,41 +383,45 @@ try {
   const problems = await page.$$eval('#importProblems li', l => l.map(x => x.textContent));
   check(problems.some(p => p.startsWith('Not in the paste')) && /None of these/.test(await text('#importErr')), 'a PokéPaste of another team is flagged', problems[0]);
   await page.click('#btnImportCancel');
-  // a set typed in, contradicting the replay: Talonflame was seen using Roost, and its U-turn did less than Choice Band would
+  // sets typed in, contradicting the replay: Kecleon (May Day Parade) used Power-Up Punch, and Fake Out then Sucker Punch,
+  // which a Choice Band would not allow; Chansey (Paramedic) without Eviolite or bulk takes more than it did
+  const card = name => page.$$eval('#studySec .rb-mon', (cards, name) => {
+    const c = cards.find(c => c.querySelector('.nm').textContent.includes(name));
+    return c && {item: c.querySelector('[data-field=item]').value, guesses: c.querySelectorAll('.guess').length};
+  }, name);
   await page.click('[data-import="0"]'); await sleep(200);
   await page.$eval('#importText', el => {
-    el.value = ['Talonflame @ Choice Band', 'Ability: Gale Wings', 'EVs: 252 Atk / 4 Def / 252 Spe', 'Adamant Nature',
-      '- Brave Bird', '- Flare Blitz', '- U-turn', '- Swords Dance'].join('\n');
+    el.value = ['May Day Parade (Kecleon) @ Choice Band', 'Ability: Protean', 'EVs: 252 Atk / 4 Def / 252 Spe', 'Adamant Nature',
+      '- Fake Out', '- Sucker Punch', '- Shadow Sneak', '- Return', '',
+      'Paramedic (Chansey) @ Leftovers', 'Ability: Natural Cure', 'EVs: 252 Atk / 252 Spe', 'Hasty Nature',
+      '- Seismic Toss', '- Soft-Boiled', '- Toxic', '- Heal Bell'].join('\n');
     el.dispatchEvent(new Event('input'));
   });
   await page.click('#btnImport');
   await until(() => !document.querySelector('#importProblems').hidden || document.querySelector('#importErr').textContent, null, 30000);
   const flagged = await page.$$eval('#importProblems li', l => l.map(x => x.textContent));
-  check(flagged.some(p => /no Roost/.test(p)) && flagged.some(p => /Talonflame's .+ the sets allow/.test(p)), 'moves and damage the replay shows are checked', flagged.filter(p => /Talonflame/.test(p)).join(' | '));
+  check(flagged.some(p => /no Power-Up Punch/.test(p)) && flagged.some(p => /without switching, which Choice Band does not allow/.test(p)) &&
+    flagged.some(p => /Focus Blast did .+ to Paramedic, the sets allow/.test(p)), 'moves, items and damage the replay shows are checked', flagged.join(' | '));
   await page.click('#btnImport'); await sleep(300);
-  const imported = await page.$$eval('#studySec .rb-mon', cards => {
-    const card = cards.find(c => c.querySelector('.nm').textContent.includes('Talonflame'));
-    return card && {item: card.querySelector('[data-field=item]').value, guesses: card.querySelectorAll('.guess').length};
-  });
-  check(!await visible('#importer') && imported?.item === 'Choice Band' && imported.guesses === 0, 'Import anyway uses the set (no longer shown as a guess)');
+  const imported = await card('May Day Parade');
+  check(!await visible('#importer') && imported?.item === 'Choice Band' && imported.guesses === 0, 'Import anyway uses the set (no longer shown as a guess)', JSON.stringify(imported));
   // the Teams tab keeps listing the mismatches, and follows edits
   await until(() => !document.querySelector('#teamCheck').hidden, null, 30000);
   const live = await page.$$eval('#teamCheck li', l => l.map(x => x.textContent));
-  check(live.some(p => /no Roost/.test(p)) && live.some(p => /Talonflame/.test(p) && / vs\. | the sets allow /.test(p)),
-    'the Teams tab lists what the imported sets cannot be', live.join(' | '));
+  check(live.some(p => /no Power-Up Punch/.test(p)) && live.some(p => /Choice Band/.test(p)), 'the Teams tab lists what the imported sets cannot be', live.join(' | '));
   await page.$$eval('#studySec .rb-mon', cards => {
-    const card = cards.find(c => c.querySelector('.nm').textContent.includes('Talonflame'));
-    const box = card.querySelector('[data-field=move3]');
-    box.value = 'Roost'; box.dispatchEvent(new Event('change'));
+    const c = cards.find(c => c.querySelector('.nm').textContent.includes('May Day Parade'));
+    const box = c.querySelector('[data-field=move3]');
+    box.value = 'Power-Up Punch'; box.dispatchEvent(new Event('change'));
   });
   await sleep(1500);
   const after = await page.$$eval('#teamCheck li', l => l.map(x => x.textContent));
-  check(!after.some(p => /no Roost/.test(p)), 'fixing the set clears its line', after.join(' | '));
+  check(!after.some(p => /no Power-Up Punch/.test(p)), 'fixing the set clears its line', after.join(' | '));
   // importing the other side too: hits between two known sets read like the damage calc, spreads included
   await page.click('[data-import="1"]'); await sleep(200);
   await page.$eval('#importText', el => {
-    el.value = ['Donphan @ Leftovers', 'Ability: Sturdy', 'EVs: 252 HP / 4 Atk / 252 Def', 'Impish Nature',
-      '- Earthquake', '- Ice Shard', '- Knock Off', '- Rapid Spin'].join('\n');
+    el.value = ['BrainCell (Reuniclus) @ Leftovers', 'Ability: Magic Guard', 'EVs: 252 HP / 252 Def / 4 SpD', 'Bold Nature',
+      '- Calm Mind', '- Focus Blast', '- Recover', '- Psyshock'].join('\n');
     el.dispatchEvent(new Event('input'));
   });
   await page.click('#btnImport');
@@ -421,14 +429,14 @@ try {
   if (await visible('#importer')) await page.click('#btnImport');
   await sleep(1500);
   const both = await page.$$eval('#teamCheck li', l => l.map(x => x.textContent));
-  check(both.some(p => /Talonflame U-turn vs\. 252 HP \/ 252\+ Def .*Donphan: .+, the replay shows 7%/.test(p)),
-    'with both sides imported, a hit reads like the damage calc', both.filter(p => /Donphan/.test(p)).join(' | '));
+  check(both.some(p => /\+1 0 SpA Reuniclus Focus Blast vs\. 0 HP \/ 0 SpD Chansey: .+, the replay shows 33\.8%/.test(p)),
+    'with both sides imported, a hit reads like the damage calc', both.filter(p => /Chansey|Paramedic/.test(p)).join(' | '));
   await page.click('[data-tab=study]'); await sleep(200);
 
   // ---------------------------------------------------------------- back to the landing page: recent studies, search
   await page.click('#home'); await sleep(300);
   const recent = await page.$$eval('#recent [data-visit]', r => r.map(x => x.textContent));
-  check(await visible('#landing') && recent.some(r => /wssi vs\. wintminter/.test(r) && /\b\d+\b/.test(r)), 'Recent lists the study with its lines', recent[0]);
+  check(await visible('#landing') && recent.some(r => SAMPLE_PLAYERS.test(r) && /\b\d+\b/.test(r)), 'Recent lists the study with its lines', recent[0]);
   await page.type('#searchFormat', 'gen9ou'); await page.click('#searchForm button[type=submit]');
   await until(() => document.querySelectorAll('#searchResults [data-visit]').length, null, 30000);
   const result = await page.$eval('#searchResults [data-visit]', r => r.dataset.visit);

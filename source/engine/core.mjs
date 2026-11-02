@@ -34,7 +34,9 @@ export function parseReplayInput(text) {
   let formatid = meta.formatid || toID(tier.replace(/\[|\]/g, ''));
   if (!Dex.formats.get(formatid).exists) {
     const alt = toID(tier);
-    formatid = Dex.formats.get(alt).exists ? alt : nearestFormat(formatid, gen, lines.includes('|gametype|doubles') ? 'doubles' : 'singles');
+    const renamed = formatid.replace(/^(gen\d+)ou(?=\w)/, '$1');   // (old ids: gen6oumonotype is gen6monotype now)
+    formatid = Dex.formats.get(alt).exists ? alt : Dex.formats.get(renamed).exists ? renamed
+      : nearestFormat(formatid, gen, lines.includes('|gametype|doubles') ? 'doubles' : 'singles');
   }
   const lastTurn = turnIdx.length - 1;
   return {lines, tier, gen, formatid, turnIdx, lastTurn, winIdx, meta};
