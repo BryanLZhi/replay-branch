@@ -1,4 +1,4 @@
-# Replay Branch
+# Replay Study
 
 A study board for Pokémon Showdown replays. Watch a replay in Showdown's own replay viewer, take over at any turn, and play out
 your own lines: you choose both players' moves and every random outcome (accuracy, crits, damage rolls, secondary effects, speed ties).
@@ -14,7 +14,8 @@ Or start a new battle from two teams (pasted or PokéPaste links), and study it 
 
 ## Layout
 
-The repository root is the site (GitHub Pages). Everything in it except `sample.json` and `stats/` is built from `source/`:
+The repository root is the site. Everything in it except `sample.json` and `stats/` is built from `source/` (the built files are committed too,
+so the site can be served straight from a clone):
 
 | Source | |
 | --- | --- |
@@ -60,5 +61,13 @@ npm run test:takeover        # taking over every turn of recent replays, gens 1-
 
 The password gate's hash is read from `RBV_PW_HASH` or `source/.pwhash` (SHA-256 of `rbv:<password>`, not committed). Without it the
 page has no gate. It only keeps casual visitors out: the site is static, so nothing on it is secret.
+
+## Publishing
+
+Every push runs `.github/workflows/site.yml`: it builds the site from `source/` (`npm run build:engine`), runs the end-to-end
+test on that build behind a throwaway password, and on `main` only, if the test passed, rebuilds with the real gate
+(repository variable `RBV_PW_HASH`) and publishes it to GitHub Pages. A push to any other branch, or a pull request, gets
+the build and the test without the publish, so a change can be tried on a branch first. A failing test keeps the site as it was
+(the screenshot of the failure is attached to the run).
 
 Not affiliated with Pokémon Showdown, Smogon, Nintendo or Game Freak. Pokémon and its sprites are trademarks of their owners.

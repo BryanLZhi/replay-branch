@@ -119,7 +119,7 @@ function rename() {
       const v = input.value.trim().slice(0, 80);
       if (v) S.study.name = v; else delete S.study.name;
       save();
-      document.title = `${v || S.study.meta?.players?.join(' vs. ') || 'Replay'} - Replay Branch`;
+      document.title = `${v || S.study.meta?.players?.join(' vs. ') || 'Replay'} - Replay Study`;
       renderChapterBar();   // (a chapter goes by the study's name)
     }
     showTitle();

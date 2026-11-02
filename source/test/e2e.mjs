@@ -1,6 +1,6 @@
 // End-to-end test that uses the page only as a visitor would: clicks, keys and what is on screen.
 //   node source/test/e2e.mjs [site url]     (default: serve the built site from the repository root)
-// RBV_PW: the site password, when the page has a gate. Needs Edge or Chrome (CHROME=path to pick one).
+// RBV_PW: the site password, when the page has a gate. Needs Edge or Chrome (CHROME=path to pick one). On CI (CI set) Chrome runs without its sandbox.
 import puppeteer from 'puppeteer-core';
 import fs from 'fs';
 import http from 'http';
@@ -41,7 +41,7 @@ let server, url = process.argv[2];
 if (!url) { server = await serve(root); url = `http://127.0.0.1:${server.address().port}/`; }
 console.log('testing', url);
 
-const browser = await puppeteer.launch({executablePath: browserPath, headless: 'new', args: ['--disable-gpu', '--autoplay-policy=no-user-gesture-required']});
+const browser = await puppeteer.launch({executablePath: browserPath, headless: 'new', args: ['--disable-gpu', '--autoplay-policy=no-user-gesture-required', ...(process.env.CI ? ['--no-sandbox'] : [])]});
 const page = await browser.newPage();
 await page.setViewport({width: 1280, height: 1000});
 const pageErrors = [], failedRequests = [], blocked = [];

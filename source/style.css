@@ -11,7 +11,7 @@ html, body { font-family: Verdana, sans-serif; font-size: 10pt; margin: 0; paddi
 .subtle { color: #3a4a66; }
 body.dark .subtle { color: #a8b4c8; }
 
-/* ---- Replay Branch ---- */
+/* ---- Replay Study ---- */
 [hidden] { display: none !important; }
 :root {
   --rb-panel: #fff; --rb-panel2: #f0f3f6; --rb-line: #aaa; --rb-fg: #222; --rb-muted: #5b6570;

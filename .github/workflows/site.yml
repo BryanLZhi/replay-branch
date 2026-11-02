@@ -1,0 +1,72 @@
+# Build the site from source/, run the end-to-end test on that build, and publish it to GitHub Pages only when the test
+# passes and the push is to main. Other branches and pull requests get the build and the test, not the publish.
+name: Site
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Build (engine and validator included)
+        run: npm run build:engine
+      - name: Build with a throwaway password for the test
+        run: |
+          pw=$(openssl rand -hex 16)
+          echo "::add-mask::$pw"
+          echo "RBV_PW=$pw" >> "$GITHUB_ENV"
+          RBV_PW_HASH=$(printf 'rbv:%s' "$pw" | sha256sum | cut -d' ' -f1) npm run build
+      - name: End-to-end test
+        run: npm test
+        env:
+          CHROME: /usr/bin/google-chrome
+      - name: Screenshot of the failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: e2e-failure
+          path: e2e-failure.png
+          if-no-files-found: ignore
+      - name: Build with the site's password gate
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        run: |
+          [ -n "$RBV_PW_HASH" ] || { echo "::error::repository variable RBV_PW_HASH is not set"; exit 1; }
+          npm run build
+          mkdir _site
+          cp -r index.html app.js style.css engine.js validator.js sample.json js stats LICENSE _site/
+        env:
+          RBV_PW_HASH: ${{ vars.RBV_PW_HASH }}
+      - if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: _site
+
+  deploy:
+    needs: test
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    steps:
+      - id: deploy
+        uses: actions/deploy-pages@v5

@@ -1922,7 +1922,7 @@ function showPage(page) {
   $id("landing").hidden = page !== "landing";
   $id("viewer").hidden = $id("viewerBtns").hidden = page !== "viewer";
   document.body.dataset.page = page;
-  if (page === "landing") document.title = "Replay Branch";
+  if (page === "landing") document.title = "Replay Study";
 }
 async function openKey(key) {
   const saved = loadSaved(key), meta = saved?.meta || {}, kept = !saved && keptChapter(key);
@@ -1969,7 +1969,7 @@ async function loadText(text, { shown = false, replayId = null, study = null, ke
   };
   S.study.opened = Date.now();
   save();
-  document.title = `${S.study.name || S.study.meta.players.join(" vs. ")} - Replay Branch`;
+  document.title = `${S.study.name || S.study.meta.players.join(" vs. ")} - Replay Study`;
   clearPicks();
   S.err = "";
   if (!shown) S.psMode = "";
@@ -2623,7 +2623,7 @@ function rename() {
       if (v) S.study.name = v;
       else delete S.study.name;
       save();
-      document.title = `${v || S.study.meta?.players?.join(" vs. ") || "Replay"} - Replay Branch`;
+      document.title = `${v || S.study.meta?.players?.join(" vs. ") || "Replay"} - Replay Study`;
       renderChapterBar();
     }
     showTitle();

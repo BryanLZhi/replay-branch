@@ -1,4 +1,4 @@
-// Replay Branch core: replay parsing, state at a turn, takeover into a live sim battle, and user-controlled RNG.
+// Replay Study core: replay parsing, state at a turn, takeover into a live sim battle, and user-controlled RNG.
 import {Battle as SimBattle, Dex, PRNG, toID} from '@pkmn/sim';
 import {Battle as ClientBattle} from '@pkmn/client';
 import {Generations} from '@pkmn/data';

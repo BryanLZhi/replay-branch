@@ -42,7 +42,7 @@ export function showPage(page) {
   $id('landing').hidden = page !== 'landing';
   $id('viewer').hidden = $id('viewerBtns').hidden = page !== 'viewer';
   document.body.dataset.page = page;
-  if (page === 'landing') document.title = 'Replay Branch';
+  if (page === 'landing') document.title = 'Replay Study';
 }
 // (a pasted log is kept with its study, and with the studies it is a chapter of; a shared copy's key is "<replay id>~<n>")
 async function openKey(key) {
@@ -86,7 +86,7 @@ export async function loadText(text, {shown = false, replayId = null, study = nu
     ...(replayId ? {replayId} : {log: rep.lines.join('\n')}), ...(shared || was.shared ? {shared: true} : {})};
   S.study.opened = Date.now();
   save();
-  document.title = `${S.study.name || S.study.meta.players.join(' vs. ')} - Replay Branch`;
+  document.title = `${S.study.name || S.study.meta.players.join(' vs. ')} - Replay Study`;
 
   clearPicks(); S.err = '';
   if (!shown) S.psMode = '';   // rebuild the viewer for this replay

@@ -1,2 +1,4 @@
 node_modules/
 source/.pwhash
+e2e-failure.png
+_site/
