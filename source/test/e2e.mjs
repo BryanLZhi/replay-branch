@@ -490,7 +490,7 @@ try {
   for (const format of FORMATS) {
     const found = await page.evaluate(async f => {
       const r = await fetch(`https://replay.pokemonshowdown.com/search.json?format=${f}`);
-      return r.ok ? (await r.json()).map(x => x.id) : [];
+      return r.ok ? (await r.json()).map(x => x.id).filter(id => !id.startsWith('dev-')) : [];   // dev- = Showdown's own test uploads (no battle)
     }, format);
     if (!found.length) { check(false, `${format}: find a replay`); continue; }
     const id = found[0], found_ = found;
@@ -548,7 +548,7 @@ try {
   for (const format of DOUBLES_FORMATS) {
     const found = await page.evaluate(async f => {
       const r = await fetch(`https://replay.pokemonshowdown.com/search.json?format=${f}`);
-      return r.ok ? (await r.json()).map(x => x.id) : [];
+      return r.ok ? (await r.json()).map(x => x.id).filter(id => !id.startsWith('dev-')) : [];   // dev- = Showdown's own test uploads (no battle)
     }, format);
     if (!found.length) { check(false, `${format}: find a replay`); continue; }
     await page.click('#btnLoad'); await sleep(200);

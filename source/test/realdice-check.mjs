@@ -50,7 +50,7 @@ let shownLuck = 0, foundLuck = 0, extraLuck = 0;
 let turns = 0, exact = 0, close = 0, plain = 0, ms = 0, worst = 0, failed = 0;
 const misses = [];
 for (const format of formats) {
-  const list = await fetch(`https://replay.pokemonshowdown.com/search.json?format=${format}`).then(r => r.json()).catch(() => []);
+  const list = await fetch(`https://replay.pokemonshowdown.com/search.json?format=${format}`).then(r => r.json()).then(l => l.filter(x => !x.id.startsWith('dev-'))).catch(() => []);
   let f0 = turns, e0 = exact, c0 = close;
   for (const {id} of list.slice(0, perFormat)) {
     let rep;

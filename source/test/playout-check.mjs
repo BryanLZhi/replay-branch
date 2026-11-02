@@ -33,7 +33,7 @@ function options(req, active) {
 const problems = [];
 let turns = 0, lines = 0;
 for (const format of formats) {
-  const list = await fetch(`https://replay.pokemonshowdown.com/search.json?format=${format}`).then(r => r.json()).catch(() => []);
+  const list = await fetch(`https://replay.pokemonshowdown.com/search.json?format=${format}`).then(r => r.json()).then(l => l.filter(x => !x.id.startsWith('dev-'))).catch(() => []);
   for (const {id} of list.slice(0, perFormat)) {
     let rep;
     try { rep = E.parseReplayInput(await fetch(`https://replay.pokemonshowdown.com/${id}.json`).then(r => r.text())); } catch { continue; }

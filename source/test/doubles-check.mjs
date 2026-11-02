@@ -82,7 +82,7 @@ function randomChoices(battle) {
 const problems = [];
 let turns = 0, lines = 0, steps = 0, fitted = 0, close = 0, exact = 0;
 for (const format of formats) {
-  const list = await fetch(`https://replay.pokemonshowdown.com/search.json?format=${format}`).then(r => r.json()).catch(() => []);
+  const list = await fetch(`https://replay.pokemonshowdown.com/search.json?format=${format}`).then(r => r.json()).then(l => l.filter(x => !x.id.startsWith('dev-'))).catch(() => []);
   const before = problems.length;
   for (const {id} of list.slice(0, perFormat)) {
     let rep;
