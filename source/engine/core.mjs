@@ -112,7 +112,11 @@ export function itemName(x) {
 function statsEntry(stats, species) {
   if (!stats) return null;
   const sp = Dex.species.get(species);
-  return stats[sp.name] || stats[sp.baseSpecies] || stats[species] || null;
+  const found = stats[sp.name] || stats[sp.baseSpecies] || stats[species];
+  if (found) return found;
+  // (some months list a Pokemon only as its Mega Evolution or Primal Reversion: Mawile-Mega)
+  const formes = Object.keys(stats).filter(k => { const f = Dex.species.get(k); return f.baseSpecies === sp.baseSpecies && (f.isMega || f.isPrimal); });
+  return formes.sort((a, b) => (stats[b].u || 0) - (stats[a].u || 0)).map(k => stats[k])[0] || null;
 }
 export function knownOf(p) {
   const moves = p.moveSlots.filter(m => !m.virtual).map(m => ({name: m.name.replace(/^move: /, ''), ppUsed: Array.isArray(m.ppUsed) ? m.ppUsed[0] : (m.ppUsed || 0)}));
@@ -183,6 +187,8 @@ export function suggestSet(known, stats, gen) {
   const usedStatus = known.moves.some(m => Dex.moves.get(m.name).category === 'Status');
   let item = known.item || known.lastItem || ((e && e.i) || []).map(([i]) => itemName(i)).find(i => !(usedStatus && toID(i) === 'assaultvest')) || '';
   let ability = known.ability || (e && e.a && e.a[0] ? e.a[0][0] : (sp.abilities ? sp.abilities[0] : ''));
+  // (stats listed under a Mega Evolution have its ability, Huge Power for Mawile: before it Mega Evolves it has its own)
+  if (!known.ability && sp.abilities && gen >= 3 && !Object.values(sp.abilities).includes(ability)) ability = sp.abilities[1] || sp.abilities[0];
   let tera = known.tera || (e && e.t && e.t[0] ? e.t[0][0] : (sp.types ? sp.types[0] : ''));
   let nature = 'Serious', evs = {hp: 84, atk: 84, def: 84, spa: 84, spd: 84, spe: 84};
   if (e && e.s && e.s[0]) ({nature, evs} = parseSpread(e.s[0][0]));

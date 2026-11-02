@@ -455,7 +455,7 @@ try {
       return r.ok ? (await r.json()).map(x => x.id) : [];
     }, format);
     if (!found.length) { check(false, `${format}: find a replay`); continue; }
-    const id = found[0];
+    const id = found[0], found_ = found;
     await page.click('#btnLoad'); await sleep(200);
     await page.type('#replayUrl', `https://replay.pokemonshowdown.com/${id}`);
     await page.click('#btnDoLoad');
@@ -467,17 +467,27 @@ try {
     const err = await text('#pickSec .rb-err');
     check(await inLine() && !err, `${format}: taking over a turn works`, err);
     if (GIMMICK_FORMATS.includes(format)) {
-      // back on the replay, walk the turns to one where a player can Mega Evolve / use Z-Power / Dynamax
-      await control('reset'); await sleep(400);
+      // walk the turns to one where a player can Mega Evolve / use Z-Power / Dynamax (in this replay or the next ones: a
+      // short game may never bring its Mega Evolver in)
       const GIMMICK = '#pickSec .rb-menu [data-gimmick]:not([data-gimmick=terastallize])';
       let found = false;
-      for (let i = 0; i < 60 && !found; i++) {
-        for (const si of [0, 1]) {
-          if (found || !await liveSlot(si)) continue;
-          await openSlot(si);
-          if (await page.$(GIMMICK)) found = true; else await press('Escape');
+      for (const other of [id, ...found_.slice(1, 4)]) {
+        if (other !== id) {
+          await page.click('#btnLoad'); await sleep(200);
+          await page.type('#replayUrl', `https://replay.pokemonshowdown.com/${other}`);
+          await page.click('#btnDoLoad');
+          await until(() => document.querySelector('#loader').hidden, null, 30000); await sleep(800);
         }
-        if (!found) { await press('ArrowRight'); await sleep(200); }
+        await control('reset'); await sleep(400);
+        for (let i = 0; i < 60 && !found; i++) {
+          for (const si of [0, 1]) {
+            if (found || !await liveSlot(si)) continue;
+            await openSlot(si);
+            if (await page.$(GIMMICK)) found = true; else await press('Escape');
+          }
+          if (!found) { await press('ArrowRight'); await sleep(200); }
+        }
+        if (found) break;
       }
       if (!found) { check(false, `${format}: a Mega Evolution / Z-Power / Dynamax choice turns up`); continue; }
       const kind = await page.$eval(GIMMICK, b => b.parentElement.textContent.trim());
