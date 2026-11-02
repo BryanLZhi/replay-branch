@@ -41,6 +41,7 @@ The repository root is the site (GitHub Pages). Everything in it except `sample.
 | `source/test/takeover-check.mjs` | takes over every turn of recent replays and checks the position offers what the players did (moves, switches, Mega Evolution, Z-Moves, Dynamax, Tera) |
 | `source/test/realdice-check.mjs` | finds the dice of every turn of recent replays from their logs and counts the turns that then play out as logged, and the misses, crits and effects recovered |
 | `source/test/doubles-check.mjs` | doubles (VGC, Doubles OU): takes over every turn of recent replays and checks the simulator takes what each Pokémon did (move, target, switch, Tera...), finds the turn's dice, and plays random lines on |
+| `source/test/roundtrip-check.mjs` | round trip: plays random battles with known teams (every move, ability and item in turn, as Showdown's exhaustive runner does), writes them out as replays, takes over at every turn and compares the rebuilt position with the real one (HP, status, boosts, effects, field, PP...), keeping what a replay cannot show apart |
 
 ## Development
 

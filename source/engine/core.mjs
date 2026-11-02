@@ -64,7 +64,8 @@ export function clientAt(rep, t) {
     try { parsed = Protocol.parseBattleLine(line); } catch { continue; }
     addLine(cb, parsed.args, parsed.kwArgs);
   }
-  try { cb.upkeep && cb.upkeep(); } catch {}
+  // (the log's |upkeep| lines already run the client's end of turn; at the end of a replay there may be none after the last)
+  if (t > rep.lastTurn) try { cb.upkeep && cb.upkeep(); } catch {}
   return cb;
 }
 // Feed one protocol line to a client battle. On a forme change (|detailschange|, which Terastallizing also sends) the client
@@ -121,7 +122,8 @@ function statsEntry(stats, species) {
 export function knownOf(p) {
   const moves = p.moveSlots.filter(m => !m.virtual).map(m => ({name: m.name.replace(/^move: /, ''), ppUsed: Array.isArray(m.ppUsed) ? m.ppUsed[0] : (m.ppUsed || 0)}));
   // (up to gen 4 a knocked off item stays held, unusable: the client marks the item itself)
-  const lostItem = ['knocked off', 'stolen', 'eaten', 'flung', 'consumed', 'incinerated', 'popped'].includes(p.lastItemEffect) || p.itemEffect === 'knocked off';
+  const lostItem = ['knocked off', 'stolen', 'eaten', 'flung', 'consumed', 'incinerated', 'popped'].includes(p.lastItemEffect) || p.itemEffect === 'knocked off' ||
+    !!p.volatiles?.itemremoved || (!p.item && !!p.lastItem);
   const curItem = p.item ? itemName(p.item) : '';
   const lastItemName = p.lastItem ? itemName(p.lastItem) : '';
   // a set is for the forme it starts in (Alakazam, not Alakazam-Mega; Palafin, not Palafin-Hero), with that forme's ability;
@@ -160,6 +162,13 @@ export function revealedTeams(rep) {
     mon.zTypes = z.filter(m => Dex.moves.get(m.name).category !== 'Status').map(m => Dex.moves.get(m.name).type);
     mon.statusMove = z.some(m => Dex.moves.get(m.name).category === 'Status');
   }
+  // a Pokemon the replay shows Gigantamaxed can Gigantamax (its set needs to say so for its G-Max Move)
+  for (const line of rep.lines) {
+    const m = /^\|(?:detailschange|-formechange|switch|drag|replace)\|(p[12])[a-c]?: ([^|]+)\|[^|,]*-Gmax/.exec(line) ||
+      /^\|-start\|(p[12])[a-c]?: ([^|]+)\|Dynamax\|Gmax/.exec(line);
+    const mon = m && known[m[1] === 'p2' ? 1 : 0].find(k => k.name === m[2]);
+    if (mon) mon.gigantamax = true;
+  }
   return known;
 }
 // A full set for the sim, built from what is known, then usage stats, then safe defaults. `fixed` marks the revealed parts.
@@ -197,7 +206,7 @@ export function suggestSet(known, stats, gen) {
   if (gen <= 2) { nature = ''; evs = {hp: 252, atk: 252, def: 252, spa: 252, spd: 252, spe: 252}; }   // (Showdown's default: all maxed)
   const ivs = hiddenPowerIVs(moves, gen) || {hp: 31, atk: 31, def: 31, spa: 31, spd: 31, spe: 31};
   return {name: known.name, species: known.species, level: known.level || 100, gender: known.gender || '',
-    moves, item, itemGone: !!known.itemGone, ability, teraType: tera, nature, evs, ivs, fixed};
+    moves, item, itemGone: !!known.itemGone, ability, teraType: tera, nature, evs, ivs, fixed, ...(known.gigantamax ? {gigantamax: true} : {})};
 }
 // In gens 2-7 Hidden Power's type comes from the IVs: the IVs that give the type of the set's Hidden Power (null if none).
 export function hiddenPowerIVs(moves, gen) {
@@ -381,10 +390,23 @@ export function installRng(battle, ctl) {
 
 // ---------------------------------------------------------------- takeover: client state at turn t -> live sim battle
 function effState(battle, o) { return battle.initEffectState ? battle.initEffectState(o) : o; }
-const VOLATILES = ['substitute', 'confusion', 'leechseed', 'taunt', 'encore', 'yawn', 'perishsong', 'curse', 'saltcure', 'aquaring', 'ingrain', 'focusenergy',
+// Gen 1 stats as the game keeps them: stat stages applied (capped at 999), then burn halving Attack and paralysis quartering Speed.
+function gen1Stats(sp) {
+  const mult = [25, 28, 33, 40, 50, 66, 100, 150, 200, 250, 300, 350, 400];
+  for (const s of ['atk', 'def', 'spa', 'spd', 'spe']) {
+    const stage = s === 'spd' ? sp.boosts.spa : sp.boosts[s];   // (one Special stat)
+    sp.modifiedStats[s] = Math.max(1, Math.min(999, Math.floor(sp.storedStats[s] * mult[stage + 6] / 100)));
+  }
+  if (sp.status === 'brn') sp.modifiedStats.atk = Math.max(1, Math.floor(sp.modifiedStats.atk / 2));
+  if (sp.status === 'par') sp.modifiedStats.spe = Math.max(1, Math.floor(sp.modifiedStats.spe / 4));
+}
+const TRAPPING = ['wrap', 'bind', 'firespin', 'whirlpool', 'sandtomb', 'clamp', 'infestation', 'magmastorm', 'snaptrap', 'thundercage'];
+const VOLATILES = ['mustrecharge', 'substitute', 'confusion', 'leechseed', 'taunt', 'encore', 'yawn', 'perishsong', 'curse', 'saltcure', 'aquaring', 'ingrain', 'focusenergy',
   'magnetrise', 'charge', 'stockpile', 'protosynthesis', 'quarkdrive', 'torment', 'disable', 'throatchop', 'healblock', 'smackdown', 'partiallytrapped',
   'flashfire', 'unburden', 'slowstart', 'glaiverush', 'tarshot', 'trapped', 'nightmare', 'embargo', 'imprison', 'gastroacid', 'laserfocus', 'noretreat', 'octolock', 'syrupbomb'];
 
+const WEATHER_IDS = {sun: 'sunnyday', rain: 'raindance', sand: 'sandstorm', hail: 'hail', snow: 'snowscape',
+  harshsunshine: 'desolateland', heavyrain: 'primordialsea', strongwinds: 'deltastream'};
 // Once-per-battle mechanics each side has used before turn t, and the turns a Dynamax still has.
 function gimmicksBefore(rep, t) {
   const used = [{}, {}];
@@ -397,6 +419,7 @@ function gimmicksBefore(rep, t) {
     if (kind === '-mega') side.mega = true;
     else if (kind === '-burst') side.ultra = true;
     else if (kind === '-zpower') side.zmove = true;
+    else if (kind === '-terastallize') side.tera = true;
     else if (kind === '-start' && what === 'Dynamax') { side.dynamax = true; side.dynamaxTurns = 3; }
     else if (kind === '-end' && what === 'Dynamax') side.dynamaxTurns = 0;
   }
@@ -431,6 +454,7 @@ export function takeover(rep, t, sets, seed) {
   const sides = [cb.p1, cb.p2];
   const teams = sides.map((cs, si) => withLaterReveals(cs.team, endOf(rep).sides[si].team));
   const order = [], transformed = [];
+  const used0 = si => gimmicks[si];
   const seen = teams.map((team, si) => team.map((p, k) => { const e = endOf(rep).sides[si].team[k]; return !!(p.maxhp || e?.maxhp); }));
   sides.forEach((cs, si) => {
     const team = teams[si];
@@ -447,9 +471,10 @@ export function takeover(rep, t, sets, seed) {
     order[si] = idx;
     const simSets = idx.map(k => {
       const s = sets[si][k];
+      const now = team[k].item && team[k].item !== '(exists)' ? itemName(team[k].item) : '';   // (Trick, Switcheroo, Thief...)
       const gone = knownOf(team[k]).itemGone;   // item state at this turn (sets hold the original item)
-      return {name: s.name, species: s.species, item: gone ? '' : (s.item || ''), ability: s.ability || '', moves: s.moves.filter(Boolean), nature: s.nature || 'Serious',
-        evs: s.evs, ivs: s.ivs, level: s.level || 100, gender: s.gender || '', teraType: s.teraType || undefined, shiny: false};
+      return {name: s.name, species: s.species, item: now || (gone ? '' : (s.item || '')), ability: s.ability || '', moves: s.moves.filter(Boolean), nature: s.nature || 'Serious',
+        evs: s.evs, ivs: s.ivs, level: s.level || 100, gender: s.gender || '', teraType: s.teraType || undefined, shiny: false, gigantamax: !!s.gigantamax};
     });
     battle.setPlayer(si ? 'p2' : 'p1', {name: cs.name || (si ? 'Player 2' : 'Player 1'), team: simSets});
   });
@@ -459,16 +484,19 @@ export function takeover(rep, t, sets, seed) {
   // --- field
   const f = battle.field, cf = cb.field;
   f.weather = ''; f.weatherState = effState(battle, {id: ''}); f.terrain = ''; f.terrainState = effState(battle, {id: ''}); f.pseudoWeather = {};
+  // (turns left as the client counts them: at least minDuration, at most maxDuration when a Rock may extend it; neither
+  // means it lasts, like ability weather in gens 3-5)
+  const left = st => st.minDuration > 0 ? st.minDuration : st.maxDuration > 0 ? st.maxDuration : undefined;
   if (cf.weatherState && cf.weatherState.id) {
-    const id = cf.weatherState.id === 'snow' ? 'snowscape' : cf.weatherState.id;   // (the client's name for Snowscape)
-    f.weather = id; f.weatherState = effState(battle, {id, duration: cf.weatherState.minDuration > 0 ? cf.weatherState.minDuration : undefined});
-    if (!(cf.weatherState.minDuration > 0) && !['desolateland', 'primordialsea', 'deltastream'].includes(id)) { f.weatherState.duration = 5; notes.push('Weather turns left unknown: set to 5.'); }
+    const id = WEATHER_IDS[cf.weatherState.id] || cf.weatherState.id;   // (the client's ids: rain, sun, sand, snow...)
+    f.weather = id; f.weatherState = effState(battle, {id, duration: left(cf.weatherState)});
   }
   if (cf.terrainState && cf.terrainState.id) {
-    const id = cf.terrainState.id; f.terrain = id; f.terrainState = effState(battle, {id, duration: cf.terrainState.minDuration > 0 ? cf.terrainState.minDuration : 5});
+    const id = /terrain$/.test(cf.terrainState.id) ? cf.terrainState.id : cf.terrainState.id + 'terrain';   // (electric -> electricterrain)
+    f.terrain = id; f.terrainState = effState(battle, {id, duration: left(cf.terrainState) || 5});
   }
   for (const [id, st] of Object.entries(cf.pseudoWeather || {})) {
-    f.pseudoWeather[id] = effState(battle, {id, duration: st.minDuration > 0 ? st.minDuration : 5});
+    f.pseudoWeather[id] = effState(battle, {id, duration: left(st) || 5});
   }
   // --- sides and Pokemon
   sides.forEach((cs, si) => {
@@ -481,7 +509,7 @@ export function takeover(rep, t, sets, seed) {
       ss.sideConditions[id] = st;
     }
     let left = 0;
-    const teraUsed = teams[si].some(p => p.terastallized);
+    const teraUsed = used0(si).tera || teams[si].some(p => p.terastallized);
     const used = gimmicks[si];
     if (used.zmove) ss.zMoveUsed = true;
     if (used.dynamax) ss.dynamaxUsed = true;
@@ -489,7 +517,7 @@ export function takeover(rep, t, sets, seed) {
       const cp = teams[si][k]; const sp = ss.pokemon[pos]; const set = sets[si][k];
       if (!sp) return;   // (not brought)
       // forme changes that persist (Palafin-Hero, Mimikyu-Busted, ...)
-      if (cp.speciesForme && toID(cp.speciesForme) !== toID(sp.species.name) && Dex.species.get(cp.speciesForme).exists) {
+      if (!cp.volatiles?.transform && cp.speciesForme && toID(cp.speciesForme) !== toID(sp.species.name) && Dex.species.get(cp.speciesForme).exists) {
         try { sp.formeChange(cp.speciesForme, null, true); } catch (e) { notes.push(`${cp.name}: could not set forme ${cp.speciesForme}.`); }
       }
       sp.clearVolatile && sp.clearVolatile(false);
@@ -500,8 +528,14 @@ export function takeover(rep, t, sets, seed) {
         sp.hp = 0; sp.fainted = true; sp.status = 'fnt'; sp.statusState = effState(battle, {id: 'fnt', target: sp}); sp.isActive = sp.isActive && false;
       } else {
         left++;
-        const frac = cp.maxhp ? cp.hp / cp.maxhp : 1;
-        sp.hp = Math.max(1, Math.min(sp.maxhp, Math.round(frac * sp.maxhp)));
+        if (cp.maxhp === 100 && sp.maxhp !== 100) {
+          // (shown percent p = HP / max rounded up: HP is in ((p - 1) max / 100, p max / 100], and under 100% unless full)
+          const p = cp.hp, M = sp.maxhp, lo = p >= 100 ? M : Math.floor((p - 1) * M / 100) + 1, hi = Math.min(Math.floor(p * M / 100), p < 100 ? M - 1 : M);
+          sp.hp = Math.max(1, Math.min(M, Math.round((lo + Math.max(lo, hi)) / 2)));
+        } else {
+          const frac = cp.maxhp ? cp.hp / cp.maxhp : 1;
+          sp.hp = Math.max(1, Math.min(sp.maxhp, Math.round(frac * sp.maxhp)));
+        }
         if (cp.status) {
           // (in gens 1-2 Toxic turns into regular poison once its Pokemon is out of battle)
           const status = battle.gen <= 2 && cp.status === 'tox' && !cs.active.includes(cp) ? 'psn' : cp.status;
@@ -527,7 +561,20 @@ export function takeover(rep, t, sets, seed) {
       if (cs.active.includes(cp) && !sp.fainted) {
         Object.assign(sp.boosts, cp.boosts || {});
         for (const [vid, v] of Object.entries(cp.volatiles || {})) {
-          if (!VOLATILES.includes(vid)) { if (!['typechange', 'typeadd'].includes(vid)) notes.push(`${cp.name}: "${vid}" not carried over.`); continue; }
+          if (vid === 'typechange' && !cp.volatiles.transform) {   // Soak, Conversion, Protean, Color Change...
+            const types = String(v.apparentType || v.type || '').split('/').filter(Boolean);
+            if (types.length) try { sp.setType(types); } catch {}
+            continue;
+          }
+          if (vid === 'typeadd') { if (v.type) try { sp.addType(v.type); } catch {} continue; }
+          if (TRAPPING.includes(vid)) {   // (the client keeps a partial trap under its move's id)
+            const foe = battle.sides[1 - si].active.find(p => p && !p.fainted);
+            const band = foe && toID(foe.item) === 'bindingband';
+            sp.volatiles.partiallytrapped = effState(battle, {id: 'partiallytrapped', target: sp, source: foe, sourceSlot: foe?.getSlot(), duration: 3,
+              sourceEffect: Dex.moves.get(vid), boundDivisor: battle.gen >= 6 ? (band ? 6 : 8) : (band ? 8 : 16)});
+            continue;
+          }
+          if (!VOLATILES.includes(vid)) { notes.push(`${cp.name}: "${vid}" not carried over.`); continue; }
           const st = effState(battle, {id: vid, target: sp});
           if (vid === 'substitute') st.hp = Math.floor(sp.maxhp / 4);
           if (vid === 'confusion') st.time = 2;
@@ -535,8 +582,9 @@ export function takeover(rep, t, sets, seed) {
           if (vid === 'encore') { st.move = cp.lastMove; st.duration = 3; }
           if (vid === 'disable') { st.move = cp.lastMove; st.duration = 4; }
           if (vid === 'yawn') st.duration = 2;
+          if (vid === 'mustrecharge') st.duration = 1;   // (this turn)
           if (vid === 'imprison') st.source = sp;
-          if (vid === 'perishsong') st.duration = (v.level || 3) + 1;
+          if (vid === 'perishsong') st.duration = v.duration || (v.level || 3) + 1;   // (the client counts it in duration)
           if (vid === 'magnetrise') st.duration = 5;
           if (vid === 'stockpile') st.layers = v.level || 1;
           if (vid === 'protosynthesis' || vid === 'quarkdrive') st.bestStat = v.stat || sp.getBestStat?.(false, true) || 'spe';
@@ -545,6 +593,11 @@ export function takeover(rep, t, sets, seed) {
           sp.volatiles[vid] = st;
         }
         if (cp.volatiles?.transform) transformed.push([sp, si, cp.speciesForme]);
+        else if (cp.ability && toID(cp.ability) !== sp.baseAbility && Dex.abilities.get(cp.ability).exists) {
+          sp.ability = toID(cp.ability); sp.abilityState = effState(battle, {id: sp.ability, target: sp});
+        }
+        // gen 1 keeps stats with stat stages, burn and paralysis applied (modifiedStats), which the simulator only updates as they change
+        if (battle.gen === 1 && sp.modifiedStats) gen1Stats(sp);
         // gens 1-2 keep Toxic's count in a hidden effect of its own (gen 2 cannot do without it)
         if (battle.gen <= 2 && cp.status === 'tox') {
           sp.volatiles.residualdmg = effState(battle, {id: 'residualdmg', target: sp, counter: Math.max(1, cp.statusState?.toxicTurns || 1)});
@@ -557,9 +610,9 @@ export function takeover(rep, t, sets, seed) {
         sp.activeMoveActions = cp.movesUsedWhileActive ? cp.movesUsedWhileActive.length : 1;
         sp.activeTurns = Math.max(1, sp.activeMoveActions);
         sp.lastMove = cp.lastMove && cp.lastMove !== 'switch-in' ? battle.dex.getActiveMove(cp.lastMove) : null;   // (an active move: a plain Move does not survive save and restore)
-        if (used.dynamaxTurns > 0) {   // still Dynamaxed: doubles its HP, as it was
+        if (used.dynamaxTurns > 0 && cp.volatiles?.dynamax) {   // still Dynamaxed: doubles its HP, as it was
           sp.addVolatile('dynamax');
-          if (sp.volatiles.dynamax) sp.volatiles.dynamax.duration = used.dynamaxTurns;
+          if (sp.volatiles.dynamax) { sp.volatiles.dynamax.turns = used.dynamaxTurns; delete sp.volatiles.dynamax.duration; }
         }
       }
     });
@@ -567,8 +620,23 @@ export function takeover(rep, t, sets, seed) {
   });
   // (after every Pokemon is in place: a Transform copies the one it transformed into, on the other side)
   for (const [sp, si, species] of transformed) {
-    const into = battle.sides[1 - si].active.find(p => p && toID(p.species.name) === toID(species)) || battle.sides[1 - si].active[0];
+    // (the last "|-transform|<it>|<target>" before this turn names it)
+    let named = '';
+    for (let i = 0; i <= (rep.turnIdx[t] ?? rep.lines.length - 1); i++) {
+      const [, kind, who = '', whom = ''] = rep.lines[i].split('|');
+      if (kind === '-transform' && who.startsWith('p' + (si + 1)) && who.replace(/^p\d[a-c]?: /, '') === sp.name) named = whom.replace(/^p\d[a-c]?: /, '');
+    }
+    const into = (named && battle.sides[1 - si].pokemon.find(p => p.name === named)) ||
+      battle.sides[1 - si].active.find(p => p && toID(p.species.name) === toID(species)) || battle.sides[1 - si].active[0];
     if (into) try { sp.transformInto(into, Dex.moves.get('transform')); } catch (e) { notes.push(`${sp.name}: could not carry its Transform over.`); }
+  }
+  if (battle.gen === 1) {
+    for (const ss of battle.sides) {
+      const act = ss.active[0], last = act && !act.fainted && act.lastMove ? act.lastMove.id : '';
+      ss.lastSelectedMove = last || 'nomove';
+      ss.lastSelectedMoveSlot = last ? Math.max(0, act.moveSlots.findIndex(m => m.id === last)) : 0;
+      ss.lastEnemySelectedMove = ss.lastSelectedMove;   // (kept on the side whose move it was)
+    }
   }
   battle.turn = t;
   battle.makeRequest('move');
@@ -583,7 +651,8 @@ export function previewBattle(rep, sets, seed) {
   const battle = new SimBattle(seed ? {formatid: rep.formatid, seed} : {formatid: rep.formatid});
   [cb.p1, cb.p2].forEach((cs, si) => {
     const team = sets[si].map(s => ({name: s.name, species: s.species, item: s.item || '', ability: s.ability || '', moves: s.moves.filter(Boolean),
-      nature: s.nature || 'Serious', evs: s.evs, ivs: s.ivs, level: s.level || 100, gender: s.gender || '', teraType: s.teraType || undefined, shiny: false}));
+      nature: s.nature || 'Serious', evs: s.evs, ivs: s.ivs, level: s.level || 100, gender: s.gender || '', teraType: s.teraType || undefined, shiny: false,
+      gigantamax: !!s.gigantamax}));
     battle.setPlayer(si ? 'p2' : 'p1', {name: cs.name || (si ? 'Player 2' : 'Player 1'), team});
   });
   return battle.requestState === 'teampreview' ? battle : null;

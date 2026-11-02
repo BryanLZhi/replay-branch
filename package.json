@@ -11,7 +11,8 @@
     "test:takeover": "node source/test/takeover-check.mjs 3",
     "test:playout": "node source/test/playout-check.mjs 4",
     "test:realdice": "node source/test/realdice-check.mjs 3",
-    "test:doubles": "node source/test/doubles-check.mjs 3"
+    "test:doubles": "node source/test/doubles-check.mjs 3",
+    "test:roundtrip": "node source/test/roundtrip-check.mjs 10"
   },
   "devDependencies": {
     "@pkmn/client": "^0.7.4",
