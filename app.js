@@ -1158,7 +1158,9 @@ function renderPicker(pos) {
       }).join("") + `</div>`;
     });
   }
+  const keep = focusKey(el);
   el.innerHTML = `<div class="rb-bar ${doubles ? "doubles" : ""}"><span class="rb-turn">${turnLabel}</span><div class="rb-slots">${groups2.join("")}</div><button type="button" class="button rb-editbtn" id="btnEdit" ${canEdit(pos) ? "" : "disabled"}><i class="fa fa-pencil" aria-hidden="true"></i> Edit</button><button type="button" class="button rb-play" id="btnPlayTurn" ${playable ? "" : "disabled"}><i class="fa fa-play" aria-hidden="true"></i> Play turn</button></div>` + (S.err ? `<p class="rb-err">${esc(S.err)}</p>` : "") + menuHTML(pos);
+  restoreFocus(el, keep);
   for (const b of el.querySelectorAll("[data-slot]")) b.onclick = (e) => {
     e.stopPropagation();
     openMenu(pos, +b.dataset.slot, +(b.dataset.place || 0));
@@ -1171,6 +1173,18 @@ function renderPicker(pos) {
     openEditor(pos);
   };
   wireMenu(pos);
+}
+function focusKey(el) {
+  const a = document.activeElement;
+  if (!a || !el.contains(a)) return null;
+  const attr = ["data-pick", "data-target", "data-gimmick"].find((n) => a.hasAttribute(n));
+  return a.id ? "#" + a.id : a.dataset.slot !== void 0 ? `[data-slot="${a.dataset.slot}"][data-place="${a.dataset.place || 0}"]` : attr ? `.rb-menu [${attr}="${a.getAttribute(attr)}"]` : "";
+}
+function restoreFocus(el, keep) {
+  if (keep === null) return;
+  const menu = el.querySelector(".rb-menu"), same2 = keep && el.querySelector(keep);
+  const to = menu ? same2 && menu.contains(same2) ? same2 : menu.querySelector("[data-pick]:not(:disabled), [data-target]:not(:disabled)") : same2 && !same2.closest(".rb-menu") ? same2 : null;
+  to?.focus();
 }
 function openMenu(pos, si, place) {
   const key = keyOf(si, place);
@@ -1678,11 +1692,15 @@ function wireLanding() {
     e.preventDefault();
     $id("freshErr").textContent = "";
     try {
-      await startFresh($id("freshFormat").value, [$id("freshTeam1").value, $id("freshTeam2").value]);
+      const rejected = await startFresh($id("freshFormat").value, [$id("freshTeam1").value, $id("freshTeam2").value]);
+      if (rejected) showRejected(rejected);
     } catch (err) {
       showPage("landing");
       $id("freshErr").textContent = err.message || String(err);
     }
+  };
+  $id("btnRejectedOk").onclick = () => {
+    $id("rejected").hidden = true;
   };
   $id("searchForm").onsubmit = (e) => {
     e.preventDefault();
@@ -1696,6 +1714,11 @@ function wireLanding() {
     document.body.appendChild(d);
   }).catch(() => {
   });
+}
+function showRejected(rejected) {
+  $id("rejectedText").innerHTML = rejected.map((r) => `<p><strong>${esc(r.team)}</strong><br>${esc(r.message)}</p>`).join("");
+  $id("rejected").hidden = false;
+  $id("btnRejectedOk").focus();
 }
 function wireFormatMenu() {
   const button = $id("btnFormat"), menu = $id("formatMenu"), value = $id("freshFormat");
@@ -1761,8 +1784,8 @@ function wireFormatMenu() {
   document.addEventListener("click", () => {
     if (!menu.hidden) close2();
   });
-  menu.addEventListener("keydown", (e) => {
-    if (e.key === "Escape") {
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && !menu.hidden) {
       close2();
       button.focus();
     }
@@ -1954,13 +1977,20 @@ async function loadText(text, { shown = false, replayId = null, study = null, ke
   go(full && rep.lastTurn >= 1 ? "r1" : "r0");
 }
 async function startFresh(format, teamTexts) {
+  const validator = import("./validator.js");
+  validator.catch(() => {
+  });
   await S.ready;
-  const teams = await Promise.all(teamTexts.map(async (t, si) => {
-    const sets2 = E.parseTeam(await pasteText(t));
+  const texts = await Promise.all(teamTexts.map((t) => pasteText(t)));
+  const teams = texts.map((t, si) => {
+    const sets2 = E.parseTeam(t);
     if (!sets2.length) throw new Error(`Team ${si + 1}: no Pok\xE9mon found.`);
     return sets2;
-  }));
-  const { log, sets } = E.freshBattle(String(format || "").trim().toLowerCase().replace(/[^a-z0-9]/g, "") || "gen9ou", teams);
+  });
+  const formatid = String(format || "").trim().toLowerCase().replace(/[^a-z0-9]/g, "") || "gen9ou";
+  const rejected = (await validator).rejections(formatid, texts).map((message, si) => message && { team: `Team ${si + 1}`, message }).filter(Boolean);
+  if (rejected.length) return rejected;
+  const { log, sets } = E.freshBattle(formatid, teams);
   showPage("viewer");
   await loadText(log, { known: sets });
   history.pushState(null, "", "?r=" + encodeURIComponent(S.key));
@@ -2029,6 +2059,7 @@ function wireDialogs() {
     $id("shareLink").value = await shareLink();
     $id("copyMsg").textContent = "";
     sharer.hidden = false;
+    $id("btnCopyLink").focus();
   };
   $id("fileIn").onchange = async () => {
     const f = $id("fileIn").files[0];
@@ -2038,6 +2069,9 @@ function wireDialogs() {
     const id = replayIdFrom($id("replayUrl").value) || replayIdFrom($id("pasteBox").value);
     return id ? { text: await fetchReplay(id), replayId: id } : { text: $id("pasteBox").value };
   });
+  $id("replayUrl").onkeydown = (e) => {
+    if (e.key === "Enter") $id("btnDoLoad").click();
+  };
   $id("btnSample").onclick = () => {
     $id("loader").hidden = true;
     visit(SAMPLE);
@@ -2059,7 +2093,7 @@ function wireDialogs() {
   $id("btnCloseShare").onclick = () => {
     sharer.hidden = true;
   };
-  for (const modal of [loader, sharer, $id("importer")]) {
+  for (const modal of [loader, sharer, $id("importer"), $id("rejected")]) {
     modal.addEventListener("click", (e) => {
       if (e.target === modal) modal.hidden = true;
     });
@@ -2251,7 +2285,7 @@ function renderAddMenu() {
   const menu = $id("addMenu"), list = allCollections(), ok = CHAPTER_KEY.test(S.key || "");
   menu.innerHTML = list.map((s) => {
     const has = s.chapters.some((ch) => ch.key === S.key);
-    return `<button type="button" class="rb-fitem rb-additem" data-add="${s.id}" ${ok && (has || s.chapters.length < MAX_CHAPTERS) ? "" : "disabled"}><i class="fa fa-${has ? "check" : "plus"}" aria-hidden="true"></i>${esc(s.name)}<small>${s.chapters.length}</small></button>`;
+    return `<button type="button" class="rb-fitem rb-additem" data-add="${s.id}" ${ok && (has || s.chapters.length < MAX_CHAPTERS) ? "" : "disabled"}><i class="fa fa-${has ? "check" : "plus"}" aria-hidden="true"></i><span class="rb-addname">${esc(s.name)}</span><small>${s.chapters.length}</small></button>`;
   }).join("") + `<form class="rb-popnew" id="newStudyForm"><input class="textbox" id="newStudyName" maxlength="80" placeholder="New study" aria-label="New study name"><button type="submit" class="button" ${ok ? "" : "disabled"}>Create</button></form>`;
   for (const b of menu.querySelectorAll("[data-add]")) b.onclick = () => {
     const id = b.dataset.add, st = loadCollection(id);
@@ -2296,7 +2330,10 @@ function wireChapters() {
     if (!e.target.closest(".rb-popwrap")) closePops();
   });
   document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape") closePops();
+    if (e.key !== "Escape") return;
+    const back = !$id("addMenu").hidden ? $id("btnAddStudy") : menuOpen ? $id("chapMenuBtn") : null;
+    closePops();
+    back?.focus();
   });
   const modal = $id("studySharer");
   $id("btnCopyStudyLink").onclick = async () => {
@@ -2411,6 +2448,7 @@ async function shareStudy(st) {
   $id("studyLink").value = location.origin + location.pathname + "#c=" + await pack({ rbv: 1, name: st.name, chapters });
   $id("studyCopyMsg").textContent = left.length ? "Not included: " + left.join(", ") : "";
   $id("studySharer").hidden = false;
+  $id("btnCopyStudyLink").focus();
 }
 async function openSharedStudy() {
   const m = /^#c=([\w-]+)$/.exec(location.hash);

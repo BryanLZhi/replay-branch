@@ -598,11 +598,34 @@ try {
     await page.click('#formatMenu .rb-fitem[data-format="gen9doublesou"]'); await sleep(150);
     check(folded > 10 && await page.$eval('#freshFormat', el => el.value) === 'gen9doublesou' && /Doubles OU/.test(await text('#formatName')) && !await visible('#formatMenu'),
       'the format menu has sections that fold, and picks a format', `${folded} folded, ${await text('#formatName')}`);
-    await page.$eval('#freshFormat', el => { el.value = 'gen9ou'; });
-    await page.$eval('#freshTeam1', (el, v) => { el.value = v; }, t1);
-    await page.$eval('#freshTeam2', (el, v) => { el.value = v; }, t2);
-    await page.click('#freshForm button[type=submit]');
+    // teams Showdown's validator rejects: its popup, word for word, under each team, and no battle
+    const start = async (a, b) => {
+      await page.$eval('#freshFormat', el => { el.value = 'gen9ou'; });
+      await page.$eval('#freshTeam1', (el, v) => { el.value = v; }, a);
+      await page.$eval('#freshTeam2', (el, v) => { el.value = v; }, b);
+      await page.click('#freshForm button[type=submit]');
+    };
+    const rejected = () => page.$$eval('#rejectedText p', ps => ps.map(p => [p.querySelector('strong').textContent, p.textContent.slice(p.querySelector('strong').textContent.length)]));
+    const REJECTED = 'Your team was rejected for the following reasons:\n\n- ';
+    const illegal = t2.replace('- Iron Head', '- Rapid Spin');
+    const koraidon = ['Koraidon @ Choice Scarf', 'Ability: Orichalcum Pulse', 'EVs: 252 Atk / 4 SpD / 252 Spe', 'Jolly Nature', '- Flare Blitz', '- Collision Course', '- U-turn', '- Outrage'].join('\n');
+    await start(t1, illegal);
+    await until(() => !document.querySelector('#rejected').hidden, null, 60000).catch(() => {});
+    let shown = await rejected();
+    check(await visible('#rejected') && JSON.stringify(shown) === JSON.stringify([['Team 2', REJECTED + "Kingambit can't learn Rapid Spin."]]),
+      "a team with a move it can't learn gets Showdown's popup", JSON.stringify(shown));
+    check(await visible('#landing') && !await visible('#viewer') && !/\?r=/.test(page.url()), 'and no battle starts', page.url());
+    await page.click('#btnRejectedOk'); await sleep(150);
+    check(!await visible('#rejected') && await visible('#landing'), 'OK closes the popup');
+    await start(team(koraidon, t1), illegal);
+    await until(() => !document.querySelector('#rejected').hidden, null, 60000).catch(() => {});
+    shown = await rejected();
+    check(JSON.stringify(shown) === JSON.stringify([['Team 1', REJECTED + 'Koraidon is tagged Uber, which is banned.'], ['Team 2', REJECTED + "Kingambit can't learn Rapid Spin."]]) &&
+      !await visible('#viewer'), 'a banned Pokémon too, and both teams when both are rejected', JSON.stringify(shown));
+    await page.click('#btnRejectedOk'); await sleep(150);
+    await start(t1, t2);
     await until(() => document.querySelector('#pickSec .rb-turn')?.textContent === 'Team preview' && document.querySelector('#rbTitle')?.textContent.includes('Player 1'), null, 60000);
+    check(!await visible('#rejected'), 'valid teams are not rejected');
     await barReady();
     const slotsNow = await page.$$eval('#pickSec .rb-slot:not(.quiet)', s => s.map(x => x.textContent.trim()));
     check(await turnLabel() === 'Team preview' && slotsNow.length === 2 && slotsNow.every(s => s === 'Choose'), 'a new battle from two teams opens at team preview, nothing chosen', slotsNow.join(' | '));

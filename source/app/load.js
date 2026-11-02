@@ -96,14 +96,22 @@ export async function loadText(text, {shown = false, replayId = null, study = nu
 }
 
 // A new battle between two teams (pasted, or PokéPaste links): the simulator starts it, and it opens like a replay.
+// Teams that Showdown's validator rejects in the format are not played: returns what Showdown says to each instead,
+// [{team: 'Team 1', message}].
 export async function startFresh(format, teamTexts) {
+  const validator = import('./validator.js');   // (loads while the teams do)
+  validator.catch(() => {});
   await S.ready;
-  const teams = await Promise.all(teamTexts.map(async (t, si) => {
-    const sets = E.parseTeam(await pasteText(t));
+  const texts = await Promise.all(teamTexts.map(t => pasteText(t)));
+  const teams = texts.map((t, si) => {
+    const sets = E.parseTeam(t);
     if (!sets.length) throw new Error(`Team ${si + 1}: no Pokémon found.`);
     return sets;
-  }));
-  const {log, sets} = E.freshBattle(String(format || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '') || 'gen9ou', teams);
+  });
+  const formatid = String(format || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '') || 'gen9ou';
+  const rejected = (await validator).rejections(formatid, texts).map((message, si) => message && {team: `Team ${si + 1}`, message}).filter(Boolean);
+  if (rejected.length) return rejected;
+  const {log, sets} = E.freshBattle(formatid, teams);
   showPage('viewer');
   await loadText(log, {known: sets});
   history.pushState(null, '', '?r=' + encodeURIComponent(S.key));
@@ -183,12 +191,14 @@ export function wireDialogs() {
     $id('exportBox').value = JSON.stringify({rbv: 1, log: S.rep.lines.join('\n'), study: shareable()});
     $id('shareLink').value = await shareLink();
     $id('copyMsg').textContent = ''; sharer.hidden = false;
+    $id('btnCopyLink').focus();   // (so Esc closes it)
   };
   $id('fileIn').onchange = async () => { const f = $id('fileIn').files[0]; if (f) $id('pasteBox').value = await f.text(); };
   $id('btnDoLoad').onclick = () => loadFrom(async () => {
     const id = replayIdFrom($id('replayUrl').value) || replayIdFrom($id('pasteBox').value);
     return id ? {text: await fetchReplay(id), replayId: id} : {text: $id('pasteBox').value};
   });
+  $id('replayUrl').onkeydown = e => { if (e.key === 'Enter') $id('btnDoLoad').click(); };
   $id('btnSample').onclick = () => { $id('loader').hidden = true; visit(SAMPLE); };
   $id('btnCancel').onclick = () => { loader.hidden = true; };
   const copy = async (box, done) => {
@@ -198,7 +208,7 @@ export function wireDialogs() {
   $id('btnCopyLink').onclick = () => copy($id('shareLink'), 'Link copied');
   $id('btnCopy').onclick = () => copy($id('exportBox'), 'Text copied');
   $id('btnCloseShare').onclick = () => { sharer.hidden = true; };
-  for (const modal of [loader, sharer, $id('importer')]) {
+  for (const modal of [loader, sharer, $id('importer'), $id('rejected')]) {
     modal.addEventListener('click', e => { if (e.target === modal) modal.hidden = true; });
     modal.addEventListener('keydown', e => { if (e.key === 'Escape') modal.hidden = true; });
   }

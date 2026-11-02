@@ -4,6 +4,7 @@
 //   style.css           source/style.css
 //   js/replay-embed.js  Showdown's replay embed with a few small changes (source/embed/make-embed.mjs)
 //   engine.js           only with --engine: the simulator bundle (source/engine/build-engine.mjs)
+//   validator.js        only with --engine: Showdown's team validator, imported when a new battle starts (source/engine/validator.mjs)
 // The password hash comes from RBV_PW_HASH or source/.pwhash (not committed); without one the page has no gate.
 import fs from 'fs';
 import crypto from 'crypto';
@@ -11,16 +12,16 @@ import path from 'path';
 import {fileURLToPath} from 'url';
 import * as esbuild from 'esbuild';
 import {makeEmbed} from './embed/make-embed.mjs';
-import {buildEngine} from './engine/build-engine.mjs';
+import {buildEngine, buildValidator} from './engine/build-engine.mjs';
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const at = p => path.join(root, p);
 const read = p => fs.readFileSync(at(p), 'utf8');
 
-if (process.argv.includes('--engine')) await buildEngine(at('engine.js'));
+if (process.argv.includes('--engine')) { await buildEngine(at('engine.js')); await buildValidator(at('validator.js')); }
 
 await esbuild.build({entryPoints: [at('source/app/main.js')], bundle: true, format: 'esm', platform: 'browser', target: 'es2020',
-  outfile: at('app.js'), external: ['./engine.js'], logLevel: 'warning'});
+  outfile: at('app.js'), external: ['./engine.js', './validator.js'], logLevel: 'warning'});
 
 fs.mkdirSync(at('js'), {recursive: true});
 fs.writeFileSync(at('js/replay-embed.js'), makeEmbed(read('source/embed/replay-embed.upstream.js')));

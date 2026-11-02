@@ -36,6 +36,7 @@ The repository root is the site (GitHub Pages). Everything in it except `sample.
 | &nbsp;&nbsp;`teams.js` | the Teams tab, and importing a team (checked against the replay) |
 | &nbsp;&nbsp;`load.js` | loading replays and studies, share links, which page the address shows (`?r=<replay>`, `?c=<study>&r=<chapter>`) |
 | `source/engine/` | bundled into `engine.js`: `core.mjs` (replay parsing, sets, the simulator with controllable RNG), `calc.mjs` (Smogon's damage calc), `paste.mjs` (team import and its checks), `realdice.mjs` (the dice a replay turn rolled, found from its log), `edit.mjs` (an edited position: the change made with the simulator's own functions, and the lines that show it in the viewer) |
+| `source/engine/validator.mjs` | bundled into `validator.js`, loaded only when a new battle starts: Showdown's team validator (with the learnsets and legality data `engine.js` leaves out) |
 | `source/embed/` | Showdown's `replay-embed.js` and the small changes made to it for `js/replay-embed.js` |
 | `source/index.template.html`, `source/style.css` | the page |
 | `source/stats/build_stats.py` | rebuilds `stats/` |
@@ -50,7 +51,7 @@ The repository root is the site (GitHub Pages). Everything in it except `sample.
 
 ```sh
 npm install
-npm run build:engine   # everything, including engine.js (only needed when source/engine changes)
+npm run build:engine   # everything, including engine.js and validator.js (only needed when source/engine changes)
 npm run build          # everything else
 RBV_PW=<password> npm test   # serves the built site and tests it in Edge/Chrome; or: node source/test/e2e.mjs <url>
 npm run test:paste           # the import checks against simulated battles (node source/test/paste-check.mjs <battles> <seed> <format>)

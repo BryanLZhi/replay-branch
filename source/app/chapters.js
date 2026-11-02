@@ -159,7 +159,7 @@ function renderAddMenu() {
   menu.innerHTML = list.map(s => {
     const has = s.chapters.some(ch => ch.key === S.key);
     return `<button type="button" class="rb-fitem rb-additem" data-add="${s.id}" ${ok && (has || s.chapters.length < MAX_CHAPTERS) ? '' : 'disabled'}>` +
-      `<i class="fa fa-${has ? 'check' : 'plus'}" aria-hidden="true"></i>${esc(s.name)}<small>${s.chapters.length}</small></button>`;
+      `<i class="fa fa-${has ? 'check' : 'plus'}" aria-hidden="true"></i><span class="rb-addname">${esc(s.name)}</span><small>${s.chapters.length}</small></button>`;
   }).join('') +
     `<form class="rb-popnew" id="newStudyForm"><input class="textbox" id="newStudyName" maxlength="80" placeholder="New study" aria-label="New study name">` +
     `<button type="submit" class="button" ${ok ? '' : 'disabled'}>Create</button></form>`;
@@ -193,7 +193,12 @@ export function wireChapters() {
   };
   $id('addMenu').onclick = e => e.stopPropagation();
   document.addEventListener('click', e => { if (!e.target.closest('.rb-popwrap')) closePops(); });
-  document.addEventListener('keydown', e => { if (e.key === 'Escape') closePops(); });
+  document.addEventListener('keydown', e => {
+    if (e.key !== 'Escape') return;
+    // (the focus goes back to the button that opened the menu)
+    const back = !$id('addMenu').hidden ? $id('btnAddStudy') : menuOpen ? $id('chapMenuBtn') : null;
+    closePops(); back?.focus();
+  });
   const modal = $id('studySharer');
   $id('btnCopyStudyLink').onclick = async () => {
     try { await navigator.clipboard.writeText($id('studyLink').value); $id('studyCopyMsg').textContent = 'Link copied'; }
@@ -280,6 +285,7 @@ async function shareStudy(st) {
   $id('studyLink').value = location.origin + location.pathname + '#c=' + await pack({rbv: 1, name: st.name, chapters});
   $id('studyCopyMsg').textContent = left.length ? 'Not included: ' + left.join(', ') : '';
   $id('studySharer').hidden = false;
+  $id('btnCopyStudyLink').focus();   // (so Esc closes it)
 }
 
 // Open a study's link: its chapters are kept beside your own work, as a single study's link keeps them (sharedKey), and

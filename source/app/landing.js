@@ -21,9 +21,12 @@ export function wireLanding() {
   $id('freshForm').onsubmit = async e => {
     e.preventDefault();
     $id('freshErr').textContent = '';
-    try { await startFresh($id('freshFormat').value, [$id('freshTeam1').value, $id('freshTeam2').value]); }
-    catch (err) { showPage('landing'); $id('freshErr').textContent = err.message || String(err); }
+    try {
+      const rejected = await startFresh($id('freshFormat').value, [$id('freshTeam1').value, $id('freshTeam2').value]);
+      if (rejected) showRejected(rejected);
+    } catch (err) { showPage('landing'); $id('freshErr').textContent = err.message || String(err); }
   };
+  $id('btnRejectedOk').onclick = () => { $id('rejected').hidden = true; };
   $id('searchForm').onsubmit = e => { e.preventDefault(); search(); };
   $id('btnMore').onclick = () => search(lastResult);
   fetch('stats/index.json').then(r => r.json()).then(formats => {
@@ -31,6 +34,13 @@ export function wireLanding() {
     d.innerHTML = Object.keys(formats).map(f => `<option value="${f}">`).join('');
     document.body.appendChild(d);
   }).catch(() => {});
+}
+
+// Showdown's popup for a rejected team, under the team it is about.
+function showRejected(rejected) {
+  $id('rejectedText').innerHTML = rejected.map(r => `<p><strong>${esc(r.team)}</strong><br>${esc(r.message)}</p>`).join('');
+  $id('rejected').hidden = false;
+  $id('btnRejectedOk').focus();
 }
 
 // ---------------------------------------------------------------- the format of a new battle
@@ -76,7 +86,8 @@ function wireFormatMenu() {
   };
   menu.onclick = e => e.stopPropagation();
   document.addEventListener('click', () => { if (!menu.hidden) close(); });
-  menu.addEventListener('keydown', e => { if (e.key === 'Escape') { close(); button.focus(); } });
+  // (Esc also when the focus is still on the button)
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && !menu.hidden) { close(); button.focus(); } });
 }
 
 // ---------------------------------------------------------------- recent

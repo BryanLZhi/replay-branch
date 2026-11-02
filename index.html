@@ -245,7 +245,6 @@
 <div class="rb-modal" id="loader" hidden>
   <section class="rb-section" role="dialog" aria-labelledby="loaderTitle">
     <h2 id="loaderTitle">Load a replay</h2>
-    <p class="rb-note">Paste a replay link, the battle log, a saved replay file's contents, or a study you exported earlier.</p>
     <p><input id="replayUrl" class="textbox" type="url" placeholder="https://replay.pokemonshowdown.com/…"></p>
     <textarea id="pasteBox" class="textbox" placeholder="|player|p1|…"></textarea>
     <p class="rb-row"><input type="file" id="fileIn" accept=".log,.txt,.json,.html,.htm"><span style="flex:1"></span>
@@ -279,6 +278,12 @@
     <p class="rb-row" style="justify-content:flex-end"><span class="rb-err" id="importErr" style="flex:1"></span>
       <button class="button" type="button" id="btnImportCancel">Cancel</button><button class="button" type="button" id="btnImport"><strong>Import</strong></button></p>
   </section>
+</div>
+<div class="rb-modal" id="rejected" hidden>
+  <div class="rb-popup" role="alertdialog" aria-describedby="rejectedText">
+    <div id="rejectedText"></div>
+    <p class="rb-popbar"><button class="button" type="button" id="btnRejectedOk"><strong>OK</strong></button></p>
+  </div>
 </div>
 
 <script>

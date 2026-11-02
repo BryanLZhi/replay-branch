@@ -70,6 +70,8 @@ body.dark .rb-landing h2 { color: #ccc; }
 .rb-saveerr { background: var(--rb-panel); border: 1px solid var(--rb-bad); border-radius: 6px; padding: 8px 10px; margin: 12px 0 0; }
 .rb-links { margin-top: 8px; }
 .rb-links .blocklink { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.rb-links .blocklink > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; }   /* (a long name is cut, as Showdown cuts its lists; Rename / Remove stay in view) */
+.rb-links .blocklink > .rb-linkbtn { flex: none; }
 .rb-dim { opacity: .75; }
 .rb-landing a:not(.blocklink) { color: #336699; }
 body.dark .rb-landing a:not(.blocklink) { color: #a8c8e8; }
@@ -124,6 +126,7 @@ body.dark .rb-slot { color: #eee; background: linear-gradient(color-mix(in srgb,
 .rb-slot.empty { border-style: dashed; color: var(--rb-muted); background: transparent; }
 /* doubles: each player's two Pokemon, one above the other, each slot led by the Pokemon's name */
 .rb-bar.doubles .rb-slotwrap { gap: 3px; }
+.rb-bar.doubles .rb-slot { white-space: normal; flex-wrap: wrap; row-gap: 0; }   /* (a long move and target go on a second line rather than off the slot) */
 .rb-place { font-size: 7.5pt; color: var(--rb-muted); margin-right: 2px; }
 .rb-place::after { content: ':'; }
 /* new battle: the format menu, as Showdown's (sections that fold away), and the two teams */
@@ -134,8 +137,8 @@ body.dark .rb-slot { color: #eee; background: linear-gradient(color-mix(in srgb,
 #rbTitle .rb-sub { font-size: 12pt; font-weight: normal; color: var(--rb-muted); }
 .rb-nameinput { font-size: 16pt; width: min(520px, 90%); text-align: center; }
 .rb-sheet.rb-raised { position: relative; z-index: 30; }
-.rb-formatbtn { min-width: 210px; text-align: left; display: flex; justify-content: space-between; align-items: center; gap: 8px; }
-.rb-formatmenu { position: absolute; z-index: 20; top: calc(100% + 4px); left: 0; width: min(560px, 92vw); max-height: min(440px, 70vh); overflow-y: auto;
+.button.rb-formatbtn { min-width: 210px; text-align: left; display: flex; justify-content: space-between; align-items: center; gap: 8px; }   /* (beats Showdown's .button, which loads later) */
+.rb-formatmenu { position: absolute; z-index: 20; top: calc(100% + 4px); left: 0; width: min(560px, calc(100vw - 54px)); max-height: min(440px, 70vh); overflow-y: auto;   /* (on a phone, within the screen) */
   background: var(--rb-panel, #fff); color: var(--rb-fg, #222); border: 1px solid #999; border-radius: 5px; box-shadow: 0 3px 12px rgba(0, 0, 0, .35); padding: 6px; }
 body.dark .rb-formatmenu { background: #2a2f36; border-color: #555; }
 .rb-formatmenu .textbox { width: 100%; box-sizing: border-box; margin-bottom: 4px; }
@@ -172,7 +175,7 @@ body.dark .rb-formatmenu { background: #2a2f36; border-color: #555; }
   background: linear-gradient(color-mix(in srgb, var(--t, #ccc) 15%, #fff), color-mix(in srgb, var(--t, #ccc) 40%, #fff)); }
 body.dark .rb-mv { color: #eee; background: linear-gradient(color-mix(in srgb, var(--t, #ccc) 25%, #2a2f36), color-mix(in srgb, var(--t, #ccc) 45%, #2a2f36)); }
 .rb-mv b { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.rb-mv small { font-size: 7.5pt; opacity: .8; display: flex; justify-content: space-between; gap: 4px; white-space: nowrap; }
+.rb-mv small { font-size: 7.5pt; opacity: .8; display: flex; flex-wrap: wrap; justify-content: space-between; gap: 0 4px; white-space: nowrap; }   /* (on a phone the PP go under rather than off the button) */
 .rb-mv .rb-dmg { font-weight: bold; }
 .rb-mv:disabled { opacity: .4; cursor: default; }
 /* a guessed move (not seen in the replay) */
@@ -230,8 +233,8 @@ body.dark .rb-hpbar { background: #1c1f23; }
 .rb-tok .rb-pencil { color: var(--rb-muted); margin-right: 2px; }
 
 /* dice */
-.rb-dicehead { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 6px; }
-.rb-dicehead h2 { margin: 0; }
+.rb-dicehead { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 6px; }
+.rb-dicehead h2 { margin: 0; white-space: nowrap; }   /* (on a phone the buttons go under, not the words of the title) */
 .rb-dturn { font-size: 9pt; font-weight: normal; color: var(--rb-muted); margin-left: 4px; }
 .rb-odds { font-size: 9pt; color: var(--rb-muted); margin-left: auto; margin-right: 6px; white-space: nowrap; }
 .rb-odds b { color: var(--rb-fg); }
@@ -321,6 +324,7 @@ body.dark .rb-pop { background: #2a2f36; border-color: #555; }
 .rb-linkbtn:disabled { opacity: .2; cursor: default; text-decoration: none; }
 .rb-additem { display: flex !important; align-items: center; gap: 6px; }
 .rb-additem small { margin-left: auto; opacity: .6; }
+.rb-additem .rb-addname { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .rb-additem:disabled { opacity: .5; cursor: default; }
 .rb-popnew { display: flex; gap: 4px; margin-top: 4px; padding-top: 6px; border-top: 1px solid rgba(128, 128, 128, .35); }
 .rb-pop .rb-popnew:first-child { margin-top: 0; padding-top: 0; border-top: 0; }
@@ -329,24 +333,22 @@ body.dark .rb-pop { background: #2a2f36; border-color: #555; }
 /* dialogs and the password gate */
 .rb-modal { position: fixed; inset: 0; background: rgba(0,0,0,.55); display: flex; align-items: center; justify-content: center; padding: 16px; z-index: 50; }
 .rb-modal .rb-section { width: min(640px, 100%); max-height: 90vh; overflow: auto; box-sizing: border-box; margin: 0; }
-.rb-modal textarea { min-height: 160px; font-family: Consolas, monospace; font-size: 8.5pt; }
+.rb-modal textarea { min-height: 160px; max-height: 40vh; font-family: Consolas, monospace; font-size: 8.5pt; }
 .rb-modal input[type=url] { width: 100%; box-sizing: border-box; }
+.rb-popup {   /* Showdown's .ps-popup */
+  width: min(320px, 100%); max-height: 90vh; overflow: auto; box-sizing: border-box; padding: 10px 15px;
+  background: var(--rb-panel); color: var(--rb-fg); border: 1px solid #888; box-shadow: 1px 1px 4px rgba(0, 0, 0, .5);
+}
+.rb-popup p { margin: 7px 0; white-space: pre-wrap; overflow-wrap: break-word; }
+.rb-popup .rb-popbar { text-align: center; }
 #gate { position: fixed; inset: 0; z-index: 100; background: #010327 url(https://pokemonshowdown.com/images/bg-starfield.jpg); background-size: 30%; display: flex; align-items: center; justify-content: center; padding: 16px; }
 #gate form { background: #fff; color: #222; border-radius: 8px; padding: 20px; width: min(320px, 100%); box-sizing: border-box; display: flex; flex-direction: column; gap: 10px; }
 #gate h1 { margin: 0; font-size: 14pt; font-weight: normal; }
 #gate label { color: #555; }
 #gate .textbox { background: #fff; color: #222; }
 
-/* phone width: Showdown's saved-replay layout is fixed for desktop (controls pinned at 373px, log 640px to the right) */
-@media (max-width: 700px) {
-  .rb-bar { flex-wrap: wrap; }
-  .rb-slots { order: 3; flex-basis: 100%; }
-  .rb-play { margin-left: auto; }
-  .rb-editbtn { margin-left: auto; }
-  .rb-editbtn + .rb-play { margin-left: 0; }
-  /* doubles on a phone: a slot takes two lines (the Pokemon, then its move and target) rather than cutting off */
-  .rb-bar.doubles .rb-slot { white-space: normal; flex-wrap: wrap; row-gap: 0; }
-  .rb-bar.doubles .rb-place { flex-basis: 100%; }
+/* below ~1000px Showdown's saved-replay layout (battle 640px wide, the log beside it) leaves the log a sliver: stack them */
+@media (max-width: 1000px) {
   body div.wrapper.replay-wrapper { padding-top: 0 !important; display: flex; flex-direction: column; overflow-x: hidden; }   /* beats replay.css, which loads later */
   .replay-wrapper .battle { position: relative !important; top: 0 !important; left: 0 !important; order: 1; flex: none; }
   .replay-wrapper .replay-controls { position: static !important; order: 2; padding: 6px 4px 0; }
@@ -355,11 +357,30 @@ body.dark .rb-pop { background: #2a2f36; border-color: #555; }
   .replay-wrapper .rb-under { order: 4; max-width: none; padding: 0 4px; }
   .replay-wrapper .battle-log { position: static !important; order: 5; height: 260px; margin: 10px 4px 0; width: auto !important; }
   .replay-wrapper h1 { order: 6; font-size: 14pt; }
+}
+/* phone width */
+@media (max-width: 700px) {
+  .rb-bar { flex-wrap: wrap; }
+  .rb-slots { order: 3; flex-basis: 100%; }
+  .rb-play { margin-left: auto; }
+  .rb-editbtn { margin-left: auto; }
+  .rb-editbtn + .rb-play { margin-left: 0; }
+  /* doubles on a phone: a slot takes two lines (the Pokemon, then its move and target) rather than cutting off */
+  .rb-bar.doubles .rb-place { flex-basis: 100%; }
   .rb-wrap { padding-left: 8px; padding-right: 8px; }
   #viewer { padding: 10px 4px; margin: 10px 6px; }
   .rb-landing { padding: 0 6px; }
   .rb-head span.rb-wide { display: none; }
   .rb-head #home { white-space: nowrap; }
   .rb-head .button { padding: 4px 9px; white-space: nowrap; }
+  /* (the buttons go under the name rather than off the screen) */
+  .rb-head { flex-wrap: wrap; height: auto; min-height: 44px; row-gap: 4px; }
+  .rb-head #viewerBtns { margin-left: auto; }
+  /* Showdown's choosers are a fixed 25px high: a long one (Speed) keeps its buttons inside its box */
+  .replay-wrapper .replay-controls-2 .chooser { display: flex; height: auto; max-width: calc(100% - 5px); box-sizing: border-box; }
+  .replay-wrapper .replay-controls-2 .chooser div { display: flex; flex-wrap: wrap; }
+  .replay-wrapper .replay-controls-2 .chooser em { height: auto; }
   .rb-chapbar { margin: 0 4px 8px; }
 }
+/* a narrow phone: the editor's HP bars give their room to the names (the HP box says it) */
+@media (max-width: 420px) { .rb-edhd .rb-hpbar { display: none; } }
