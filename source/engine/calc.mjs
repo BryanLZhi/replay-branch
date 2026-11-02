@@ -16,10 +16,13 @@ const STATUSES = ['brn', 'par', 'psn', 'tox', 'slp', 'frz'];
 
 // A calc field from the calc's weather/terrain names ('Sun', 'Electric') and each side's condition ids. Hazards are left out:
 // the calc takes a side with hazards to mean the Pokemon is switching in (no Multiscale, "after Stealth Rock"), and here it is in.
-export function calcField({weather, terrain, pseudo = [], attacker = {}, defender = {}, doubles = false}) {
+// ruin: the Ruin abilities of any Pokemon on the field (in doubles an ally's or the other foe's count too).
+export function calcField({weather, terrain, pseudo = [], attacker = {}, defender = {}, doubles = false, ruin = []}) {
   const side = c => ({isReflect: !!c.reflect, isLightScreen: !!c.lightscreen, isAuroraVeil: !!c.auroraveil, isTailwind: !!c.tailwind});
   return new CalcField({gameType: doubles ? 'Doubles' : 'Singles', weather, terrain, isGravity: pseudo.includes('gravity'),
-    isMagicRoom: pseudo.includes('magicroom'), isWonderRoom: pseudo.includes('wonderroom'), attackerSide: side(attacker), defenderSide: side(defender)});
+    isMagicRoom: pseudo.includes('magicroom'), isWonderRoom: pseudo.includes('wonderroom'), attackerSide: side(attacker), defenderSide: side(defender),
+    isSwordOfRuin: ruin.includes('Sword of Ruin'), isBeadsOfRuin: ruin.includes('Beads of Ruin'), isTabletsOfRuin: ruin.includes('Tablets of Ruin'),
+    isVesselOfRuin: ruin.includes('Vessel of Ruin')});
 }
 // Abilities whose boost the calc adds by itself (it assumes the Pokemon just came in); the boosts we pass already have it.
 const SELF_BOOSTING = /^(Download|Intrepid Sword|Dauntless Shield|Wind Rider|Embody Aspect)/;
@@ -36,8 +39,9 @@ export function calcPokemon(gen, species, {hpPercent = 100, status, ...options})
   return hpPercent >= 100 ? full : new CalcPokemon(gen, species, {...opts, curHP: Math.max(1, Math.round(full.maxHP() * hpPercent / 100))});
 }
 // Damage of one move as a share of the defender's max HP: [min %, max %], and the calc's description.
-export function calcDamage(gen, attacker, defender, moveName, field, isCrit = false) {
-  const r = calculate(gen, attacker, defender, new CalcMove(gen, moveName, {isCrit}), field);
+// (oneTarget: in doubles a spread move that hit only one Pokemon does full damage)
+export function calcDamage(gen, attacker, defender, moveName, field, isCrit = false, oneTarget = false) {
+  const r = calculate(gen, attacker, defender, new CalcMove(gen, moveName, {isCrit, ...(oneTarget ? {overrides: {target: 'normal'}} : {})}), field);
   const [lo, hi] = r.range();
   return {min: lo / defender.maxHP() * 100, max: hi / defender.maxHP() * 100, result: r};
 }
@@ -65,7 +69,8 @@ export function damageCalcs(battle, si, place = 0, foe = 0) {
   let a, d;
   try { a = fromSim(gen, attacker); d = fromSim(gen, defender); } catch { return []; }
   const field = calcField({weather: WEATHER[battle.field.weather], terrain: TERRAIN[battle.field.terrain], pseudo: Object.keys(battle.field.pseudoWeather),
-    attacker: simConditions(battle.sides[si]), defender: simConditions(battle.sides[1 - si]), doubles: battle.gameType === 'doubles'});
+    attacker: simConditions(battle.sides[si]), defender: simConditions(battle.sides[1 - si]), doubles: battle.gameType === 'doubles',
+    ruin: battle.gameType !== 'doubles' ? [] : battle.sides.flatMap(s => s.active).filter(p => p && !p.fainted).map(p => Dex.abilities.get(p.ability).name).filter(a => / of Ruin$/.test(a))});
   return attacker.moveSlots.map(slot => {
     const move = Dex.moves.get(slot.id);
     if (move.category === 'Status') return null;

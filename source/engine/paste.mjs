@@ -28,8 +28,10 @@ export function matchTeam(rep, si, pasted, otherSets) {
   const base = s => Dex.species.get(s).baseSpecies;
   const free = pasted.slice();
   const take = test => { const i = free.findIndex(test); return i < 0 ? null : free.splice(i, 1)[0]; };
-  const found = team.map(p => take(s => toID(s.species) === toID(p.speciesForme)));
-  team.forEach((p, k) => { found[k] ||= take(s => base(s.species) === base(p.speciesForme)); });
+  // (a Pokemon still transformed at the end is what it was before)
+  const species = p => p.volatiles?.transform ? (p.baseSpeciesForme || p.speciesForme) : p.speciesForme;
+  const found = team.map(p => take(s => toID(s.species) === toID(species(p))));
+  team.forEach((p, k) => { found[k] ||= take(s => base(s.species) === base(species(p))); });
   // (a paste without IV lines and a typed Hidden Power gets the IVs for that type, as Showdown's teambuilder sets them)
   const ivsFor = s => Object.values(s.ivs).every(v => v === 31) && hiddenPowerIVs(s.moves, rep.gen) || s.ivs;
   const sets = found.map((s, k) => s && {...s, ivs: ivsFor(s), name: team[k].name, pasted: true});
@@ -116,10 +118,12 @@ function logProblems(rep, sets, disguised = new Set()) {
   const add = (key, text, ...pokes) => { if (!problems.has(key)) problems.set(key, {text, sides: [...new Set(pokes.filter(known).map(sideOf))]}); };
   const cb = new ClientBattle(gens);
   const sideOf = poke => cb.sides.indexOf(poke.side);
-  const setOf = poke => { const s = sets[sideOf(poke)]; const k = poke.side.team.indexOf(poke); return s && k >= 0 ? s[k] : null; };
+  // (by name: the sets follow the team as it is at the end, and in doubles the client reorders a team as Pokemon change places)
+  const setOf = poke => { const s = sets[sideOf(poke)]; if (!s) return null; const k = poke.side.team.indexOf(poke); return s.find(x => x && x.name === poke.name) || (k >= 0 ? s[k] : null); };
   const known = poke => !!(poke && setOf(poke)?.pasted && !disguised.has(sideOf(poke) + poke.name));
   // the item its known set gives it, while it still holds it
   const roosted = new Set();   // used Roost this turn: no Flying type (the client does not always record it)
+  const helped = new Set();    // given a Helping Hand this turn (doubles)
   const swapped = new Set();   // used or was hit by Trick / Switcheroo: holding who knows what (back and forth...)
   const pastedItem = poke => known(poke) && !swapped.has(poke) && !poke.itemEffect && !poke.lastItemEffect ? toID(setOf(poke).item) : '';
   const lastMove = new Map();
@@ -144,8 +148,9 @@ function logProblems(rep, sets, disguised = new Set()) {
     // an action ends at the next one, or at the blank line before end-of-turn effects (where Future Sight lands)
     if (['move', 'turn', 'switch', 'drag', 'upkeep', 'cant', 'done'].includes(kind)) finishHit(kind);   // (a blank line parses as "done")
     if ((kind === 'switch' || kind === 'drag') && poke) for (const p of poke.side.team) lastMove.delete(p);
-    if (kind === 'turn') roosted.clear();
+    if (kind === 'turn') { roosted.clear(); helped.clear(); }
     if (kind === '-singleturn' && poke && /Roost/.test(args[2] || '')) roosted.add(poke);   // whoever was out left
+    if (kind === '-singleturn' && poke && /Helping Hand/.test(args[2] || '')) helped.add(poke);
     if (kind === 'move' && poke && !kwArgs.from && toID(args[2]) !== 'struggle') {
       const move = Dex.moves.get(args[2]);
       const item = pastedItem(poke);
@@ -156,7 +161,14 @@ function logProblems(rep, sets, disguised = new Set()) {
       lastMove.set(poke, move.id);
       const target = args[3] ? cb.getPokemon(args[3]) : null;
       if (['trick', 'switcheroo'].includes(move.id)) { swapped.add(poke); if (target) swapped.add(target); }
-      if (move.category !== 'Status' && target && target !== poke) hit = {attacker: poke, defender: target, move, crit: false, damaged: false};
+      // (in doubles a spread move does 75% when it aims at two or more Pokemon, even if one of them protects or is immune:
+      // count those on the field, not the ones the log says it hit)
+      const up = side => (side?.active || []).filter(p => p && p !== poke && !p.fainted && p.hp > 0).length;
+      const hitCount = move.target === 'allAdjacentFoes' ? up(poke.side.foe) : move.target === 'allAdjacent' ? up(poke.side.foe) + up(poke.side) : 1;
+      // (abilities on the field as the move is used: a spread move hits everyone at once, before any of them faints)
+      const onField = [poke.side, poke.side.foe].flatMap(s => s?.active || []).filter(p => p && !p.fainted && p.hp > 0)
+        .map(p => Dex.abilities.get((setOf(p)?.pasted ? setOf(p).ability : p.ability) || '').name);
+      if (move.category !== 'Status' && target && target !== poke) hit = {attacker: poke, defender: target, move, crit: false, damaged: false, hitCount, helped: helped.has(poke), onField};
     }
     if (kind === '-crit' && hit && poke === hit.defender) hit.crit = true;
     if (['-immune', '-miss', '-fail'].includes(kind) && hit && poke === hit.defender) {
@@ -207,8 +219,14 @@ function checkHit(rep, cb, hit, before, after, setOf) {
   if (genNum <= 2 && ['thickclub', 'lightball'].includes(toID(setOf(attacker)?.item || attacker.item))) return null;
   if ([attacker, defender].some(p => Object.keys(p.volatiles).some(v => UNCHECKED_VOLATILES.test(v)))) return null;
   const gen = calcGen(genNum, rep.formatid);
+  // doubles: an ally can change the damage in ways the log may not show (Helping Hand shows; Battery, Power Spot, Steely
+  // Spirit, Flower Gift and Friend Guard may not): such hits are left out
+  const doubles = rep.lines.includes('|gametype|doubles');
+  if (doubles && (hit.helped || allyMay(attacker, ALLY_BOOSTS, setOf) || allyMay(defender, ['Friend Guard', 'Flower Gift'], setOf))) return null;
+  if (hit.onField.includes('Neutralizing Gas')) return null;   // (no abilities at all, the calc's included)
   const field = calcField({weather: cb.field.weather, terrain: cb.field.terrain, pseudo: Object.keys(cb.field.pseudoWeather || {}),
-    attacker: conditions(attacker.side, attacker), defender: conditions(defender.side, defender)});
+    attacker: conditions(attacker.side, attacker), defender: conditions(defender.side, defender), doubles,
+    ruin: doubles ? hit.onField.filter(a => / of Ruin$/.test(a)) : []});   // (in singles the calc reads them off the two Pokemon)
   let min = Infinity, max = -Infinity, only = null;
   try {
     // Analytic: the target already moved (or came in) this turn
@@ -216,7 +234,7 @@ function checkHit(rep, cb, hit, before, after, setOf) {
     const atk = variants(gen, attacker, setOf(attacker), 'attack', move, before, moved);
     const def = variants(gen, defender, setOf(defender), 'defend', move, before);
     for (const a of atk) for (const d of def) {
-      const r = calcDamage(gen, a, d, move.name, field, hit.crit);
+      const r = calcDamage(gen, a, d, move.name, field, hit.crit, doubles && hit.hitCount < 2);
       min = Math.min(min, r.min); max = Math.max(max, r.max);
       if (atk.length === 1 && def.length === 1) only = r.result;
     }
@@ -235,6 +253,16 @@ function checkHit(rep, cb, hit, before, after, setOf) {
 }
 
 // A side's conditions; in gen 1 Reflect and Light Screen are on the Pokemon instead.
+const ALLY_BOOSTS = ['Battery', 'Power Spot', 'Steely Spirit', 'Flower Gift'];
+// Could the Pokemon next to this one have one of these abilities (its known one, else any its species can have)?
+function allyMay(poke, abilities, setOf) {
+  return (poke.side.active || []).some(ally => {
+    if (!ally || ally === poke || ally.fainted) return false;
+    const known = setOf(ally)?.pasted ? setOf(ally).ability : ally.ability;
+    const could = known ? [Dex.abilities.get(known).name] : Object.values(Dex.species.get(ally.speciesForme).abilities || {});
+    return could.some(a => abilities.includes(a));
+  });
+}
 function conditions(side, active) {
   const out = {};
   for (const [id, c] of Object.entries(side.sideConditions || {})) out[id] = c.level || true;

@@ -656,13 +656,22 @@ function groups(rolls) {
   for (const r of rolls) {
     const m = /^(.+?): (accuracy|critical hit|damage roll|.+ \(\d+%\))$/.exec(r.label);
     const key = m && r.who ? r.who + "|" + m[1] : null;
-    const last = out[out.length - 1];
-    if (key && last && last.key === key && !last.items.some((x) => x.part === m[2] && m[2] !== "damage roll")) {
-      last.items.push({ r, part: m[2] });
-      last.target || (last.target = r.target);
+    if (!key) {
+      out.push({ key: null, items: [{ r, part: r.label }] });
       continue;
     }
-    out.push(key ? { key, who: r.who, move: m[1], target: r.target, items: [{ r, part: m[2] }] } : { key: null, items: [{ r, part: r.label }] });
+    let g = null;
+    for (let j = out.length - 1; j >= 0; j--) {
+      const x = out[j];
+      if (x.key !== key) continue;
+      if (x.target && r.target && x.target !== r.target) continue;
+      if (!x.items.some((y) => y.part === m[2] && m[2] !== "damage roll")) g = x;
+      break;
+    }
+    if (g) {
+      g.items.push({ r, part: m[2] });
+      g.target || (g.target = r.target);
+    } else out.push({ key, who: r.who, move: m[1], target: r.target, items: [{ r, part: m[2] }] });
   }
   return out;
 }

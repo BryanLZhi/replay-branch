@@ -124,13 +124,15 @@ export function knownOf(p) {
   const lostItem = ['knocked off', 'stolen', 'eaten', 'flung', 'consumed', 'incinerated', 'popped'].includes(p.lastItemEffect) || p.itemEffect === 'knocked off';
   const curItem = p.item ? itemName(p.item) : '';
   const lastItemName = p.lastItem ? itemName(p.lastItem) : '';
-  // a set is for the forme it starts in (Alakazam, not Alakazam-Mega; Palafin, not Palafin-Hero), with that forme's ability
-  const battleOnly = Dex.species.get(p.speciesForme).battleOnly;
-  const startForme = Dex.species.get((Array.isArray(battleOnly) ? battleOnly[0] : battleOnly) || p.speciesForme);
+  // a set is for the forme it starts in (Alakazam, not Alakazam-Mega; Palafin, not Palafin-Hero), with that forme's ability;
+  // a Pokemon still transformed is what it was before (a Mew, not the Landorus it copied)
+  const forme = p.volatiles?.transform ? (p.baseSpeciesForme || p.speciesForme) : p.speciesForme;
+  const battleOnly = Dex.species.get(forme).battleOnly;
+  const startForme = Dex.species.get((Array.isArray(battleOnly) ? battleOnly[0] : battleOnly) || forme);
   let abilityName = (p.baseAbility || p.ability) ? Dex.abilities.get(p.baseAbility || p.ability).name : '';
-  if (battleOnly && !Object.values(startForme.abilities || {}).includes(abilityName)) abilityName = '';
+  if ((battleOnly || p.volatiles?.transform) && !Object.values(startForme.abilities || {}).includes(abilityName)) abilityName = '';
   return {
-    name: p.name, species: (Array.isArray(battleOnly) ? battleOnly[0] : battleOnly) || p.speciesForme, baseSpecies: p.baseSpeciesForme,
+    name: p.name, species: (Array.isArray(battleOnly) ? battleOnly[0] : battleOnly) || forme, baseSpecies: p.baseSpeciesForme,
     level: p.level, gender: p.gender,
     moves, item: curItem, lastItem: lastItemName, itemGone: lostItem && (!p.item || p.itemEffect === 'knocked off'), ability: abilityName,
     tera: p.terastallized || (p.teraType && p.teraType !== '???' ? p.teraType : ''),
@@ -251,7 +253,8 @@ export class RngControl {
     const c = this.top(); const p = num / den;
     if (c && c.kind === 'acc' && !c.used) {
       if (c.once) c.used = true;
-      return this.rec({key: 'acc:' + c.move, kind: 'chance', label: `${c.move}: accuracy`, who: c.user, p, yes: 'Hits', no: 'Misses'}, p >= 0.5);
+      const target = c.targets?.[c.n++];
+      return this.rec({key: 'acc:' + c.move, kind: 'chance', label: `${c.move}: accuracy`, who: c.user, target, p, yes: 'Hits', no: 'Misses'}, p >= 0.5);
     }
     if (c && c.kind === 'endturn') {
       // gens 2-3 roll Quick Claw for the next turn at the end of each one, held or not
@@ -298,10 +301,11 @@ export class RngControl {
       return this.rec({key: 'roll:' + c.move, kind: 'roll', label: `${c.move}: damage roll`, who: c.user, target: c.target, lo, hi}, 7);
     }
     if (c && c.kind === 'sec' && lo === 0 && hi === 100) {
-      const s = c.list[c.n++] || {};
+      const k = c.n++, s = c.list[k % Math.max(1, c.list.length)] || {};
       const chance = s.chance;
       if (chance === undefined || chance >= 100) return 0;
-      const hit = this.rec({key: 'sec:' + c.move + ':' + (c.n - 1), kind: 'chance', label: `${c.move}: ${effectName(s)} (${chance}%)`, who: c.user, p: chance / 100, yes: 'Happens', no: "Doesn't"}, chance >= 50);
+      const target = c.targets?.[Math.floor(k / Math.max(1, c.list.length))];
+      const hit = this.rec({key: 'sec:' + c.move + ':' + (k % Math.max(1, c.list.length)), kind: 'chance', label: `${c.move}: ${effectName(s)} (${chance}%)`, who: c.user, target, p: chance / 100, yes: 'Happens', no: "Doesn't"}, chance >= 50);
       return hit ? 0 : 99;
     }
     const e = this.effectLabel();
@@ -339,6 +343,7 @@ export class RngControl {
     this.base.shuffle(items.slice(), start, end);
     const defOrder = seg.map((_, k) => k);
     if (seg.length < 2) return;
+    if (new Set(names).size < names.length) return;   // (two effects of the same Pokemon: as listed)
     const label = c && c.kind === 'speed' ? `Speed tie: ${names.join(' vs ')}` : `Order: ${names.join(', ')}`;
     const order = this.rec({key: 'order:' + names.join('|'), kind: 'order', label, options: names}, defOrder);
     const out = order.map(k => seg[k]);
@@ -358,14 +363,15 @@ function wrap(obj, name, mk) {
 export function installRng(battle, ctl) {
   ctl.battle = battle; battle.prng = ctl;
   const A = battle.actions;
-  wrap(A, 'hitStepAccuracy', (targets, pokemon, move) => ({kind: 'acc', move: move.name, user: pokemon.name}));
+  wrap(A, 'hitStepAccuracy', (targets, pokemon, move) => ({kind: 'acc', move: move.name, user: pokemon.name, targets: (targets || []).map(t => t?.name), n: 0}));
   wrap(A, 'getDamage', (source, target, move) => ({kind: 'dmg', move: (typeof move === 'object' ? move.name : Dex.moves.get(move).name), user: source.name, target: target.name,
     src: source, tgt: target, mv: typeof move === 'object' ? move : battle.dex.getActiveMove(move)}));
   // gens 1-3 check accuracy in their own tryMoveHit, and gens 1-2 roll side effects in moveHit
   if (battle.gen <= 3) wrap(A, 'tryMoveHit', (target, pokemon, move) => ({kind: 'acc', once: true, move: move.name, user: pokemon.name}));
   if (battle.gen <= 2) wrap(A, 'moveHit', (target, pokemon, move, moveData, isSecondary, isSelf) => isSecondary || isSelf ? null
     : {kind: 'sec', old: true, move: move.name, user: pokemon.name, list: ((moveData || move).secondaries || []).filter(s => s.chance !== undefined), n: 0});
-  wrap(A, 'secondaries', (targets, source, move, moveData) => ({kind: 'sec', move: move.name, user: source.name, list: (moveData && moveData.secondaries) || move.secondaries || [], n: 0}));
+  wrap(A, 'secondaries', (targets, source, move, moveData) => ({kind: 'sec', move: move.name, user: source.name, list: (moveData && moveData.secondaries) || move.secondaries || [], n: 0,
+    targets: (Array.isArray(targets) ? targets : [targets]).map(t => t?.name)}));
   if (battle.gen === 2 || battle.gen === 3) wrap(battle, 'endTurn', () => ({kind: 'endturn'}));
   wrap(battle, 'getRandomTarget', (pokemon, move) => { const m = Dex.moves.get(move); return {kind: 'aim', move: m.name, target: m.target, user: pokemon.name}; });
   const sp = battle.speedSort;

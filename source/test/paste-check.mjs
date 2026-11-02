@@ -1,6 +1,6 @@
 // Test of the team checker (engine/paste.mjs): battles between known teams are simulated and logged as a replay would
 // show them (HP in percent); the true sets must pass, and sets with a wrong item or spread must be caught.
-//   node source/test/paste-check.mjs [battles] [seed] [format]   (format: one with usage stats, default gen9ou)
+//   node source/test/paste-check.mjs [battles] [seed] [format]   (format: one with usage stats, default gen9ou; doubles too)
 import fs from 'fs';
 import path from 'path';
 import {fileURLToPath} from 'url';
@@ -11,7 +11,8 @@ const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
 const format = process.argv[4] || 'gen9ou';
 const gen = +format[3];
 const dex = Dex.forGen(gen);
-const stats = JSON.parse(fs.readFileSync(path.join(root, `stats/${format}.json`), 'utf8'));
+const statsId = E.statsFormat(format, JSON.parse(fs.readFileSync(path.join(root, 'stats/index.json'), 'utf8')));
+const stats = JSON.parse(fs.readFileSync(path.join(root, `stats/${statsId}.json`), 'utf8'));
 const battles = +(process.argv[2] || 20);
 const prng = new PRNG([+(process.argv[3] || 1), 2, 3, 4]);
 const pick = list => list[prng.random(list.length)];
@@ -46,7 +47,29 @@ function play(teams) {
       if (!req || req.wait || side.isChoiceDone()) continue;
       const bench = req.side.pokemon.map((p, i) => ({p, i})).filter(({p}) => !p.active && !/fnt/.test(p.condition));
       let choice;
+      const si = battle.sides.indexOf(side);
       if (req.teamPreview) choice = 'default';
+      else if (battle.gameType === 'doubles') {
+        // each Pokemon on the field: a move (with a target) or now and then a switch; two never send in the same one
+        const taken = new Set(), parts = [];
+        const free = () => bench.filter(({i}) => !taken.has(i));
+        if (req.forceSwitch) req.forceSwitch.forEach(f => {
+          if (!f) return;
+          const b = free(); if (!b.length) { parts.push('pass'); return; }
+          const c = pick(b); taken.add(c.i); parts.push(`switch ${c.i + 1}`);
+        });
+        else req.active.forEach((act, place) => {
+          const mon = side.active[place];
+          if (!mon || mon.fainted || mon.volatiles.commanding) return;
+          const moves = act.moves.map((m, i) => ({m, i})).filter(({m}) => !m.disabled && m.pp > 0);
+          const b = act.trapped ? [] : free();
+          if (b.length && (!moves.length || prng.random(6) === 0)) { const c = pick(b); taken.add(c.i); parts.push(`switch ${c.i + 1}`); return; }
+          const i = moves.length ? pick(moves).i : 0;
+          const targets = E.targetsFor(E.targetType(act, i), battle, si, place);
+          parts.push(`move ${i + 1}` + (targets.length ? ' ' + pick(targets) : ''));
+        });
+        choice = parts.join(', ');
+      }
       else if (req.forceSwitch) choice = bench.length ? `switch ${pick(bench).i + 1}` : 'pass';
       else {
         const moves = req.active[0].moves.map((m, i) => ({m, i})).filter(({m}) => !m.disabled && m.pp > 0);

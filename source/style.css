@@ -236,6 +236,9 @@ body.dark .rb-edit { background: rgba(255,255,255,.12); }
   .rb-bar { flex-wrap: wrap; }
   .rb-slots { order: 3; flex-basis: 100%; }
   .rb-play { margin-left: auto; }
+  /* doubles on a phone: a slot takes two lines (the Pokemon, then its move and target) rather than cutting off */
+  .rb-bar.doubles .rb-slot { white-space: normal; flex-wrap: wrap; row-gap: 0; }
+  .rb-bar.doubles .rb-place { flex-basis: 100%; }
   body div.wrapper.replay-wrapper { padding-top: 0 !important; display: flex; flex-direction: column; overflow-x: hidden; }   /* beats replay.css, which loads later */
   .replay-wrapper .battle { position: relative !important; top: 0 !important; left: 0 !important; order: 1; flex: none; }
   .replay-wrapper .replay-controls { position: static !important; order: 2; padding: 6px 4px 0; }

@@ -153,19 +153,26 @@ function randomOutcome(r) {
   return r.value;
 }
 
-// One group per move use (accuracy, crit, damage, side effects); anything else stands alone.
+// One group per move use and target (accuracy, crit, damage, side effects); anything else stands alone. A spread move rolls
+// accuracy for each target first, then crit and damage for each: each roll joins its target's group.
 function groups(rolls) {
   const out = [];
   for (const r of rolls) {
     const m = /^(.+?): (accuracy|critical hit|damage roll|.+ \(\d+%\))$/.exec(r.label);
     const key = m && r.who ? r.who + '|' + m[1] : null;
-    const last = out[out.length - 1];
-    // a second accuracy/crit/effect roll means a new use of the move (multi-hit damage rolls stay together)
-    if (key && last && last.key === key && !last.items.some(x => x.part === m[2] && m[2] !== 'damage roll')) {
-      last.items.push({r, part: m[2]}); last.target ||= r.target;
-      continue;
+    if (!key) { out.push({key: null, items: [{r, part: r.label}]}); continue; }
+    // the latest group of this move at this target, if it has no such roll yet (a second accuracy/crit/effect roll means a new
+    // use of the move; multi-hit damage rolls stay together)
+    let g = null;
+    for (let j = out.length - 1; j >= 0; j--) {
+      const x = out[j];
+      if (x.key !== key) continue;
+      if (x.target && r.target && x.target !== r.target) continue;
+      if (!x.items.some(y => y.part === m[2] && m[2] !== 'damage roll')) g = x;
+      break;
     }
-    out.push(key ? {key, who: r.who, move: m[1], target: r.target, items: [{r, part: m[2]}]} : {key: null, items: [{r, part: r.label}]});
+    if (g) { g.items.push({r, part: m[2]}); g.target ||= r.target; }
+    else out.push({key, who: r.who, move: m[1], target: r.target, items: [{r, part: m[2]}]});
   }
   return out;
 }
