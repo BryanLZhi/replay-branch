@@ -4,6 +4,7 @@ A study board for Pokémon Showdown replays. Watch a replay in Showdown's own re
 your own lines: you choose both players' moves and every random outcome (accuracy, crits, damage rolls, secondary effects, speed ties).
 Lines branch like a chess study, and unknown sets are filled in from Smogon usage stats, all editable. Singles and doubles
 (VGC, Doubles OU: each Pokémon's move and target); triples and free-for-all can only be watched.
+Or start a new battle from two teams (pasted or PokéPaste links), and study it the same way.
 
 - **Viewer:** Pokémon Showdown's replay embed (`replay-embed.js`, MIT), with the battle scene loaded from play.pokemonshowdown.com.
 - **Branch simulator:** [@pkmn/sim](https://github.com/pkmn/ps) (MIT), bundled in `engine.js`.

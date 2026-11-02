@@ -5,6 +5,8 @@ import {newStudy, loadSaved, save} from './study.js';
 import {cleanStudy} from './clean.js';
 import {go} from './navigation.js';
 import {renderLanding} from './landing.js';
+import {pasteText} from './teams.js';
+import {isFresh} from './replay.js';
 
 export const SAMPLE = 'oumonotype-82345404';
 
@@ -50,7 +52,8 @@ async function openKey(key) {
 // Load a replay or an exported study ({rbv, log, study}). shown: the viewer already shows this replay;
 // replayId: it is replay.pokemonshowdown.com/<replayId> (share links use it); study: open this study of it;
 // key: keep it under this key (not the replay's own); shared: it came from someone's link.
-export async function loadText(text, {shown = false, replayId = null, study = null, key = null, shared = false} = {}) {
+// known: both teams in full (a new battle started here).
+export async function loadText(text, {shown = false, replayId = null, study = null, key = null, shared = false, known = null} = {}) {
   const t = String(text || '').trim();
   let exported = null;
   if (t.startsWith('{')) { try { const j = JSON.parse(t); if (j && j.rbv && j.log) exported = j; } catch {} }
@@ -62,8 +65,15 @@ export async function loadText(text, {shown = false, replayId = null, study = nu
   S.lines.clear(); S.replayPos.clear(); S.realDice.clear();
   S.stats = await fetchStats(rep.formatid);
   S.cbEnd = E.clientAt(rep, rep.lastTurn + 1);
-  S.base = E.revealedTeams(rep).map(team => team.map(known => E.suggestSet(known, S.stats, rep.gen)));
-  S.study = cleanStudy(study || exported?.study || loadSaved(S.key) || newStudy(), S.base);
+  S.base = E.revealedTeams(rep).map(team => team.map(k => E.suggestSet(k, S.stats, rep.gen)));
+  const raw = study || exported?.study || loadSaved(S.key);
+  // a new battle's teams are known in full: given now, or kept in its study since
+  const full = known || (isFresh(rep) && raw?.sets);
+  if (full) S.base = S.base.map((side, si) => side.map(b => {
+    const s = (full[si] || []).find(x => x && x.name === b.name);
+    return s ? {...b, ...s, pasted: true, fixed: {moves: s.moves.filter(Boolean), item: true, ability: true, tera: true}} : b;
+  }));
+  S.study = cleanStudy(raw || newStudy(), S.base);
   // what the landing page lists (a log that is not on the replay site is kept, to open it again)
   const was = S.study.meta || {};
   S.study.meta = {format: rep.tier || rep.formatid, players: [S.cbEnd.p1.name, S.cbEnd.p2.name],
@@ -75,7 +85,22 @@ export async function loadText(text, {shown = false, replayId = null, study = nu
   clearPicks(); S.err = '';
   if (!shown) S.psMode = '';   // rebuild the viewer for this replay
   S.cur = '';
-  go('r0');
+  // (a new battle without team preview starts at its first turn)
+  go(full && rep.lastTurn >= 1 ? 'r1' : 'r0');
+}
+
+// A new battle between two teams (pasted, or PokéPaste links): the simulator starts it, and it opens like a replay.
+export async function startFresh(format, teamTexts) {
+  await S.ready;
+  const teams = await Promise.all(teamTexts.map(async (t, si) => {
+    const sets = E.parseTeam(await pasteText(t));
+    if (!sets.length) throw new Error(`Team ${si + 1}: no Pokémon found.`);
+    return sets;
+  }));
+  const {log, sets} = E.freshBattle(String(format || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '') || 'gen9ou', teams);
+  showPage('viewer');
+  await loadText(log, {known: sets});
+  history.pushState(null, '', '?r=' + encodeURIComponent(S.key));
 }
 
 // Where a replay's study is kept: its replay id, or for a log that has none a hash of it.

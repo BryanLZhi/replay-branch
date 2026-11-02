@@ -29,6 +29,18 @@
     <p class="rb-err" id="openErr"></p>
   </section>
   <section class="rb-sheet">
+    <h2>New battle</h2>
+    <form id="freshForm">
+      <p class="rb-row"><input class="textbox" id="freshFormat" value="gen9ou" aria-label="Format" list="dl-formats" autocomplete="off"></p>
+      <div class="rb-twoteams">
+        <textarea class="textbox" id="freshTeam1" placeholder="Team 1" aria-label="Team 1"></textarea>
+        <textarea class="textbox" id="freshTeam2" placeholder="Team 2" aria-label="Team 2"></textarea>
+      </div>
+      <p class="rb-row"><button class="rb-blue" type="submit"><strong>Start</strong></button></p>
+    </form>
+    <p class="rb-err" id="freshErr"></p>
+  </section>
+  <section class="rb-sheet">
     <h2>Recent</h2>
     <div class="rb-links" id="recent"></div>
   </section>

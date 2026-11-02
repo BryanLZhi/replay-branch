@@ -1,6 +1,6 @@
 // The landing page: open a replay by link, search Showdown's replays, and the replays opened before (with their lines).
 import {$id, esc, stored, unstore} from './state.js';
-import {replayIdFrom, visit, SAMPLE} from './load.js';
+import {replayIdFrom, visit, SAMPLE, startFresh, showPage} from './load.js';
 
 export function renderLanding() {
   renderRecent();
@@ -15,6 +15,12 @@ export function wireLanding() {
     if (id) visit(id);
   };
   $id('btnPasteLog').onclick = () => $id('btnLoad').click();
+  $id('freshForm').onsubmit = async e => {
+    e.preventDefault();
+    $id('freshErr').textContent = '';
+    try { await startFresh($id('freshFormat').value, [$id('freshTeam1').value, $id('freshTeam2').value]); }
+    catch (err) { showPage('landing'); $id('freshErr').textContent = err.message || String(err); }
+  };
   $id('searchForm').onsubmit = e => { e.preventDefault(); search(); };
   $id('btnMore').onclick = () => search(lastResult);
   fetch('stats/index.json').then(r => r.json()).then(formats => {

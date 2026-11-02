@@ -126,6 +126,10 @@ body.dark .rb-slot { color: #eee; background: linear-gradient(color-mix(in srgb,
 .rb-bar.doubles .rb-slotwrap { gap: 3px; }
 .rb-place { font-size: 7.5pt; color: var(--rb-muted); margin-right: 2px; }
 .rb-place::after { content: ':'; }
+/* new battle: the two teams side by side (one above the other on a phone) */
+.rb-twoteams { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 6px 0; }
+.rb-twoteams textarea { height: 150px; resize: vertical; font-family: monospace; font-size: 9pt; }
+@media (max-width: 700px) { .rb-twoteams { grid-template-columns: 1fr; } }
 .rb-picon.mini { zoom: .55; vertical-align: middle; margin: -8px 2px -8px 0; }
 .rb-slot.quiet { opacity: .5; cursor: default; background: transparent; border-style: dashed; --t: #a8b0b8; }
 .rb-slot.quiet[data-slot] { cursor: pointer; }

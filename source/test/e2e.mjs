@@ -544,6 +544,37 @@ try {
     check(await live() >= 1 && !await text('#pickSec .rb-err'), `${format}: the line asks for the next turn`, String(await live()));
   }
 
+  // ---------------------------------------------------------------- a new battle from two teams
+  {
+    const team = (...mons) => mons.join('\n\n');
+    const t1 = team(['Garchomp @ Choice Scarf', 'Ability: Rough Skin', 'EVs: 252 Atk / 4 SpD / 252 Spe', 'Jolly Nature', '- Earthquake', '- Outrage', '- Stone Edge', '- Fire Fang'].join('\n'),
+      ['Rotom-Wash @ Leftovers', 'Ability: Levitate', 'EVs: 252 HP / 252 Def / 4 SpD', 'Bold Nature', '- Hydro Pump', '- Volt Switch', '- Will-O-Wisp', '- Protect'].join('\n'));
+    const t2 = team(['Great Tusk @ Booster Energy', 'Ability: Protosynthesis', 'EVs: 252 Atk / 4 Def / 252 Spe', 'Jolly Nature', '- Headlong Rush', '- Ice Spinner', '- Rapid Spin', '- Knock Off'].join('\n'),
+      ['Kingambit @ Black Glasses', 'Ability: Supreme Overlord', 'EVs: 252 HP / 252 Atk / 4 SpD', 'Adamant Nature', '- Kowtow Cleave', '- Sucker Punch', '- Iron Head', '- Swords Dance'].join('\n'));
+    await page.click('#home'); await sleep(300);
+    await page.$eval('#freshFormat', el => { el.value = 'gen9ou'; });
+    await page.$eval('#freshTeam1', (el, v) => { el.value = v; }, t1);
+    await page.$eval('#freshTeam2', (el, v) => { el.value = v; }, t2);
+    await page.click('#freshForm button[type=submit]');
+    await until(() => document.querySelector('#pickSec .rb-turn')?.textContent === 'Team preview' && document.querySelector('#rbTitle')?.textContent.includes('Player 1'), null, 60000);
+    await barReady();
+    const slotsNow = await page.$$eval('#pickSec .rb-slot:not(.quiet)', s => s.map(x => x.textContent.trim()));
+    check(await turnLabel() === 'Team preview' && slotsNow.length === 2 && slotsNow.every(s => s === 'Choose'), 'a new battle from two teams opens at team preview, nothing chosen', slotsNow.join(' | '));
+    for (const si of [0, 1]) { await openSlot(si); await page.click('#pickSec .rb-menu [data-pick]:not(:disabled)'); await sleep(150); }
+    await page.click('#btnPlayTurn');
+    await until(() => document.querySelector('#rbTitle .rb-mode'), null, 30000); await settled(); await barReady();
+    await openSlot(0);
+    const guesses = await page.$$eval('#pickSec .rb-menu .rb-mv.guess', g => g.length), moves = await page.$$eval('#pickSec .rb-menu .rb-mv b', b => b.map(x => x.textContent));
+    check(await inLine() && await turnLabel() === 'Turn 1' && guesses === 0 && moves.includes('Earthquake'), "its leads play, and both teams' moves are known (no guesses)", moves.join('/'));
+    await press('Escape');
+    await page.click('#home'); await sleep(300);
+    await page.$eval('#freshFormat', el => { el.value = 'gen9ou'; });
+    await page.$eval('#freshTeam1', el => { el.value = 'not a team'; });
+    await page.click('#freshForm button[type=submit]'); await sleep(500);
+    check(/no Pokémon found/.test(await text('#freshErr')) && await visible('#landing'), 'a team that is not one says so', await text('#freshErr'));
+    await page.click('#recent [data-visit]'); await barReady();   // (back to a battle for what follows)
+  }
+
   // ---------------------------------------------------------------- dark mode, phone width
   await page.click('.colorchooser button[value=dark]'); await sleep(200);
   const bg = await page.$eval('#studySec', el => getComputedStyle(el).backgroundColor);

@@ -4,6 +4,8 @@ import {S, E, pid, nameOf} from './state.js';
 export const isDoubles = () => S.rep.lines.includes('|gametype|doubles');
 // (triples, free-for-all and multi battles can only be watched)
 export const watchOnly = () => S.rep.lines.some(l => /^\|gametype\|(triples|freeforall|multi)/.test(l));
+// A battle started here from two teams (no move made in its log): nothing was played to follow, and both teams are known.
+export const isFresh = (rep = S.rep) => !rep.lines.some(l => l.startsWith('|move|'));
 export const startIndex = () => S.rep.lines.findIndex(l => l === '|start');
 export const playerName = si => S.cbEnd[pid(si)].name || 'Player ' + (si + 1);
 export const teamIndex = (si, name) => S.cbEnd[pid(si)].team.findIndex(p => p.name === name);

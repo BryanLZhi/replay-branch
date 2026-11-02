@@ -203,6 +203,7 @@ function promote(id) {
 
 // source/app/replay.js
 var watchOnly = () => S.rep.lines.some((l) => /^\|gametype\|(triples|freeforall|multi)/.test(l));
+var isFresh = (rep = S.rep) => !rep.lines.some((l) => l.startsWith("|move|"));
 var startIndex = () => S.rep.lines.findIndex((l) => l === "|start");
 var playerName = (si) => S.cbEnd[pid(si)].name || "Player " + (si + 1);
 var teamIndex = (si, name) => S.cbEnd[pid(si)].team.findIndex((p) => p.name === name);
@@ -752,7 +753,7 @@ function placesOf(pos, si, req) {
 var benchFree = (req, taken) => req.side.pokemon.map((p, n) => n).filter((n) => !req.side.pokemon[n].active && !/fnt/.test(req.side.pokemon[n].condition) && !taken.includes(n + 1));
 var switchedIn = (pick) => pick && /^switch \d+$/.test(pick) ? +pick.split(" ")[1] : 0;
 function playedPick(pos, si, place, req) {
-  if (pos.kind === "line") return null;
+  if (pos.kind === "line" || isFresh()) return null;
   const played = playedChoice(pos.t, si, place);
   if (!played) return null;
   const nth = (name) => req.side.pokemon.findIndex((p) => nameOf(p.ident) === name) + 1;
@@ -1166,8 +1167,8 @@ function renderStudy() {
   const rows = [
     row("r0", "", `<div class="a">Team preview</div>`, "start"),
     linesFrom("r0"),
-    row("r1", 0, ["p1", "p2"].map((p) => `<div class="a">\u2192 ${esc([leads[p + "a"], leads[p + "b"]].filter(Boolean).join(", ") || "?")}</div>`).join("")),
-    linesFrom("r1")
+    // (a new battle stopped at team preview has no leads yet)
+    ...leads.p1 || leads.p2 ? [row("r1", 0, ["p1", "p2"].map((p) => `<div class="a">\u2192 ${esc([leads[p + "a"], leads[p + "b"]].filter(Boolean).join(", ") || "?")}</div>`).join("")), linesFrom("r1")] : []
   ];
   for (let t = 1; t <= S.rep.lastTurn; t++) {
     const id = "r" + (t + 1);
@@ -1533,6 +1534,16 @@ function wireLanding() {
     if (id) visit(id);
   };
   $id("btnPasteLog").onclick = () => $id("btnLoad").click();
+  $id("freshForm").onsubmit = async (e) => {
+    e.preventDefault();
+    $id("freshErr").textContent = "";
+    try {
+      await startFresh($id("freshFormat").value, [$id("freshTeam1").value, $id("freshTeam2").value]);
+    } catch (err) {
+      showPage("landing");
+      $id("freshErr").textContent = err.message || String(err);
+    }
+  };
   $id("searchForm").onsubmit = (e) => {
     e.preventDefault();
     search();
@@ -1681,7 +1692,7 @@ async function openKey(key) {
     await loadText(await fetchReplay(id), { replayId: id, key });
   }
 }
-async function loadText(text, { shown = false, replayId = null, study = null, key = null, shared = false } = {}) {
+async function loadText(text, { shown = false, replayId = null, study = null, key = null, shared = false, known = null } = {}) {
   const t = String(text || "").trim();
   let exported = null;
   if (t.startsWith("{")) {
@@ -1700,8 +1711,14 @@ async function loadText(text, { shown = false, replayId = null, study = null, ke
   S.realDice.clear();
   S.stats = await fetchStats(rep.formatid);
   S.cbEnd = E.clientAt(rep, rep.lastTurn + 1);
-  S.base = E.revealedTeams(rep).map((team) => team.map((known) => E.suggestSet(known, S.stats, rep.gen)));
-  S.study = cleanStudy(study || exported?.study || loadSaved(S.key) || newStudy(), S.base);
+  S.base = E.revealedTeams(rep).map((team) => team.map((k) => E.suggestSet(k, S.stats, rep.gen)));
+  const raw = study || exported?.study || loadSaved(S.key);
+  const full = known || isFresh(rep) && raw?.sets;
+  if (full) S.base = S.base.map((side, si) => side.map((b) => {
+    const s = (full[si] || []).find((x) => x && x.name === b.name);
+    return s ? { ...b, ...s, pasted: true, fixed: { moves: s.moves.filter(Boolean), item: true, ability: true, tera: true } } : b;
+  }));
+  S.study = cleanStudy(raw || newStudy(), S.base);
   const was = S.study.meta || {};
   S.study.meta = {
     format: rep.tier || rep.formatid,
@@ -1716,7 +1733,19 @@ async function loadText(text, { shown = false, replayId = null, study = null, ke
   S.err = "";
   if (!shown) S.psMode = "";
   S.cur = "";
-  go("r0");
+  go(full && rep.lastTurn >= 1 ? "r1" : "r0");
+}
+async function startFresh(format, teamTexts) {
+  await S.ready;
+  const teams = await Promise.all(teamTexts.map(async (t, si) => {
+    const sets2 = E.parseTeam(await pasteText(t));
+    if (!sets2.length) throw new Error(`Team ${si + 1}: no Pok\xE9mon found.`);
+    return sets2;
+  }));
+  const { log, sets } = E.freshBattle(String(format || "").trim().toLowerCase().replace(/[^a-z0-9]/g, "") || "gen9ou", teams);
+  showPage("viewer");
+  await loadText(log, { known: sets });
+  history.pushState(null, "", "?r=" + encodeURIComponent(S.key));
 }
 var replayKey = (rep) => rep.meta.id || "log-" + hash(rep.lines.slice(0, 40).join("\n") + rep.lines.length);
 var statsIndex = null;

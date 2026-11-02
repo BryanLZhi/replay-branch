@@ -21,7 +21,7 @@ export function parseReplayInput(text) {
     log = m ? m[1].replace(/\\\//g, '/') : '';
   }
   const lines = log.split('\n').map(l => l.replace(/\r$/, ''));
-  if (!lines.some(l => l.startsWith('|start'))) throw new Error('No battle found: paste the replay log (it starts with lines like "|player|p1|...").');
+  if (!lines.some(l => l.startsWith('|start') || l.startsWith('|teampreview'))) throw new Error('No battle found: paste the replay log (it starts with lines like "|player|p1|...").');
   let tier = '', gen = 9;
   const turnIdx = [];          // turnIdx[t] = index of the "|turn|t" line
   let winIdx = -1;
@@ -38,7 +38,7 @@ export function parseReplayInput(text) {
     formatid = Dex.formats.get(alt).exists ? alt : Dex.formats.get(renamed).exists ? renamed
       : nearestFormat(formatid, gen, lines.includes('|gametype|doubles') ? 'doubles' : 'singles');
   }
-  const lastTurn = turnIdx.length - 1;
+  const lastTurn = Math.max(0, turnIdx.length - 1);   // (a battle that stops at team preview has turn 0 only)
   return {lines, tier, gen, formatid, turnIdx, lastTurn, winIdx, meta};
 }
 

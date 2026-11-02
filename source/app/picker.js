@@ -4,7 +4,7 @@
 // empty. A slot is keyed by its player and place: 'p1a', 'p1b', 'p2a'...
 import {S, E, $id, esc, pid, nameOf, stored, store, clearPicks} from './state.js';
 import {kids, pathTo, lineSets, addNode, deleteNode, compute, forget, save} from './study.js';
-import {playedChoice, matchesPlayed, moveNames, teamIndex, playerName, watchOnly} from './replay.js';
+import {playedChoice, matchesPlayed, moveNames, teamIndex, playerName, watchOnly, isFresh} from './replay.js';
 import {showPickerSetting, showPosition, isPlaying} from './viewer.js';
 import {renderPanels, go} from './navigation.js';
 import {movesDatalist} from './teams.js';
@@ -38,7 +38,7 @@ const switchedIn = pick => pick && /^switch \d+$/.test(pick) ? +pick.split(' ')[
 // What the replay's Pokemon did here, as a pick ('move 2', 'move 2 1' with a target in doubles, 'switch 4', 'team 1') and
 // its gimmick (null in a line).
 function playedPick(pos, si, place, req) {
-  if (pos.kind === 'line') return null;
+  if (pos.kind === 'line' || isFresh()) return null;
   const played = playedChoice(pos.t, si, place);
   if (!played) return null;
   const nth = name => req.side.pokemon.findIndex(p => nameOf(p.ident) === name) + 1;

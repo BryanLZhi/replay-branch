@@ -123,7 +123,7 @@ function monCard(si, k, set, types) {
 }
 
 // ---------------------------------------------------------------- import
-async function pasteText(input) {
+export async function pasteText(input) {
   const link = /^(?:https?:\/\/)?pokepast\.es\/([0-9a-f]+)/i.exec(input.trim());
   if (!link) return input;
   const r = await fetch(`https://pokepast.es/${link[1]}/json`);
