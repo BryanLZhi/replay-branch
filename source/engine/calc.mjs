@@ -1,7 +1,13 @@
 // Damage numbers from Smogon's damage calculator (@smogon/calc), on simulator positions and on the replay's own hits.
 import {Dex} from '@pkmn/sim';
+import {Generations} from '@pkmn/data';
 import {calculate, Pokemon as CalcPokemon, Move as CalcMove, Field as CalcField} from '@smogon/calc/dist/adaptable.js';
 import {gens} from './core.mjs';
+
+// The game data the calc works from: a generation's own, or for National Dex everything that ever existed (past moves,
+// Mega Stones, Z-Crystals).
+const everything = new Generations(Dex, d => !!d.exists);
+export const calcGen = (genNum, formatid = '') => (/nationaldex/.test(formatid) ? everything : gens).get(genNum);
 
 const WEATHER = {sunnyday: 'Sun', raindance: 'Rain', sandstorm: 'Sand', hail: 'Hail', snowscape: 'Snow', snow: 'Snow',
   desolateland: 'Harsh Sunshine', primordialsea: 'Heavy Rain', deltastream: 'Strong Winds'};
@@ -15,9 +21,17 @@ export function calcField({weather, terrain, pseudo = [], attacker = {}, defende
   return new CalcField({gameType: 'Singles', weather, terrain, isGravity: pseudo.includes('gravity'),
     isMagicRoom: pseudo.includes('magicroom'), isWonderRoom: pseudo.includes('wonderroom'), attackerSide: side(attacker), defenderSide: side(defender)});
 }
+// Abilities whose boost the calc adds by itself (it assumes the Pokemon just came in); the boosts we pass already have it.
+const SELF_BOOSTING = /^(Download|Intrepid Sword|Dauntless Shield|Wind Rider|Embody Aspect)/;
+
 // A calc Pokemon. hpPercent: current HP as a share of its max (the calc wants HP points).
 export function calcPokemon(gen, species, {hpPercent = 100, status, ...options}) {
   const opts = {...options, status: STATUSES.includes(status) ? status : ''};
+  if (SELF_BOOSTING.test(opts.ability || '')) opts.ability = 'Pressure';   // (no effect on damage)
+  if (gen.num <= 2) {   // one Special stat: the calc refuses differing Special Attack / Defense
+    if (opts.evs) opts.evs = {...opts.evs, spd: opts.evs.spa ?? 252};
+    if (opts.ivs) opts.ivs = {...opts.ivs, spd: opts.ivs.spa ?? 31};
+  }
   const full = new CalcPokemon(gen, species, opts);
   return hpPercent >= 100 ? full : new CalcPokemon(gen, species, {...opts, curHP: Math.max(1, Math.round(full.maxHP() * hpPercent / 100))});
 }
@@ -46,7 +60,7 @@ function fromSim(gen, p) {
 export function damageCalcs(battle, si) {
   const attacker = battle.sides[si].active[0], defender = battle.sides[1 - si].active[0];
   if (!attacker || !defender || attacker.fainted || defender.fainted) return [];
-  const gen = gens.get(battle.gen);
+  const gen = calcGen(battle.gen, battle.format.id);
   let a, d;
   try { a = fromSim(gen, attacker); d = fromSim(gen, defender); } catch { return []; }
   const field = calcField({weather: WEATHER[battle.field.weather], terrain: TERRAIN[battle.field.terrain], pseudo: Object.keys(battle.field.pseudoWeather),

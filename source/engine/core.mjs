@@ -55,14 +55,27 @@ export function clientAt(rep, t) {
   return cb;
 }
 // Feed one protocol line to a client battle. On a forme change (|detailschange|, which Terastallizing also sends) the client
-// takes the new forme's first ability as known; keep what was actually known unless the new forme has only one ability.
+// takes the new forme's first ability as known, and as its original one: keep what was known of the original ability, and
+// take the new one only when the new forme has just one (Mega Evolutions, Terapagos-Terastal...).
+// Mummy and Lingering Aroma also pass themselves on to the Pokemon that touched them (and Wandering Spirit swaps), which the
+// client does not record: "|-activate|<holder>|ability: Mummy|<other>|[ability] <the other's ability until now>".
 export function addLine(cb, args, kwArgs) {
   const poke = args[0] === 'detailschange' ? cb.getPokemon(args[1]) : null;
   const before = poke && {ability: poke.ability, baseAbility: poke.baseAbility};
   try { cb.add(args, kwArgs); } catch {}
   if (poke) {
     const abilities = Object.values(Dex.species.get(String(args[2]).split(',')[0]).abilities || {});
-    if (abilities.length !== 1) Object.assign(poke, before);
+    poke.baseAbility = before.baseAbility;
+    if (abilities.length !== 1) poke.ability = before.ability;
+  }
+  const passed = args[0] === '-activate' && /^ability: (Mummy|Lingering Aroma|Wandering Spirit)$/.exec(args[2] || '');
+  if (passed && args[3] && kwArgs.ability) {
+    try {
+      const holder = cb.getPokemon(args[1]), other = cb.getPokemon(args[3]);
+      other.baseAbility ||= toID(kwArgs.ability);
+      other.ability = toID(passed[1]);
+      if (passed[1] === 'Wandering Spirit') holder.ability = toID(kwArgs.ability);
+    } catch {}
   }
 }
 
@@ -87,26 +100,65 @@ function statsEntry(stats, species) {
   return stats[sp.name] || stats[sp.baseSpecies] || stats[species] || null;
 }
 export function knownOf(p) {
-  const moves = p.moveSlots.filter(m => !m.virtual).map(m => ({name: m.name, ppUsed: Array.isArray(m.ppUsed) ? m.ppUsed[0] : (m.ppUsed || 0)}));
-  const lostItem = ['knocked off', 'stolen', 'eaten', 'flung', 'consumed', 'incinerated', 'popped'].includes(p.lastItemEffect) || false;
+  const moves = p.moveSlots.filter(m => !m.virtual).map(m => ({name: m.name.replace(/^move: /, ''), ppUsed: Array.isArray(m.ppUsed) ? m.ppUsed[0] : (m.ppUsed || 0)}));
+  // (up to gen 4 a knocked off item stays held, unusable: the client marks the item itself)
+  const lostItem = ['knocked off', 'stolen', 'eaten', 'flung', 'consumed', 'incinerated', 'popped'].includes(p.lastItemEffect) || p.itemEffect === 'knocked off';
   const curItem = p.item ? itemName(p.item) : '';
   const lastItemName = p.lastItem ? itemName(p.lastItem) : '';
-  const abilityName = (p.baseAbility || p.ability) ? Dex.abilities.get(p.baseAbility || p.ability).name : '';
+  // a set is for the forme it starts in (Alakazam, not Alakazam-Mega; Palafin, not Palafin-Hero), with that forme's ability
+  const battleOnly = Dex.species.get(p.speciesForme).battleOnly;
+  const startForme = Dex.species.get((Array.isArray(battleOnly) ? battleOnly[0] : battleOnly) || p.speciesForme);
+  let abilityName = (p.baseAbility || p.ability) ? Dex.abilities.get(p.baseAbility || p.ability).name : '';
+  if (battleOnly && !Object.values(startForme.abilities || {}).includes(abilityName)) abilityName = '';
   return {
-    name: p.name, species: p.speciesForme, baseSpecies: p.baseSpeciesForme, level: p.level, gender: p.gender,
-    moves, item: curItem, lastItem: lastItemName, itemGone: lostItem && !p.item, ability: abilityName,
+    name: p.name, species: (Array.isArray(battleOnly) ? battleOnly[0] : battleOnly) || p.speciesForme, baseSpecies: p.baseSpeciesForme,
+    level: p.level, gender: p.gender,
+    moves, item: curItem, lastItem: lastItemName, itemGone: lostItem && (!p.item || p.itemEffect === 'knocked off'), ability: abilityName,
     tera: p.terastallized || (p.teraType && p.teraType !== '???' ? p.teraType : ''),
   };
+}
+// What the replay reveals about each side's Pokemon (knownOf, in team order), including the Z-Crystal behind a Z-Move.
+export function revealedTeams(rep) {
+  const known = endOf(rep).sides.slice(0, 2).map(side => side.team.map(knownOf));
+  for (let i = 0; i < rep.lines.length - 1; i++) {
+    const [, kind, who = ''] = rep.lines[i].split('|');
+    if (kind !== '-zpower') continue;
+    const next = rep.lines.slice(i + 1).find(l => l.startsWith('|move|' + who.slice(0, 2)));
+    const zmove = next && Dex.moves.get(next.split('|')[3]);
+    if (!zmove?.exists) continue;
+    const crystal = zmove.isZ ? Dex.items.get(zmove.isZ) : null;   // (a status Z-Move is logged as the move itself)
+    const mon = known[who.startsWith('p2') ? 1 : 0].find(k => k.name === who.replace(/^p\da: /, ''));
+    if (crystal && mon && !mon.item && !mon.lastItem) mon.item = crystal.name;
+  }
+  // the log names a damaging Z-Move or Max Move, not the move it came from: keep only its type (suggestSet finds a move of
+  // it; Max Guard came from some status move)
+  for (const mon of known.flat()) {
+    const z = mon.moves.filter(m => Dex.moves.get(m.name).isZ || Dex.moves.get(m.name).isMax);
+    if (!z.length) continue;
+    mon.moves = mon.moves.filter(m => !z.includes(m));
+    mon.zTypes = z.filter(m => Dex.moves.get(m.name).category !== 'Status').map(m => Dex.moves.get(m.name).type);
+  }
+  return known;
 }
 // A full set for the sim, built from what is known, then usage stats, then safe defaults. `fixed` marks the revealed parts.
 export function suggestSet(known, stats, gen) {
   const e = statsEntry(stats, known.species);
   const sp = Dex.species.get(known.species);
   const fixed = {moves: known.moves.map(m => m.name), item: !!(known.item || known.lastItem), ability: !!known.ability, tera: !!known.tera};
-  const moves = known.moves.map(m => m.name);
+  // the log names Hidden Power without its type: take the type from the stats when they have one
+  const hp = id => id.startsWith('hiddenpower') ? 'hiddenpower' : id;
+  const typedHP = ((e && e.m) || []).map(([mv]) => mv).find(mv => /^hiddenpower./.test(toID(mv)));
+  const moves = known.moves.map(m => toID(m.name) === 'hiddenpower' && typedHP ? typedHP : m.name);
   for (const [mv] of (e && e.m) || []) {
     if (moves.length >= 4) break;
-    if (!moves.some(x => toID(x) === toID(mv))) moves.push(mv);
+    if (!moves.some(x => hp(toID(x)) === hp(toID(mv)))) moves.push(mv);
+  }
+  // it used a Z-Move of a type none of its moves has: give it one (from the stats if they have one)
+  for (const type of known.zTypes || []) {
+    if (moves.some(m => Dex.moves.get(m).type === type && Dex.moves.get(m).category !== 'Status')) continue;
+    const mv = ((e && e.m) || []).map(([m]) => m).find(m => Dex.moves.get(m).type === type && Dex.moves.get(m).category !== 'Status') ||
+      Dex.moves.all().find(m => m.type === type && m.category !== 'Status' && m.basePower >= 70 && !m.isZ && !m.isMax && !m.isNonstandard)?.name;
+    if (mv) moves.splice(Math.min(moves.length, 3), moves.length >= 4 ? 1 : 0, mv);
   }
   if (!moves.length) moves.push('Tackle');   // never seen moving and no stats: a placeholder to edit (the sim needs a move)
   let item = known.item || known.lastItem || (e && e.i && e.i[0] ? itemName(e.i[0][0]) : '');
@@ -114,10 +166,23 @@ export function suggestSet(known, stats, gen) {
   let tera = known.tera || (e && e.t && e.t[0] ? e.t[0][0] : (sp.types ? sp.types[0] : ''));
   let nature = 'Serious', evs = {hp: 84, atk: 84, def: 84, spa: 84, spd: 84, spe: 84};
   if (e && e.s && e.s[0]) ({nature, evs} = parseSpread(e.s[0][0]));
-  if (gen <= 2) { nature = ''; }
-  const ivs = {hp: 31, atk: 31, def: 31, spa: 31, spd: 31, spe: 31};
+  if (gen <= 2) { nature = ''; evs = {hp: 252, atk: 252, def: 252, spa: 252, spd: 252, spe: 252}; }   // (Showdown's default: all maxed)
+  const ivs = hiddenPowerIVs(moves, gen) || {hp: 31, atk: 31, def: 31, spa: 31, spd: 31, spe: 31};
   return {name: known.name, species: known.species, level: known.level || 100, gender: known.gender || '',
     moves, item, itemGone: !!known.itemGone, ability, teraType: tera, nature, evs, ivs, fixed};
+}
+// In gens 2-7 Hidden Power's type comes from the IVs: the IVs that give the type of the set's Hidden Power (null if none).
+export function hiddenPowerIVs(moves, gen) {
+  const hp = moves.find(m => /^hiddenpower./.test(toID(m)));
+  if (!hp || gen < 2 || gen > 7) return null;
+  const type = Dex.forGen(gen).types.get(Dex.moves.get(hp).type);
+  const ivs = {hp: 31, atk: 31, def: 31, spa: 31, spd: 31, spe: 31};
+  if (gen === 2) {   // DVs (IV / 2); the HP DV is made from the others' lowest bits
+    const dv = {atk: 15, def: 15, spe: 15, spa: 15, ...type.HPdvs};
+    const hpDV = (dv.atk & 1) << 3 | (dv.def & 1) << 2 | (dv.spe & 1) << 1 | (dv.spa & 1);
+    Object.assign(ivs, {hp: hpDV * 2, atk: dv.atk * 2, def: dv.def * 2, spe: dv.spe * 2, spa: dv.spa * 2, spd: dv.spa * 2});
+  } else Object.assign(ivs, type.HPivs || {});
+  return ivs;
 }
 // Options to offer in the set editor: the species' usage list first, then everything legal-ish.
 export function setOptions(species, stats, gen) {
@@ -242,15 +307,50 @@ const VOLATILES = ['substitute', 'confusion', 'leechseed', 'taunt', 'encore', 'y
   'magnetrise', 'charge', 'stockpile', 'protosynthesis', 'quarkdrive', 'torment', 'disable', 'throatchop', 'healblock', 'smackdown', 'partiallytrapped',
   'flashfire', 'unburden', 'slowstart', 'glaiverush', 'tarshot', 'trapped', 'nightmare', 'embargo', 'imprison', 'gastroacid', 'laserfocus', 'noretreat', 'octolock', 'syrupbomb'];
 
-// sets[side][k] are full sets in the order of client side.team; returns {battle, ctl, notes}
+// Once-per-battle mechanics each side has used before turn t, and the turns a Dynamax still has.
+function gimmicksBefore(rep, t) {
+  const used = [{}, {}];
+  const last = t > rep.lastTurn ? rep.lines.length - 1 : rep.turnIdx[t];   // up to and including "|turn|t"
+  for (let i = 0; i <= last; i++) {
+    const [, kind, who = '', what = ''] = rep.lines[i].split('|');
+    if (kind === 'turn') { for (const u of used) if (u.dynamaxTurns) u.dynamaxTurns--; continue; }   // (it lasts 3 turns)
+    if (!/^p[12]/.test(who)) continue;
+    const side = used[who.startsWith('p2') ? 1 : 0];
+    if (kind === '-mega') side.mega = true;
+    else if (kind === '-burst') side.ultra = true;
+    else if (kind === '-zpower') side.zmove = true;
+    else if (kind === '-start' && what === 'Dynamax') { side.dynamax = true; side.dynamaxTurns = 3; }
+    else if (kind === '-end' && what === 'Dynamax') side.dynamaxTurns = 0;
+  }
+  return used;
+}
+
+// The client battle at the end of the replay (it knows every Pokemon the replay reveals), once per replay.
+const ends = new WeakMap();
+function endOf(rep) {
+  if (!ends.has(rep)) ends.set(rep, clientAt(rep, rep.lastTurn + 1));
+  return ends.get(rep);
+}
+// A side's team at some turn, plus the Pokemon the replay only reveals later (without team preview they are not known
+// yet, but they are on the team): those are in the back, unhurt.
+function withLaterReveals(teamNow, teamAtEnd) {
+  return teamNow.concat(teamAtEnd.slice(teamNow.length).map(p => ({
+    name: p.name, speciesForme: p.baseSpeciesForme || p.speciesForme, level: p.level, gender: p.gender, hp: 0, maxhp: 0, fainted: false,
+    status: '', boosts: {}, volatiles: {}, moveSlots: [], item: '', itemEffect: '', lastItem: '', lastItemEffect: '', ability: '', baseAbility: '',
+  })));
+}
+
+// sets[side][k] are full sets in the order of the replay's team (as at its end); returns {battle, ctl, notes}
 export function takeover(rep, t, sets, seed) {
   const cb = clientAt(rep, t);
+  const gimmicks = gimmicksBefore(rep, t);
   const notes = [];
   const battle = new SimBattle(seed ? {formatid: rep.formatid, seed} : {formatid: rep.formatid});
   const sides = [cb.p1, cb.p2];
+  const teams = sides.map((cs, si) => withLaterReveals(cs.team, endOf(rep).sides[si].team));
   const order = [];
   sides.forEach((cs, si) => {
-    const team = cs.team;
+    const team = teams[si];
     const act = cs.active[0];
     const idx = team.map((_, k) => k);
     const a = act ? team.indexOf(act) : -1;
@@ -292,9 +392,12 @@ export function takeover(rep, t, sets, seed) {
       ss.sideConditions[id] = st;
     }
     let left = 0;
-    const teraUsed = cs.team.some(p => p.terastallized);
+    const teraUsed = teams[si].some(p => p.terastallized);
+    const used = gimmicks[si];
+    if (used.zmove) ss.zMoveUsed = true;
+    if (used.dynamax) ss.dynamaxUsed = true;
     order[si].forEach((k, pos) => {
-      const cp = cs.team[k]; const sp = ss.pokemon[pos]; const set = sets[si][k];
+      const cp = teams[si][k]; const sp = ss.pokemon[pos]; const set = sets[si][k];
       // forme changes that persist (Palafin-Hero, Mimikyu-Busted, ...)
       if (cp.speciesForme && toID(cp.speciesForme) !== toID(sp.species.name) && Dex.species.get(cp.speciesForme).exists) {
         try { sp.formeChange(cp.speciesForme, null, true); } catch (e) { notes.push(`${cp.name}: could not set forme ${cp.speciesForme}.`); }
@@ -326,6 +429,8 @@ export function takeover(rep, t, sets, seed) {
         sp.terastallized = cp.terastallized; sp.teraType = cp.terastallized; sp.apparentType = cp.terastallized; sp.knownType = true;
       }
       if (teraUsed) sp.canTerastallize = null;
+      if (used.mega) { sp.canMegaEvo = false; sp.canMegaEvoX = false; sp.canMegaEvoY = false; }
+      if (used.ultra) sp.canUltraBurst = null;
       // active Pokemon details
       if (cs.active[0] === cp && !sp.fainted) {
         Object.assign(sp.boosts, cp.boosts || {});
@@ -354,6 +459,10 @@ export function takeover(rep, t, sets, seed) {
         sp.activeMoveActions = cp.movesUsedWhileActive ? cp.movesUsedWhileActive.length : 1;
         sp.activeTurns = Math.max(1, sp.activeMoveActions);
         sp.lastMove = cp.lastMove && cp.lastMove !== 'switch-in' ? Dex.moves.get(cp.lastMove) : null;
+        if (used.dynamaxTurns > 0) {   // still Dynamaxed: doubles its HP, as it was
+          sp.addVolatile('dynamax');
+          if (sp.volatiles.dynamax) sp.volatiles.dynamax.duration = used.dynamaxTurns;
+        }
       }
     });
     ss.pokemonLeft = left;

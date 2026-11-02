@@ -35,6 +35,7 @@ The repository root is the site (GitHub Pages). Everything in it except `sample.
 | `source/stats/build_stats.py` | rebuilds `stats/` |
 | `source/test/e2e.mjs` | end-to-end test that drives the page like a visitor |
 | `source/test/paste-check.mjs` | simulates battles between known teams to test the import checks (true sets pass, wrong ones are caught) |
+| `source/test/takeover-check.mjs` | takes over every turn of recent replays and checks the position offers what the players did (moves, switches, Mega Evolution, Z-Moves, Dynamax, Tera) |
 
 ## Development
 
@@ -43,7 +44,8 @@ npm install
 npm run build:engine   # everything, including engine.js (only needed when source/engine changes)
 npm run build          # everything else
 RBV_PW=<password> npm test   # serves the built site and tests it in Edge/Chrome; or: node source/test/e2e.mjs <url>
-npm run test:paste           # the import checks against simulated battles
+npm run test:paste           # the import checks against simulated battles (node source/test/paste-check.mjs <battles> <seed> <format>)
+npm run test:takeover        # taking over every turn of recent replays, gens 1-9
 ```
 
 The password gate's hash is read from `RBV_PW_HASH` or `source/.pwhash` (SHA-256 of `rbv:<password>`, not committed). Without it the

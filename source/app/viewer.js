@@ -1,7 +1,7 @@
 // The Showdown replay viewer (replay-embed.js builds it; we drive Replays.battle).
 // Replay positions seek the replay's own battle; a line gets a fresh battle fed the replay up to where the line starts,
 // then the line's protocol, so it plays exactly like a real replay.
-import {S, $id, esc} from './state.js';
+import {S, $id, esc, clearPicks} from './state.js';
 import {isReplayPos, replayTurn, pathTo, compute} from './study.js';
 import {startIndex, playerName} from './replay.js';
 import {renderPanels, position, go, step} from './navigation.js';
@@ -67,7 +67,7 @@ function onBattleEvent(state) {
   if (S.stopAt && b.turn >= S.stopAt) { S.stopAt = null; b.pause(); }
   const t = b.ended ? S.rep.lastTurn + 1 : Math.min(b.turn, S.rep.lastTurn + 1);
   const playing = isPlaying();
-  if ('r' + t !== S.cur) { S.cur = 'r' + t; S.sel = {}; S.tera = {}; renderPanels(); }
+  if ('r' + t !== S.cur) { S.cur = 'r' + t; clearPicks(); renderPanels(); }
   else if (playing !== S.wasPlaying) renderPicker(position());
   S.wasPlaying = playing;
 }

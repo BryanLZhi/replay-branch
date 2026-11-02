@@ -10,7 +10,7 @@ export const S = {
   study: null,        // {rbv, sets, nodes, kids, notes, seq}, saved per replay
   cur: '',            // current position: 'r<turn>' on the replay ('r0' = team preview), 'n<id>' in one of your lines
   sel: {},            // picks made so far this turn, by player ('p1', 'p2')
-  tera: {},           // Terastallize ticked, by player
+  gimmick: {},        // by player: 'terastallize', 'mega', 'megax', 'megay', 'ultra', 'zmove' or 'dynamax' ticked with the move
   err: '',            // last error to show in the picker
   tab: 'study',       // 'study' or 'teams'
   deleteArmed: null,  // line node that a second click on "Delete from here" will delete
@@ -26,6 +26,9 @@ export const S = {
 // The engine module (engine.js); set once at start-up.
 export let E = null;
 export function setEngine(engine) { E = engine; }
+
+// Forget this turn's picks.
+export function clearPicks() { S.sel = {}; S.gimmick = {}; }
 
 export const $id = id => document.getElementById(id);
 export const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));

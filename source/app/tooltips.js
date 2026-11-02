@@ -1,5 +1,5 @@
 // Showdown's own tooltips (battle-tooltips.js) on the move picker's buttons, as in a real battle.
-// Buttons carry data-tooltip="move|<index in the request>" or "switchpokemon|<index in the team>", and data-note for an
+// Buttons carry data-tooltip="move|<index in the request>|<zmove or maxmove when shown as one>" or "switchpokemon|<index in the team>", and data-note for an
 // extra line ("Guessed", "Used in the replay"), and moves data-calc with the damage calc's result.
 import {S, esc} from './state.js';
 
@@ -23,7 +23,7 @@ function serverPokemon(p) {
 
 function showTooltip(elem) {
   if (!request) return false;
-  const [type, n] = elem.dataset.tooltip.split('|');
+  const [type, n, as] = elem.dataset.tooltip.split('|');
   const {si, req} = request;
   tips.battle = S.psb;
   let html;
@@ -32,7 +32,7 @@ function showTooltip(elem) {
       const active = S.psb.sides[si].active[0];
       if (!active) return false;
       const move = req.active[0].moves[n];
-      html = tips.showMoveTooltip(S.psb.dex.moves.get(move.id || move.move), 'move', active, serverPokemon(req.side.pokemon.find(p => p.active)));
+      html = tips.showMoveTooltip(S.psb.dex.moves.get(move.id || move.move), as || 'move', active, serverPokemon(req.side.pokemon.find(p => p.active)));
     } else {
       html = tips.showPokemonTooltip(null, serverPokemon(req.side.pokemon[n]));
     }

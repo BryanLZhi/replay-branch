@@ -1,15 +1,15 @@
 // The move picker: "What will X do?" for one player at a time, under the replay controls.
 // Picking what the replay's players did plays the replay's own turn; anything else starts (or continues) a line.
-import {S, E, $id, esc, pid, nameOf, stored, store} from './state.js';
+import {S, E, $id, esc, pid, nameOf, stored, store, clearPicks} from './state.js';
 import {kids, pathTo, lineSets, addNode, deleteNode, compute, forget, save} from './study.js';
-import {playedChoice, matchesPlayed, teamIndex} from './replay.js';
+import {playedChoice, matchesPlayed, moveNames, teamIndex} from './replay.js';
 import {showPickerSetting, showPosition} from './viewer.js';
 import {renderPanels, go} from './navigation.js';
 import {movesDatalist} from './teams.js';
 import {setTooltipRequest} from './tooltips.js';
 
 export const pickerOn = () => stored('rb-picker', 'on') !== 'off';
-export function setPicker(on) { store('rb-picker', on ? 'on' : 'off'); S.sel = {}; S.tera = {}; renderPanels(); }
+export function setPicker(on) { store('rb-picker', on ? 'on' : 'off'); clearPicks(); renderPanels(); }
 
 const typeTag = t => t ? `<span class="rb-type t-${esc(t)}">${esc(t)}</span>` : '';
 const icon = species => { try { return Dex.getPokemonIcon(species); } catch { return ''; } };
@@ -47,10 +47,12 @@ export function renderPicker(pos) {
     S.sel[pid(si)] = b.dataset.pick; S.err = '';
     if (whoChooses(pos.battle).next) renderPicker(pos); else playTurn(pos);
   };
-  const tera = $id('teraBox'); if (tera) tera.onchange = () => { S.tera[pid(si)] = tera.checked; };
+  for (const box of el.querySelectorAll('[data-gimmick]')) box.onchange = () => {
+    S.gimmick[pid(si)] = box.checked ? box.dataset.gimmick : ''; renderPicker(pos);   // (Z-Power and Dynamax rename the moves)
+  };
   if (undo) $id('btnUndo').onclick = () => {
     const last = need.filter(x => S.sel[pid(x.si)]).pop();
-    delete S.sel[pid(last.si)]; delete S.tera[pid(last.si)];
+    delete S.sel[pid(last.si)]; delete S.gimmick[pid(last.si)];
     renderPicker(pos);
   };
   for (const b of el.querySelectorAll('[data-edit]')) b.onclick = () => editGuessedMove(pos, si, active, b);
@@ -63,25 +65,40 @@ function leadButtons(req, played) {
   }).join('')}</div>`;
 }
 
+// The once-per-battle mechanics this Pokemon can use with its move this turn, in Showdown's words.
+function gimmicks(act) {
+  return [
+    act.canMegaEvo && ['mega', 'Mega Evolution'], act.canMegaEvoX && ['megax', 'Mega Evolution X'], act.canMegaEvoY && ['megay', 'Mega Evolution Y'],
+    act.canUltraBurst && ['ultra', 'Ultra Burst'], act.canZMove && ['zmove', 'Z-Power'], act.canDynamax && ['dynamax', 'Dynamax'],
+    act.canTerastallize && ['terastallize', 'Terastallize'],
+  ].filter(Boolean);
+}
+
 function moveButtons(pos, si, req, active, played) {
   const act = req.active[0];
+  const gimmick = S.gimmick[pid(si)] || '';
+  // with Z-Power ticked the buttons are the Z-Moves; Dynamaxing (or Dynamaxed) the Max Moves
+  const mode = gimmick === 'zmove' ? 'zmove' : gimmick === 'dynamax' || (act.maxMoves && !act.canDynamax) ? 'maxmove' : '';
   const k = teamIndex(si, active);
   const known = k >= 0 ? S.base[si][k].fixed.moves.map(E.toID) : [];
   const pasted = k >= 0 && (pos.kind === 'line' ? lineSets(S.cur) : S.study.sets)[si][k].pasted;
-  const calcs = E.damageCalcs(pos.battle, si);
+  const calcs = mode ? [] : E.damageCalcs(pos.battle, si);   // (the calc numbers are for the regular moves)
   const moves = act.moves.map((m, i) => {
-    const type = E.Dex.moves.get(m.id || m.move).type || 'Normal';
-    const was = played && played.kind === 'move' && E.toID(played.name) === E.toID(m.move);
+    const as = mode === 'zmove' ? act.canZMove[i] : mode === 'maxmove' ? act.maxMoves.maxMoves[i] : null;
+    const type = E.Dex.moves.get(as ? as.move : m.id || m.move).type || 'Normal';
+    const was = played && played.kind === 'move' && moveNames(act, i + 1).includes(E.toID(played.name));
     const guessed = k >= 0 && !pasted && !known.includes(E.toID(m.move)) && !['struggle', 'recharge'].includes(E.toID(m.move));
     const note = guessed ? 'Guessed' : was ? 'Used in the replay' : '';
+    const disabled = m.disabled || m.pp === 0 || (mode === 'zmove' && !as);
     return `<div class="rb-mvwrap"><button type="button" class="rb-mv has-tooltip t-${esc(type)} ${was ? 'played' : ''} ${guessed ? 'guess' : ''}" data-pick="move ${i + 1}" ` +
-      `data-tooltip="move|${i}" ${note ? `data-note="${note}"` : ''} ${calcs[i] ? `data-calc="${esc(calcs[i].desc)}"` : ''} ${m.disabled || m.pp === 0 ? 'disabled' : ''}>` +
-      `<b>${esc(m.move)}</b><small><span>${esc(type)}</span>${calcs[i] ? `<span class="rb-dmg">${esc(calcs[i].range)}</span>` : ''}` +
+      `data-tooltip="move|${i}|${mode}" ${note ? `data-note="${note}"` : ''} ${calcs[i]?.desc ? `data-calc="${esc(calcs[i].desc)}"` : ''} ${disabled ? 'disabled' : ''}>` +
+      `<b>${esc(as ? E.Dex.moves.get(as.move).name : m.move)}</b><small><span>${esc(type)}</span>${calcs[i] ? `<span class="rb-dmg">${esc(calcs[i].range)}</span>` : ''}` +
       `<span>${m.maxpp ? `${m.pp}/${m.maxpp}` : ''}</span></small></button>` +
       (guessed ? `<button type="button" class="rb-edit" data-edit="${esc(m.move)}" title="Change this guessed move" aria-label="Change ${esc(m.move)}"><i class="fa fa-pencil" aria-hidden="true"></i></button>` : '') + `</div>`;
   });
-  const tera = act.canTerastallize ? `<p class="rb-row" style="margin-top:6px"><label><input type="checkbox" id="teraBox" ${S.tera[pid(si)] ? 'checked' : ''}> Terastallize</label> ${typeTag(act.canTerastallize)}</p>` : '';
-  return `<div class="rb-moves">${moves.join('')}</div>${tera}`;
+  const boxes = gimmicks(act).map(([value, label]) => `<label><input type="checkbox" data-gimmick="${value}" ${gimmick === value ? 'checked' : ''}> ${label}</label>` +
+    (value === 'terastallize' ? ' ' + typeTag(act.canTerastallize) : '')).join(' ');
+  return `<div class="rb-moves">${moves.join('')}</div>${boxes ? `<p class="rb-row" style="margin-top:6px">${boxes}</p>` : ''}`;
 }
 
 function switchButtons(req, forced, played) {
@@ -119,7 +136,7 @@ function replaceMove(pos, si, k, oldMove, newMove) {
   const swap = sets => { const moves = sets[si][k].moves; const j = moves.findIndex(m => E.toID(m) === E.toID(oldMove)); if (j >= 0) moves[j] = mv.name; };
   swap(S.study.sets);
   if (pos.kind === 'line') { const root = pathTo(S.cur)[0]; swap(S.study.nodes[root].sets); forget(root); }
-  save(); S.err = ''; S.sel = {}; S.tera = {};
+  save(); S.err = ''; clearPicks();
   if (pos.kind === 'line') showPosition(false);
   renderPanels();
 }
@@ -130,13 +147,13 @@ export function playTurn(pos) {
   pos.battle.sides.forEach((side, si) => {
     if (!side.activeRequest || side.activeRequest.wait) return;
     let c = S.sel[pid(si)];
-    if (c.startsWith('move') && S.tera[pid(si)]) c += ' terastallize';
+    if (c.startsWith('move') && S.gimmick[pid(si)]) c += ' ' + S.gimmick[pid(si)];
     choices[pid(si)] = c;
   });
-  const reset = () => { S.sel = {}; S.tera = {}; S.err = ''; };
+  const reset = () => { clearPicks(); S.err = ''; };
   const onReplay = pos.kind === 'turn' || pos.kind === 'preview';
   if (onReplay && pos.battle.sides.every((side, si) => !side.activeRequest || side.activeRequest.wait ||
-      matchesPlayed(side, S.sel[pid(si)], S.tera[pid(si)], playedChoice(pos.t, si)))) {
+      matchesPlayed(side, S.sel[pid(si)], S.gimmick[pid(si)], playedChoice(pos.t, si)))) {
     reset();
     S.stopAt = pos.t + 1;
     if (pos.t === 0) S.psb.reset(); else S.psb.seekTurn(pos.t);

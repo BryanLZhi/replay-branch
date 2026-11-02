@@ -18,8 +18,8 @@ var S = {
   // current position: 'r<turn>' on the replay ('r0' = team preview), 'n<id>' in one of your lines
   sel: {},
   // picks made so far this turn, by player ('p1', 'p2')
-  tera: {},
-  // Terastallize ticked, by player
+  gimmick: {},
+  // by player: 'terastallize', 'mega', 'megax', 'megay', 'ultra', 'zmove' or 'dynamax' ticked with the move
   err: "",
   // last error to show in the picker
   tab: "study",
@@ -43,6 +43,10 @@ var S = {
 var E = null;
 function setEngine(engine) {
   E = engine;
+}
+function clearPicks() {
+  S.sel = {};
+  S.gimmick = {};
 }
 var $id = (id) => document.getElementById(id);
 var esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
@@ -183,32 +187,38 @@ function turnLines(t) {
   return S.rep.lines.slice(a + 1, b);
 }
 var turnSummary = (t) => E.summarize(turnLines(t));
+var GIMMICKS = { "-terastallize": "terastallize", "-mega": "mega", "-burst": "ultra", "-zpower": "zmove" };
+var gimmickOf = (kind, what) => GIMMICKS[kind] || (kind === "-start" && what === "Dynamax" ? "dynamax" : "");
+var family = (g) => g && g.startsWith("mega") ? "mega" : g || "";
 function playedChoice(t, si) {
   const p = pid(si);
   if (t === 0) {
     const lead = E.replayLeads(S.rep)[p];
     return lead ? { kind: "lead", name: lead } : null;
   }
-  let first = null, tera = false;
+  let first = null, gimmick = "";
   for (const line of turnLines(t)) {
     const [, kind, who = "", what] = line.split("|");
     if (!who.startsWith(p)) continue;
-    if (kind === "-terastallize") tera = true;
+    gimmick || (gimmick = gimmickOf(kind, what));
     if (first) continue;
     if (kind === "move" && !line.includes("[from]")) first = { kind: "move", name: what };
     else if (kind === "switch") first = { kind: "switch", name: nameOf(who) };
     else if (kind === "cant") first = { kind: "cant" };
   }
-  return first && { ...first, tera };
+  return first && { ...first, gimmick };
 }
-function matchesPlayed(side, pick, tera, played) {
+function moveNames(active, n) {
+  return [active.moves[n - 1]?.move, active.canZMove?.[n - 1]?.move, active.maxMoves?.maxMoves?.[n - 1]?.move].filter(Boolean).map((m) => E.toID(m).replace(/^hiddenpower.+/, "hiddenpower").replace(/^(return|frustration)\d+$/, "$1"));
+}
+function matchesPlayed(side, pick, gimmick, played) {
   if (!played || !pick) return false;
   const [kind, n] = pick.split(" ");
   const req = side.activeRequest;
   if (played.kind === "lead") return nameOf(req.side.pokemon[n - 1].ident) === played.name;
   if (played.kind === "cant") return kind === "move";
   if (kind !== played.kind) return false;
-  if (kind === "move") return E.toID(req.active[0].moves[n - 1].move) === E.toID(played.name) && !!tera === !!played.tera;
+  if (kind === "move") return moveNames(req.active[0], n).includes(E.toID(played.name)) && family(gimmick) === family(played.gimmick);
   return nameOf(req.side.pokemon[n - 1].ident) === played.name;
 }
 
@@ -440,7 +450,7 @@ function serverPokemon(p) {
 }
 function showTooltip(elem) {
   if (!request) return false;
-  const [type, n] = elem.dataset.tooltip.split("|");
+  const [type, n, as] = elem.dataset.tooltip.split("|");
   const { si, req } = request;
   tips.battle = S.psb;
   let html;
@@ -449,7 +459,7 @@ function showTooltip(elem) {
       const active = S.psb.sides[si].active[0];
       if (!active) return false;
       const move = req.active[0].moves[n];
-      html = tips.showMoveTooltip(S.psb.dex.moves.get(move.id || move.move), "move", active, serverPokemon(req.side.pokemon.find((p) => p.active)));
+      html = tips.showMoveTooltip(S.psb.dex.moves.get(move.id || move.move), as || "move", active, serverPokemon(req.side.pokemon.find((p) => p.active)));
     } else {
       html = tips.showPokemonTooltip(null, serverPokemon(req.side.pokemon[n]));
     }
@@ -467,8 +477,7 @@ function showTooltip(elem) {
 var pickerOn = () => stored("rb-picker", "on") !== "off";
 function setPicker(on) {
   store("rb-picker", on ? "on" : "off");
-  S.sel = {};
-  S.tera = {};
+  clearPicks();
   renderPanels();
 }
 var typeTag2 = (t) => t ? `<span class="rb-type t-${esc(t)}">${esc(t)}</span>` : "";
@@ -510,14 +519,14 @@ function renderPicker(pos) {
     if (whoChooses(pos.battle).next) renderPicker(pos);
     else playTurn(pos);
   };
-  const tera = $id("teraBox");
-  if (tera) tera.onchange = () => {
-    S.tera[pid(si)] = tera.checked;
+  for (const box of el.querySelectorAll("[data-gimmick]")) box.onchange = () => {
+    S.gimmick[pid(si)] = box.checked ? box.dataset.gimmick : "";
+    renderPicker(pos);
   };
   if (undo) $id("btnUndo").onclick = () => {
     const last = need.filter((x) => S.sel[pid(x.si)]).pop();
     delete S.sel[pid(last.si)];
-    delete S.tera[pid(last.si)];
+    delete S.gimmick[pid(last.si)];
     renderPicker(pos);
   };
   for (const b of el.querySelectorAll("[data-edit]")) b.onclick = () => editGuessedMove(pos, si, active, b);
@@ -529,21 +538,36 @@ function leadButtons(req, played) {
     return `<button type="button" class="button rb-sw has-tooltip ${was ? "played" : ""}" data-pick="team ${n + 1}" data-tooltip="switchpokemon|${n}" ${was ? 'data-note="Lead in the replay"' : ""}><span class="rb-picon" style="${icon2(p.details.split(",")[0])}"></span>${esc(name)}</button>`;
   }).join("")}</div>`;
 }
+function gimmicks(act) {
+  return [
+    act.canMegaEvo && ["mega", "Mega Evolution"],
+    act.canMegaEvoX && ["megax", "Mega Evolution X"],
+    act.canMegaEvoY && ["megay", "Mega Evolution Y"],
+    act.canUltraBurst && ["ultra", "Ultra Burst"],
+    act.canZMove && ["zmove", "Z-Power"],
+    act.canDynamax && ["dynamax", "Dynamax"],
+    act.canTerastallize && ["terastallize", "Terastallize"]
+  ].filter(Boolean);
+}
 function moveButtons(pos, si, req, active, played) {
   const act = req.active[0];
+  const gimmick = S.gimmick[pid(si)] || "";
+  const mode = gimmick === "zmove" ? "zmove" : gimmick === "dynamax" || act.maxMoves && !act.canDynamax ? "maxmove" : "";
   const k = teamIndex(si, active);
   const known = k >= 0 ? S.base[si][k].fixed.moves.map(E.toID) : [];
   const pasted = k >= 0 && (pos.kind === "line" ? lineSets(S.cur) : S.study.sets)[si][k].pasted;
-  const calcs = E.damageCalcs(pos.battle, si);
+  const calcs = mode ? [] : E.damageCalcs(pos.battle, si);
   const moves = act.moves.map((m, i) => {
-    const type = E.Dex.moves.get(m.id || m.move).type || "Normal";
-    const was = played && played.kind === "move" && E.toID(played.name) === E.toID(m.move);
+    const as = mode === "zmove" ? act.canZMove[i] : mode === "maxmove" ? act.maxMoves.maxMoves[i] : null;
+    const type = E.Dex.moves.get(as ? as.move : m.id || m.move).type || "Normal";
+    const was = played && played.kind === "move" && moveNames(act, i + 1).includes(E.toID(played.name));
     const guessed = k >= 0 && !pasted && !known.includes(E.toID(m.move)) && !["struggle", "recharge"].includes(E.toID(m.move));
     const note = guessed ? "Guessed" : was ? "Used in the replay" : "";
-    return `<div class="rb-mvwrap"><button type="button" class="rb-mv has-tooltip t-${esc(type)} ${was ? "played" : ""} ${guessed ? "guess" : ""}" data-pick="move ${i + 1}" data-tooltip="move|${i}" ${note ? `data-note="${note}"` : ""} ${calcs[i] ? `data-calc="${esc(calcs[i].desc)}"` : ""} ${m.disabled || m.pp === 0 ? "disabled" : ""}><b>${esc(m.move)}</b><small><span>${esc(type)}</span>${calcs[i] ? `<span class="rb-dmg">${esc(calcs[i].range)}</span>` : ""}<span>${m.maxpp ? `${m.pp}/${m.maxpp}` : ""}</span></small></button>` + (guessed ? `<button type="button" class="rb-edit" data-edit="${esc(m.move)}" title="Change this guessed move" aria-label="Change ${esc(m.move)}"><i class="fa fa-pencil" aria-hidden="true"></i></button>` : "") + `</div>`;
+    const disabled = m.disabled || m.pp === 0 || mode === "zmove" && !as;
+    return `<div class="rb-mvwrap"><button type="button" class="rb-mv has-tooltip t-${esc(type)} ${was ? "played" : ""} ${guessed ? "guess" : ""}" data-pick="move ${i + 1}" data-tooltip="move|${i}|${mode}" ${note ? `data-note="${note}"` : ""} ${calcs[i]?.desc ? `data-calc="${esc(calcs[i].desc)}"` : ""} ${disabled ? "disabled" : ""}><b>${esc(as ? E.Dex.moves.get(as.move).name : m.move)}</b><small><span>${esc(type)}</span>${calcs[i] ? `<span class="rb-dmg">${esc(calcs[i].range)}</span>` : ""}<span>${m.maxpp ? `${m.pp}/${m.maxpp}` : ""}</span></small></button>` + (guessed ? `<button type="button" class="rb-edit" data-edit="${esc(m.move)}" title="Change this guessed move" aria-label="Change ${esc(m.move)}"><i class="fa fa-pencil" aria-hidden="true"></i></button>` : "") + `</div>`;
   });
-  const tera = act.canTerastallize ? `<p class="rb-row" style="margin-top:6px"><label><input type="checkbox" id="teraBox" ${S.tera[pid(si)] ? "checked" : ""}> Terastallize</label> ${typeTag2(act.canTerastallize)}</p>` : "";
-  return `<div class="rb-moves">${moves.join("")}</div>${tera}`;
+  const boxes = gimmicks(act).map(([value, label2]) => `<label><input type="checkbox" data-gimmick="${value}" ${gimmick === value ? "checked" : ""}> ${label2}</label>` + (value === "terastallize" ? " " + typeTag2(act.canTerastallize) : "")).join(" ");
+  return `<div class="rb-moves">${moves.join("")}</div>${boxes ? `<p class="rb-row" style="margin-top:6px">${boxes}</p>` : ""}`;
 }
 function switchButtons(req, forced, played) {
   const trapped = !forced && req.active && req.active[0].trapped;
@@ -603,8 +627,7 @@ function replaceMove(pos, si, k, oldMove, newMove) {
   }
   save();
   S.err = "";
-  S.sel = {};
-  S.tera = {};
+  clearPicks();
   if (pos.kind === "line") showPosition(false);
   renderPanels();
 }
@@ -613,16 +636,15 @@ function playTurn(pos) {
   pos.battle.sides.forEach((side, si) => {
     if (!side.activeRequest || side.activeRequest.wait) return;
     let c = S.sel[pid(si)];
-    if (c.startsWith("move") && S.tera[pid(si)]) c += " terastallize";
+    if (c.startsWith("move") && S.gimmick[pid(si)]) c += " " + S.gimmick[pid(si)];
     choices[pid(si)] = c;
   });
   const reset = () => {
-    S.sel = {};
-    S.tera = {};
+    clearPicks();
     S.err = "";
   };
   const onReplay = pos.kind === "turn" || pos.kind === "preview";
-  if (onReplay && pos.battle.sides.every((side, si) => !side.activeRequest || side.activeRequest.wait || matchesPlayed(side, S.sel[pid(si)], S.tera[pid(si)], playedChoice(pos.t, si)))) {
+  if (onReplay && pos.battle.sides.every((side, si) => !side.activeRequest || side.activeRequest.wait || matchesPlayed(side, S.sel[pid(si)], S.gimmick[pid(si)], playedChoice(pos.t, si)))) {
     reset();
     S.stopAt = pos.t + 1;
     if (pos.t === 0) S.psb.reset();
@@ -913,8 +935,7 @@ function go(id, { animate = false, force = false } = {}) {
   if (isReplayPos(id) ? replayTurn(id) < 0 || replayTurn(id) > S.rep.lastTurn + 1 : !S.study.nodes[id]) return;
   const moved = S.cur !== id;
   if (moved) {
-    S.sel = {};
-    S.tera = {};
+    clearPicks();
     S.err = "";
   }
   S.cur = id;
@@ -950,11 +971,8 @@ function onKey(e) {
       b.click();
     }
   } else if (e.key === "t" || e.key === "T") {
-    const box = $id("teraBox");
-    if (box) {
-      box.checked = !box.checked;
-      box.dispatchEvent(new Event("change"));
-    }
+    const box = picker.querySelector("[data-gimmick]");
+    if (box) box.click();
   }
 }
 
@@ -1031,8 +1049,7 @@ function onBattleEvent(state) {
   const playing = isPlaying();
   if ("r" + t !== S.cur) {
     S.cur = "r" + t;
-    S.sel = {};
-    S.tera = {};
+    clearPicks();
     renderPanels();
   } else if (playing !== S.wasPlaying) renderPicker(position());
   S.wasPlaying = playing;
@@ -1090,13 +1107,12 @@ async function loadText(text, { shown = false, replayId = null, study = null } =
   S.replayPos.clear();
   S.stats = await fetchStats(rep.formatid);
   S.cbEnd = E.clientAt(rep, rep.lastTurn + 1);
-  S.base = [S.cbEnd.p1, S.cbEnd.p2].map((side) => side.team.map((p) => E.suggestSet(E.knownOf(p), S.stats, rep.gen)));
+  S.base = E.revealedTeams(rep).map((team) => team.map((known) => E.suggestSet(known, S.stats, rep.gen)));
   S.study = study || exported?.study || loadSaved(S.key) || newStudy();
   const fits = S.study.sets?.length === 2 && S.study.sets.every((side, si) => side.length === S.base[si].length);
   if (!fits) S.study.sets = clone(S.base);
   if (study || exported) save();
-  S.sel = {};
-  S.tera = {};
+  clearPicks();
   S.err = "";
   if (!shown) S.psMode = "";
   S.cur = "";

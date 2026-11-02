@@ -10,8 +10,10 @@ import {fileURLToPath} from 'url';
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const browserPath = [process.env.CHROME, 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe', 'C:/Program Files/Microsoft/Edge/Application/msedge.exe',
   'C:/Program Files/Google/Chrome/Application/chrome.exe', '/usr/bin/google-chrome', '/usr/bin/chromium'].find(p => p && fs.existsSync(p));
-// One replay per kind of format: team preview + Tera, an old gen, no team preview (random battle), and gen 3.
-const FORMATS = ['gen9ou', 'gen4ou', 'gen9randombattle', 'gen3ou'];
+// One replay per kind of format: team preview + Tera, Mega Evolution + Z-Moves, Dynamax (random battles), no team preview,
+// the oldest gens.
+const FORMATS = ['gen9ou', 'gen7ou', 'gen8randombattle', 'gen9randombattle', 'gen4ou', 'gen3ou', 'gen2ou', 'gen1ou'];
+const GIMMICK_FORMATS = ['gen7ou', 'gen8randombattle'];   // where a Mega Evolution / Z-Power / Dynamax box should turn up
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 let failures = 0;
@@ -295,6 +297,26 @@ try {
     await branchTurn();
     const err = await text('#pickSec .rb-err');
     check(await inLine() && !err, `${format}: taking over a turn works`, err);
+    if (GIMMICK_FORMATS.includes(format)) {
+      // back on the replay, walk the turns to one where the player to move can Mega Evolve / use Z-Power / Dynamax
+      await control('reset'); await sleep(400);
+      for (let i = 0; i < 60 && !await page.$('#pickSec [data-gimmick]:not([data-gimmick=terastallize])'); i++) { await press('ArrowRight'); await sleep(200); }
+      const box = await page.$('#pickSec [data-gimmick]:not([data-gimmick=terastallize])');
+      if (!box) { check(false, `${format}: a Mega Evolution / Z-Power / Dynamax choice turns up`); continue; }
+      const kind = await box.evaluate(b => b.parentElement.textContent.trim());
+      const before = await page.$$eval('#pickSec .rb-mv b', b => b.map(x => x.textContent).join('/'));
+      await press('t');   // ticks it
+      const after = await page.$$eval('#pickSec .rb-mv b', b => b.map(x => x.textContent).join('/'));
+      check(await page.$eval('#pickSec [data-gimmick]:not([data-gimmick=terastallize])', b => b.checked), `${format}: ${kind} can be ticked`,
+        before === after ? before : `${before} -> ${after}`);
+      const move = await page.$('#pickSec .rb-mv:not(:disabled)');
+      await move.click(); await sleep(150);
+      if (!await page.$('#rbTitle .rb-mode')) { await pickerReady(); const n = await page.$$eval('#pickSec [data-pick]', b => b.findIndex(x => !x.disabled) + 1); await press(String(n)); }
+      await until(() => document.querySelector('#rbTitle .rb-mode') || document.querySelector('#pickSec .rb-err') ||
+        document.querySelector('.rb-mrow.cur'), null, 30000);
+      await settled();
+      check(!await text('#pickSec .rb-err'), `${format}: playing a turn with ${kind} works`, await text('#pickSec .rb-err'));
+    }
   }
 
   // ---------------------------------------------------------------- dark mode, phone width

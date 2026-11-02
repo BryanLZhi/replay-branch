@@ -1,5 +1,5 @@
 // Opening a replay (link, log, saved replay file or exported study), and sharing a study (as a link or as text).
-import {S, E, $id, clone, hash} from './state.js';
+import {S, E, $id, clone, hash, clearPicks} from './state.js';
 import {newStudy, loadSaved, save} from './study.js';
 import {go} from './navigation.js';
 
@@ -17,13 +17,13 @@ export async function loadText(text, {shown = false, replayId = null, study = nu
   S.lines.clear(); S.replayPos.clear();
   S.stats = await fetchStats(rep.formatid);
   S.cbEnd = E.clientAt(rep, rep.lastTurn + 1);
-  S.base = [S.cbEnd.p1, S.cbEnd.p2].map(side => side.team.map(p => E.suggestSet(E.knownOf(p), S.stats, rep.gen)));
+  S.base = E.revealedTeams(rep).map(team => team.map(known => E.suggestSet(known, S.stats, rep.gen)));
   S.study = study || exported?.study || loadSaved(S.key) || newStudy();
   const fits = S.study.sets?.length === 2 && S.study.sets.every((side, si) => side.length === S.base[si].length);
   if (!fits) S.study.sets = clone(S.base);
   if (study || exported) save();
 
-  S.sel = {}; S.tera = {}; S.err = '';
+  clearPicks(); S.err = '';
   if (!shown) S.psMode = '';   // rebuild the viewer for this replay
   S.cur = '';
   go('r0');

@@ -1,5 +1,5 @@
 // Moving around the study: what the current position is, going to another one, arrow keys and pick shortcuts.
-import {S, $id} from './state.js';
+import {S, $id, clearPicks} from './state.js';
 import {isReplayPos, replayTurn, parentOf, childrenOf, siblings, compute, replayTurnPos, previewPos} from './study.js';
 import {isDoubles} from './replay.js';
 import {isPlaying, showPosition} from './viewer.js';
@@ -36,7 +36,7 @@ export function go(id, {animate = false, force = false} = {}) {
   if (!id) return;
   if (isReplayPos(id) ? replayTurn(id) < 0 || replayTurn(id) > S.rep.lastTurn + 1 : !S.study.nodes[id]) return;
   const moved = S.cur !== id;
-  if (moved) { S.sel = {}; S.tera = {}; S.err = ''; }
+  if (moved) { clearPicks(); S.err = ''; }
   S.cur = id; S.deleteArmed = null;
   if (moved || force || !S.psMode) showPosition(animate);
   renderPanels();
@@ -51,7 +51,8 @@ export function step(dir) {
   }
 }
 
-// Arrows walk the study (left/right: back/forward, up/down: other lines here); 1-9 pick in the move picker, T toggles Tera.
+// Arrows walk the study (left/right: back/forward, up/down: other lines here); 1-9 pick in the move picker, T ticks
+// Terastallize (or Mega Evolution, Z-Power, Dynamax).
 export function onKey(e) {
   if (!S.rep || e.ctrlKey || e.metaKey || e.altKey || e.target.closest('input, textarea, select')) return;
   if (document.querySelector('.rb-modal:not([hidden]), #gate:not([hidden])')) return;
@@ -63,7 +64,7 @@ export function onKey(e) {
     const b = picker.querySelectorAll('[data-pick]')[+e.key - 1];
     if (b && !b.disabled) { e.preventDefault(); b.click(); }
   } else if (e.key === 't' || e.key === 'T') {
-    const box = $id('teraBox');
-    if (box) { box.checked = !box.checked; box.dispatchEvent(new Event('change')); }
+    const box = picker.querySelector('[data-gimmick]');
+    if (box) box.click();
   }
 }
