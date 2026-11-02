@@ -70,4 +70,8 @@ test on that build behind a throwaway password, and on `main` only, if the test 
 the build and the test without the publish, so a change can be tried on a branch first. A failing test keeps the site as it was
 (the screenshot of the failure is attached to the run).
 
+With the repository secrets `CLOUDFLARE_API_TOKEN` (permission: Cloudflare Pages, Edit) and `CLOUDFLARE_ACCOUNT_ID`, the same
+tested build is also published to the Cloudflare Pages project `replay-study`, which Cloudflare Access puts behind a real
+login (an email code, checked by Cloudflare before any file is sent), unlike the page's own password gate.
+
 Not affiliated with Pokémon Showdown, Smogon, Nintendo or Game Freak. Pokémon and its sprites are trademarks of their owners.
