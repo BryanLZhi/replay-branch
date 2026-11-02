@@ -59,14 +59,16 @@ export function previewPos(sets) {
   return S.replayPos.get(k);
 }
 
+// The saved simulator position a step from `parent` starts at (sets: for a step off the replay).
+export const startOf = (parent, sets) => parent === 'r0' ? previewPos(sets).json
+  : isReplayPos(parent) ? replayTurnPos(replayTurn(parent), sets).json
+  : compute(parent).json;
+
 // Play a line node from its parent position: {json, battle, lines (protocol), rolls (dice)}.
 export function compute(id) {
   if (S.lines.has(id)) return S.lines.get(id);
   const n = S.study.nodes[id];
-  const from = n.parent === 'r0' ? previewPos(n.sets).json
-    : isReplayPos(n.parent) ? replayTurnPos(replayTurn(n.parent), n.sets).json
-    : compute(n.parent).json;
-  const r = E.step(from, n.choices, n.forced, n.seed);
+  const r = E.step(startOf(n.parent, n.sets), n.choices, n.forced, n.seed);
   const out = {json: E.serialize(r.battle), battle: r.battle, lines: r.lines, rolls: r.rolls};
   S.lines.set(id, out);
   return out;

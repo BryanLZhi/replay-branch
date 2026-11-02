@@ -24,6 +24,8 @@ var S = {
   // the player whose move menu is open (0, 1) or null
   gimmick: {},
   // by player: 'terastallize', 'mega', 'megax', 'megay', 'ultra', 'zmove' or 'dynamax' ticked with the move
+  next: null,
+  // the dice of the turn on the bar, before it is played: {key, forced, seed, base, rolls, for}
   err: "",
   // last error to show in the picker
   tab: "study",
@@ -52,6 +54,7 @@ function clearPicks() {
   S.sel = {};
   S.gimmick = {};
   S.menu = null;
+  S.next = null;
 }
 var $id = (id) => document.getElementById(id);
 var esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
@@ -154,11 +157,11 @@ function previewPos(sets) {
   }
   return S.replayPos.get(k);
 }
+var startOf = (parent, sets) => parent === "r0" ? previewPos(sets).json : isReplayPos(parent) ? replayTurnPos(replayTurn(parent), sets).json : compute(parent).json;
 function compute(id) {
   if (S.lines.has(id)) return S.lines.get(id);
   const n = S.study.nodes[id];
-  const from = n.parent === "r0" ? previewPos(n.sets).json : isReplayPos(n.parent) ? replayTurnPos(replayTurn(n.parent), n.sets).json : compute(n.parent).json;
-  const r = E.step(from, n.choices, n.forced, n.seed);
+  const r = E.step(startOf(n.parent, n.sets), n.choices, n.forced, n.seed);
   const out = { json: E.serialize(r.battle), battle: r.battle, lines: r.lines, rolls: r.rolls };
   S.lines.set(id, out);
   return out;
@@ -489,6 +492,203 @@ function showTooltip(elem) {
   return true;
 }
 
+// source/app/dice.js
+var same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+var turnName = (t) => t ? "Turn " + t : "Team preview";
+function sameStep(parent, choices, forced, seed) {
+  return kids(parent).find((k) => {
+    const n = S.study.nodes[k];
+    return same(n.choices, choices) && same(n.forced, forced) && (!seed || same(n.seed, seed));
+  });
+}
+function upcomingDice(pos) {
+  const turn = barTurn(pos);
+  if (!turn || turn.replay) return null;
+  const key = turn.parent + " " + JSON.stringify(turn.choices) + " " + (turn.sets ? hash(JSON.stringify(turn.sets)) : "");
+  if (S.next?.key !== key) {
+    const played = kids(turn.parent).map((k) => S.study.nodes[k]).find((n) => same(n.choices, turn.choices));
+    S.next = { key, turn, forced: played ? played.forced : [], seed: played ? played.seed : newSeed() };
+    S.next.base = S.next.seed;
+  }
+  const now = JSON.stringify(S.next.forced);
+  if (S.next.for !== now) {
+    try {
+      S.next.rolls = E.step(startOf(turn.parent, turn.sets), turn.choices, S.next.forced, S.next.seed).rolls;
+    } catch {
+      S.next.rolls = [];
+    }
+    S.next.for = now;
+  }
+  return S.next;
+}
+function setUpcoming(forced) {
+  const { turn } = S.next;
+  const played = sameStep(turn.parent, turn.choices, forced);
+  S.next.forced = forced;
+  S.next.seed = played ? S.study.nodes[played].seed : S.next.base;
+  renderPanels();
+}
+function renderDice(pos) {
+  const el = $id("diceSec");
+  const next = upcomingDice(pos);
+  el.hidden = next ? !next.rolls.length : pos.kind !== "line";
+  if (el.hidden) return;
+  let rolls, forced, before, when, apply2;
+  if (next) {
+    ({ rolls, forced } = next);
+    before = pathTo(S.cur);
+    when = turnName(pos.battle.turn);
+    apply2 = setUpcoming;
+  } else {
+    const node = S.study.nodes[S.cur];
+    rolls = pos.rolls;
+    forced = node.forced;
+    before = pathTo(S.cur).slice(0, -1);
+    when = turnName(isReplayPos(node.parent) ? replayTurn(node.parent) : compute(node.parent).battle.turn);
+    apply2 = (f) => replay(f, node.seed);
+  }
+  const turn = odds(rolls), line = before.reduce((p, id) => p * odds(compute(id).rolls), turn);
+  const oddsHTML = rolls.some((r) => r.kind !== "roll" && !(r.kind === "int" && r.hi - r.lo > 10)) ? `<span class="rb-odds" title="Chance of these outcomes (damage rolls not counted)">This turn <b>${percent(turn)}</b>${before.length ? ` \xB7 Line <b>${percent(line)}</b>` : ""}</span>` : "";
+  el.innerHTML = `<div class="rb-dicehead"><h2>Dice <small class="rb-dturn">${when}</small></h2>${oddsHTML}<span><button class="button" id="btnRandomize" title="Roll real dice for every outcome"><i class="fa fa-random" aria-hidden="true"></i> Randomize</button> <button class="button" id="btnLikely" title="Back to the most likely outcomes" ${forced.length ? "" : "disabled"}>Most likely</button></span></div>` + (rolls.length ? `<div class="rb-dice">${groups(rolls).map(groupHTML).join("")}</div>` : "");
+  const set = (i, value) => apply2(rolls.map((r, j) => ({ key: r.key, value: j === i ? value : r.value })));
+  for (const c of el.querySelectorAll("[data-roll]")) {
+    const i = +c.dataset.roll, r = rolls[i];
+    if (c.tagName === "SELECT") c.onchange = () => set(i, r.kind === "order" ? JSON.parse(c.value) : +c.value);
+    else c.onclick = () => set(i, r.kind === "order" ? JSON.parse(c.dataset.order) : !r.value);
+  }
+  $id("btnRandomize").onclick = () => apply2(rolls.map((r) => ({ key: r.key, value: randomOutcome(r) })));
+  $id("btnLikely").onclick = () => apply2([]);
+}
+function replay(forced, seed) {
+  const node = S.study.nodes[S.cur];
+  if (kids(S.cur).length) {
+    const id = addNode(node.parent, node.choices, forced, seed, node.sets);
+    try {
+      compute(id);
+    } catch (e) {
+      deleteNode(id);
+      save();
+      S.err = e.message;
+      renderPanels();
+      return;
+    }
+    go(id, { animate: true });
+  } else {
+    node.forced = forced;
+    node.seed = seed;
+    forget(S.cur);
+    save();
+    try {
+      compute(S.cur);
+    } catch (e) {
+      S.err = e.message;
+    }
+    go(S.cur, { animate: true, force: true });
+  }
+}
+function odds(rolls) {
+  let p = 1;
+  for (const r of rolls) {
+    if (r.kind === "chance") p *= r.value ? r.p : 1 - r.p;
+    else if (r.kind === "int" && r.hi - r.lo <= 10) p /= Math.max(1, r.hi - r.lo);
+    else if (r.kind === "pick") p /= Math.max(1, r.options.length);
+    else if (r.kind === "order") p /= factorial(r.options.length);
+  }
+  return p;
+}
+var factorial = (n) => n <= 1 ? 1 : n * factorial(n - 1);
+function percent(p) {
+  if (p <= 0) return "0%";
+  const x = p * 100;
+  return (x >= 10 ? Math.round(x) : x >= 1 ? x.toFixed(1) : x >= 0.01 ? x.toPrecision(2) : "< 0.01") + "%";
+}
+function mostLikely(r) {
+  if (r.kind === "chance") return r.p >= 0.5;
+  if (r.kind === "roll") return 7;
+  if (r.kind === "int") return r.lo + Math.floor((r.hi - 1 - r.lo) / 2);
+  if (r.kind === "order") return r.options.map((_, k) => k);
+  return null;
+}
+var changed = (r) => {
+  const d = mostLikely(r);
+  return d !== null && JSON.stringify(d) !== JSON.stringify(r.value);
+};
+function randomOutcome(r) {
+  const below = (n) => Math.floor(Math.random() * n);
+  if (r.kind === "chance") return Math.random() < r.p;
+  if (r.kind === "roll") return below(16);
+  if (r.kind === "int") return r.lo + below(r.hi - r.lo);
+  if (r.kind === "pick") return below(r.options.length);
+  if (r.kind === "order") {
+    const o = r.options.map((_, k) => k);
+    for (let k = o.length - 1; k > 0; k--) {
+      const j = below(k + 1);
+      [o[k], o[j]] = [o[j], o[k]];
+    }
+    return o;
+  }
+  return r.value;
+}
+function groups(rolls) {
+  const out = [];
+  for (const r of rolls) {
+    const m = /^(.+?): (accuracy|critical hit|damage roll|.+ \(\d+%\))$/.exec(r.label);
+    const key = m && r.who ? r.who + "|" + m[1] : null;
+    const last = out[out.length - 1];
+    if (key && last && last.key === key && !last.items.some((x) => x.part === m[2] && m[2] !== "damage roll")) {
+      last.items.push({ r, part: m[2] });
+      last.target || (last.target = r.target);
+      continue;
+    }
+    out.push(key ? { key, who: r.who, move: m[1], target: r.target, items: [{ r, part: m[2] }] } : { key: null, items: [{ r, part: r.label }] });
+  }
+  return out;
+}
+function groupHTML(g) {
+  const head = g.key ? `<span class="rb-dhead">${esc(g.who)}'s <b>${esc(g.move)}</b>${g.target ? ` <span class="rb-darrow">\u2192</span> ${esc(g.target)}` : ""}</span>` : "";
+  return `<div class="rb-dgroup">${head}<span class="rb-dchips">${g.items.map(itemHTML).join("")}</span></div>`;
+}
+var chip = (r, text, title) => `<button type="button" class="rb-chip ${changed(r) ? "dev" : ""} ${r.kind === "chance" && r.value ? "yes" : ""}" data-roll="${r.i}" title="${esc(title)}">${esc(text)}</button>`;
+var label = (text) => `<span class="rb-dlabel">${text}</span>`;
+function select(r, options) {
+  const current = r.kind === "order" ? JSON.stringify(r.value) : r.value;
+  return `<select class="rb-chipsel ${changed(r) ? "dev" : ""}" data-roll="${r.i}">` + options.map(([v, text]) => `<option value="${esc(v)}" ${v === current ? "selected" : ""}>${esc(text)}</option>`).join("") + `</select>`;
+}
+var capital = (s) => s[0].toUpperCase() + s.slice(1);
+function itemHTML({ r, part }) {
+  const pct = r.p !== void 0 ? Math.round(r.p * 1e3) / 10 + "%" : "";
+  switch (r.kind) {
+    case "chance": {
+      if (part === "accuracy") return chip(r, r.value ? "Hit" : "Miss", `${pct} to hit. Click to change.`);
+      if (part === "critical hit") return chip(r, r.value ? "Crit" : "No crit", `${pct} to crit. Click to change.`);
+      const effect = /^(.+) \((\d+)%\)$/.exec(part);
+      if (effect) return chip(r, r.value ? capital(effect[1]) : "No " + effect[1], `${effect[2]}% chance. Click to change.`);
+      return label(esc(r.label) + (r.who ? ` <small>${esc(r.who)}</small>` : "")) + chip(r, r.value ? "Yes" : "No", `${pct} chance. Click to change.`);
+    }
+    case "roll":
+      return select(r, Array.from({ length: 16 }, (_, v) => [v, `${100 - v}% damage`]));
+    case "int":
+      return label(esc(r.label)) + (r.hi - r.lo <= 40 ? select(r, Array.from({ length: r.hi - r.lo }, (_, k) => [r.lo + k, String(r.lo + k)])) : `<span>${r.value}</span>`);
+    case "pick":
+      return label(esc(r.label)) + select(r, r.options.map((o, k) => [k, o]));
+    case "order": {
+      const orders = permutations(r.options.length).slice(0, 24);
+      if (r.options.length === 2) return label("Speed tie") + orders.map((o) => `<button type="button" class="rb-chip ${JSON.stringify(o) === JSON.stringify(r.value) ? "yes" : ""}" data-roll="${r.i}" data-order="${esc(JSON.stringify(o))}">${esc(r.options[o[0]])} first</button>`).join("");
+      return label(esc(r.label)) + select(r, orders.map((o) => [JSON.stringify(o), o.map((k) => r.options[k]).join(" > ")]));
+    }
+  }
+  return "";
+}
+function permutations(n) {
+  const out = [];
+  const build = (prefix, rest) => {
+    if (!rest.length) out.push(prefix);
+    rest.forEach((x, i) => build([...prefix, x], rest.filter((_, j) => j !== i)));
+  };
+  build([], [...Array(n).keys()]);
+  return out;
+}
+
 // source/app/picker.js
 var pickerOn = () => stored("rb-picker", "on") !== "off";
 function setPicker(on) {
@@ -629,10 +829,12 @@ function wireMenu(pos) {
     S.err = "";
     closeMenu();
     renderPicker(pos);
+    renderDice(pos);
   };
   for (const box of menu.querySelectorAll("[data-gimmick]")) box.onchange = () => {
     S.gimmick[pid(si)] = box.checked ? box.dataset.gimmick : "";
     renderPicker(pos);
+    renderDice(pos);
   };
   for (const b of menu.querySelectorAll("[data-edit]")) b.onclick = () => editGuessedMove(pos, si, b);
 }
@@ -744,22 +946,30 @@ function replaceMove(pos, si, k, oldMove, newMove) {
   if (pos.kind === "line") showPosition(false);
   renderPanels();
 }
-function playTurn(pos) {
-  const choices = {}, picks = {}, gimmicks2 = {};
-  pos.battle.sides.forEach((side, si) => {
-    const req = requestOf(pos, si);
-    if (!req) return;
+function barTurn(pos) {
+  const battle = pos.battle;
+  if (!battle || battle.ended || isDoubles()) return null;
+  const need = [0, 1].map((si) => requestOf(pos, si));
+  if (!need.some(Boolean)) return null;
+  const choices = {}, onReplay = pos.kind === "turn" || pos.kind === "preview";
+  let replay2 = onReplay;
+  for (const [si, req] of need.entries()) {
+    if (!req) continue;
     const s = slot(pos, si, req);
-    picks[si] = s.pick;
-    gimmicks2[si] = s.gimmick;
+    if (!s.pick) return null;
     choices[pid(si)] = s.pick.startsWith("move") && s.gimmick ? s.pick + " " + s.gimmick : s.pick;
-  });
+    replay2 && (replay2 = matchesPlayed(battle.sides[si], s.pick, s.gimmick, playedChoice(pos.t, si)));
+  }
+  return { choices, replay: replay2, parent: onReplay ? "r" + pos.t : S.cur, sets: onReplay ? S.study.sets : void 0 };
+}
+function playTurn(pos) {
+  const turn = barTurn(pos);
+  if (!turn) return;
   const reset = () => {
     clearPicks();
     S.err = "";
   };
-  const onReplay = pos.kind === "turn" || pos.kind === "preview";
-  if (onReplay && pos.battle.sides.every((side, si) => !requestOf(pos, si) || matchesPlayed(side, picks[si], gimmicks2[si], playedChoice(pos.t, si)))) {
+  if (turn.replay) {
     reset();
     S.stopAt = pos.t + 1;
     if (pos.t === 0) S.psb.reset();
@@ -768,11 +978,11 @@ function playTurn(pos) {
     renderPanels();
     return;
   }
-  const parent = onReplay ? "r" + pos.t : S.cur;
-  const same = (k) => JSON.stringify(S.study.nodes[k].choices) === JSON.stringify(choices) && !S.study.nodes[k].forced.length;
-  let id = kids(parent).find(same);
+  const { choices, parent, sets } = turn, dice = upcomingDice(pos);
+  const forced = dice ? dice.forced : [], seed = dice?.seed;
+  let id = sameStep(parent, choices, forced, seed);
   if (!id) {
-    id = addNode(parent, choices, [], void 0, onReplay ? S.study.sets : void 0);
+    id = addNode(parent, choices, forced, seed, sets);
     try {
       compute(id);
     } catch (e) {
@@ -785,156 +995,6 @@ function playTurn(pos) {
   }
   reset();
   go(id, { animate: true });
-}
-
-// source/app/dice.js
-function renderDice(pos) {
-  const el = $id("diceSec");
-  el.hidden = pos.kind !== "line";
-  if (el.hidden) return;
-  const node = S.study.nodes[S.cur];
-  const rolls = pos.rolls;
-  const line = pathTo(S.cur).reduce((p, id) => p * odds(compute(id).rolls), 1);
-  const turn = odds(rolls);
-  const oddsHTML = rolls.some((r) => r.kind !== "roll" && !(r.kind === "int" && r.hi - r.lo > 10)) ? `<span class="rb-odds" title="Chance of these outcomes (damage rolls not counted)">This turn <b>${percent(turn)}</b>${line !== turn ? ` \xB7 Line <b>${percent(line)}</b>` : ""}</span>` : "";
-  el.innerHTML = `<div class="rb-dicehead"><h2>Dice</h2>${oddsHTML}<span><button class="button" id="btnRandomize" title="Roll real dice for every outcome"><i class="fa fa-random" aria-hidden="true"></i> Randomize</button> <button class="button" id="btnLikely" title="Back to the most likely outcomes" ${node.forced.length ? "" : "disabled"}>Most likely</button></span></div>` + (rolls.length ? `<div class="rb-dice">${groups(rolls).map(groupHTML).join("")}</div>` : "");
-  const set = (i, value) => replay(rolls.map((r, j) => ({ key: r.key, value: j === i ? value : r.value })), node.seed);
-  for (const c of el.querySelectorAll("[data-roll]")) {
-    const i = +c.dataset.roll, r = rolls[i];
-    if (c.tagName === "SELECT") c.onchange = () => set(i, r.kind === "order" ? JSON.parse(c.value) : +c.value);
-    else c.onclick = () => set(i, r.kind === "order" ? JSON.parse(c.dataset.order) : !r.value);
-  }
-  $id("btnRandomize").onclick = () => replay(rolls.map((r) => ({ key: r.key, value: randomOutcome(r) })), node.seed);
-  $id("btnLikely").onclick = () => replay([], node.seed);
-}
-function replay(forced, seed) {
-  const node = S.study.nodes[S.cur];
-  if (kids(S.cur).length) {
-    const id = addNode(node.parent, node.choices, forced, seed, node.sets);
-    try {
-      compute(id);
-    } catch (e) {
-      deleteNode(id);
-      save();
-      S.err = e.message;
-      renderPanels();
-      return;
-    }
-    go(id, { animate: true });
-  } else {
-    node.forced = forced;
-    node.seed = seed;
-    forget(S.cur);
-    save();
-    try {
-      compute(S.cur);
-    } catch (e) {
-      S.err = e.message;
-    }
-    go(S.cur, { animate: true, force: true });
-  }
-}
-function odds(rolls) {
-  let p = 1;
-  for (const r of rolls) {
-    if (r.kind === "chance") p *= r.value ? r.p : 1 - r.p;
-    else if (r.kind === "int" && r.hi - r.lo <= 10) p /= Math.max(1, r.hi - r.lo);
-    else if (r.kind === "pick") p /= Math.max(1, r.options.length);
-    else if (r.kind === "order") p /= factorial(r.options.length);
-  }
-  return p;
-}
-var factorial = (n) => n <= 1 ? 1 : n * factorial(n - 1);
-function percent(p) {
-  if (p <= 0) return "0%";
-  const x = p * 100;
-  return (x >= 10 ? Math.round(x) : x >= 1 ? x.toFixed(1) : x >= 0.01 ? x.toPrecision(2) : "< 0.01") + "%";
-}
-function mostLikely(r) {
-  if (r.kind === "chance") return r.p >= 0.5;
-  if (r.kind === "roll") return 7;
-  if (r.kind === "int") return r.lo + Math.floor((r.hi - 1 - r.lo) / 2);
-  if (r.kind === "order") return r.options.map((_, k) => k);
-  return null;
-}
-var changed = (r) => {
-  const d = mostLikely(r);
-  return d !== null && JSON.stringify(d) !== JSON.stringify(r.value);
-};
-function randomOutcome(r) {
-  const below = (n) => Math.floor(Math.random() * n);
-  if (r.kind === "chance") return Math.random() < r.p;
-  if (r.kind === "roll") return below(16);
-  if (r.kind === "int") return r.lo + below(r.hi - r.lo);
-  if (r.kind === "pick") return below(r.options.length);
-  if (r.kind === "order") {
-    const o = r.options.map((_, k) => k);
-    for (let k = o.length - 1; k > 0; k--) {
-      const j = below(k + 1);
-      [o[k], o[j]] = [o[j], o[k]];
-    }
-    return o;
-  }
-  return r.value;
-}
-function groups(rolls) {
-  const out = [];
-  for (const r of rolls) {
-    const m = /^(.+?): (accuracy|critical hit|damage roll|.+ \(\d+%\))$/.exec(r.label);
-    const key = m && r.who ? r.who + "|" + m[1] : null;
-    const last = out[out.length - 1];
-    if (key && last && last.key === key && !last.items.some((x) => x.part === m[2] && m[2] !== "damage roll")) {
-      last.items.push({ r, part: m[2] });
-      last.target || (last.target = r.target);
-      continue;
-    }
-    out.push(key ? { key, who: r.who, move: m[1], target: r.target, items: [{ r, part: m[2] }] } : { key: null, items: [{ r, part: r.label }] });
-  }
-  return out;
-}
-function groupHTML(g) {
-  const head = g.key ? `<span class="rb-dhead">${esc(g.who)}'s <b>${esc(g.move)}</b>${g.target ? ` <span class="rb-darrow">\u2192</span> ${esc(g.target)}` : ""}</span>` : "";
-  return `<div class="rb-dgroup">${head}<span class="rb-dchips">${g.items.map(itemHTML).join("")}</span></div>`;
-}
-var chip = (r, text, title) => `<button type="button" class="rb-chip ${changed(r) ? "dev" : ""} ${r.kind === "chance" && r.value ? "yes" : ""}" data-roll="${r.i}" title="${esc(title)}">${esc(text)}</button>`;
-var label = (text) => `<span class="rb-dlabel">${text}</span>`;
-function select(r, options) {
-  const current = r.kind === "order" ? JSON.stringify(r.value) : r.value;
-  return `<select class="rb-chipsel ${changed(r) ? "dev" : ""}" data-roll="${r.i}">` + options.map(([v, text]) => `<option value="${esc(v)}" ${v === current ? "selected" : ""}>${esc(text)}</option>`).join("") + `</select>`;
-}
-var capital = (s) => s[0].toUpperCase() + s.slice(1);
-function itemHTML({ r, part }) {
-  const pct = r.p !== void 0 ? Math.round(r.p * 1e3) / 10 + "%" : "";
-  switch (r.kind) {
-    case "chance": {
-      if (part === "accuracy") return chip(r, r.value ? "Hit" : "Miss", `${pct} to hit. Click to change.`);
-      if (part === "critical hit") return chip(r, r.value ? "Crit" : "No crit", `${pct} to crit. Click to change.`);
-      const effect = /^(.+) \((\d+)%\)$/.exec(part);
-      if (effect) return chip(r, r.value ? capital(effect[1]) : "No " + effect[1], `${effect[2]}% chance. Click to change.`);
-      return label(esc(r.label) + (r.who ? ` <small>${esc(r.who)}</small>` : "")) + chip(r, r.value ? "Yes" : "No", `${pct} chance. Click to change.`);
-    }
-    case "roll":
-      return select(r, Array.from({ length: 16 }, (_, v) => [v, `${100 - v}% damage`]));
-    case "int":
-      return label(esc(r.label)) + (r.hi - r.lo <= 40 ? select(r, Array.from({ length: r.hi - r.lo }, (_, k) => [r.lo + k, String(r.lo + k)])) : `<span>${r.value}</span>`);
-    case "pick":
-      return label(esc(r.label)) + select(r, r.options.map((o, k) => [k, o]));
-    case "order": {
-      const orders = permutations(r.options.length).slice(0, 24);
-      if (r.options.length === 2) return label("Speed tie") + orders.map((o) => `<button type="button" class="rb-chip ${JSON.stringify(o) === JSON.stringify(r.value) ? "yes" : ""}" data-roll="${r.i}" data-order="${esc(JSON.stringify(o))}">${esc(r.options[o[0]])} first</button>`).join("");
-      return label(esc(r.label)) + select(r, orders.map((o) => [JSON.stringify(o), o.map((k) => r.options[k]).join(" > ")]));
-    }
-  }
-  return "";
-}
-function permutations(n) {
-  const out = [];
-  const build = (prefix, rest) => {
-    if (!rest.length) out.push(prefix);
-    rest.forEach((x, i) => build([...prefix, x], rest.filter((_, j) => j !== i)));
-  };
-  build([], [...Array(n).keys()]);
-  return out;
 }
 
 // source/app/panels.js

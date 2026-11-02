@@ -159,6 +159,7 @@ body.dark .rb-edit { background: rgba(255,255,255,.12); }
 /* dice */
 .rb-dicehead { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 6px; }
 .rb-dicehead h2 { margin: 0; }
+.rb-dturn { font-size: 9pt; font-weight: normal; color: var(--rb-muted); margin-left: 4px; }
 .rb-odds { font-size: 9pt; color: var(--rb-muted); margin-left: auto; margin-right: 6px; white-space: nowrap; }
 .rb-odds b { color: var(--rb-fg); }
 .rb-dice { display: flex; flex-direction: column; gap: 5px; }

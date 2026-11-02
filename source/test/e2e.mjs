@@ -133,6 +133,7 @@ try {
   check(!await inLine(), 'Play turn as the replay played it follows the replay');
   await barReady();
   check(await turnLabel() === 'Turn 1', 'and the bar moves on to turn 1', await turnLabel());
+  check(!await visible('#diceSec'), "the replay's own turn, unchanged, has no dice to set");
   await openSlot(0);
   check(/what will .+ do\?/.test(await question()), 'with the move menu', await question());
   const bench = await page.$$eval('#pickSec .rb-menu .rb-sw', b => [b.length, b.filter(x => !x.disabled).length]);
@@ -208,18 +209,33 @@ try {
   await press(String(nth));   // (number keys pick in the menu)
   check(await page.$('#pickSec [data-slot="0"].changed'), 'a number key picks in the menu, and the slot shows it changed');
   await changeSlot(1);
+  // the dice of the turn, set before playing it
+  check(await visible('#diceSec') && /Turn \d/.test(await text('#diceSec .rb-dturn')) && !await inLine(),
+    'with both choices in, the dice of the coming turn show before playing it', await text('#diceSec .rb-dturn'));
+  let presetDice = null;
+  const preChip = await page.$('#diceSec button.rb-chip[title]');
+  if (preChip) {
+    const was = await page.$eval('#diceSec button.rb-chip[title]', c => c.textContent);
+    await preChip.click(); await sleep(300);
+    presetDice = await page.$eval('#diceSec button.rb-chip[title]', c => c.textContent);
+    check(presetDice !== was && !await inLine() && await page.$('#pickSec [data-slot="1"].changed'), 'a dice outcome can be changed before playing', `${was} -> ${presetDice}`);
+  } else console.log('(no yes/no dice in the coming turn)');
   await press('Enter');   // (Enter plays the turn)
   await until(() => document.querySelector('#rbTitle .rb-mode'), null, 30000); await settled();
   check(await inLine(), 'Enter plays the changed turn as a line');
+  if (presetDice) check(await text('#diceSec button.rb-chip[title]') === presetDice && await page.$('#diceSec .rb-chip.dev'),
+    'and the line plays with the outcome set before', await text('#diceSec button.rb-chip[title]'));
   if (await page.$('.rb-odds')) check(/This turn \d/.test(await text('.rb-odds')), 'the dice show the odds of the outcomes', await text('.rb-odds'));
   else console.log('(no chance-based outcomes in this turn)');
   const logBefore = await text('.battle-log');
   const chip = await page.$('#diceSec button.rb-chip[title]');   // a yes/no outcome (speed-tie chips have no title)
   if (chip) {
     const before = await page.$eval('#diceSec button.rb-chip[title]', c => c.textContent);
+    const wasDev = await page.$eval('#diceSec button.rb-chip[title]', c => c.classList.contains('dev'));
     await chip.click(); await sleep(300); await settled();
     const after = await page.$eval('#diceSec button.rb-chip[title]', c => c.textContent);
-    check(before !== after && await page.$('#diceSec .rb-chip.dev') !== null, 'clicking a dice chip changes the outcome', `${before} -> ${after}`);
+    const nowDev = await page.$eval('#diceSec button.rb-chip[title]', c => c.classList.contains('dev'));
+    check(before !== after && nowDev !== wasDev, 'clicking a dice chip changes the outcome', `${before} -> ${after}`);
     check(await text('.battle-log') !== logBefore, 'the turn replays with the new outcome');
     await page.click('#btnLikely'); await sleep(300); await settled();
     check(!await page.$('#diceSec .dev'), 'Most likely puts every outcome back');

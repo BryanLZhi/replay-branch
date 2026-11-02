@@ -1,33 +1,81 @@
-// The dice of the step that led to a line position: every random outcome, editable. Changing one replays the step
-// (as a new line if this one already continues). Outcomes moved off the most likely result are outlined, and the odds of
-// the outcomes (this turn, and the whole line) are shown.
-import {S, $id, esc} from './state.js';
-import {kids, addNode, deleteNode, compute, forget, save, pathTo} from './study.js';
+// The dice of a turn, every random outcome editable: the turn on the bar once both choices are in (set them, then Play
+// turn), else in a line the step that led here (changing one replays it, as a new line if this one already continues).
+// Outcomes moved off the most likely result are outlined, and the odds of the outcomes (this turn, and the whole line)
+// are shown.
+import {S, E, $id, esc, hash} from './state.js';
+import {kids, addNode, deleteNode, compute, forget, save, pathTo, startOf, newSeed, isReplayPos, replayTurn} from './study.js';
 import {renderPanels, go} from './navigation.js';
+import {barTurn} from './picker.js';
+
+const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+const turnName = t => t ? 'Turn ' + t : 'Team preview';
+
+// A line from `parent` with these choices and dice (and this seed, when given), if there is one.
+export function sameStep(parent, choices, forced, seed) {
+  return kids(parent).find(k => { const n = S.study.nodes[k]; return same(n.choices, choices) && same(n.forced, forced) && (!seed || same(n.seed, seed)); });
+}
+
+// The dice of the turn on the bar, before it is played (null when nothing is to be played, or it is the replay's own
+// turn). They start as those of a line already played with these choices, if any.
+export function upcomingDice(pos) {
+  const turn = barTurn(pos);
+  if (!turn || turn.replay) return null;
+  const key = turn.parent + ' ' + JSON.stringify(turn.choices) + ' ' + (turn.sets ? hash(JSON.stringify(turn.sets)) : '');
+  if (S.next?.key !== key) {
+    const played = kids(turn.parent).map(k => S.study.nodes[k]).find(n => same(n.choices, turn.choices));
+    S.next = {key, turn, forced: played ? played.forced : [], seed: played ? played.seed : newSeed()};
+    S.next.base = S.next.seed;
+  }
+  const now = JSON.stringify(S.next.forced);
+  if (S.next.for !== now) {
+    try { S.next.rolls = E.step(startOf(turn.parent, turn.sets), turn.choices, S.next.forced, S.next.seed).rolls; }
+    catch { S.next.rolls = []; }   // (Play turn says what is wrong)
+    S.next.for = now;
+  }
+  return S.next;
+}
+function setUpcoming(forced) {
+  const {turn} = S.next;
+  const played = sameStep(turn.parent, turn.choices, forced);
+  S.next.forced = forced;
+  S.next.seed = played ? S.study.nodes[played].seed : S.next.base;
+  renderPanels();
+}
 
 export function renderDice(pos) {
   const el = $id('diceSec');
-  el.hidden = pos.kind !== 'line';
+  const next = upcomingDice(pos);
+  el.hidden = next ? !next.rolls.length : pos.kind !== 'line';
   if (el.hidden) return;
-  const node = S.study.nodes[S.cur];
-  const rolls = pos.rolls;
-  const line = pathTo(S.cur).reduce((p, id) => p * odds(compute(id).rolls), 1);
-  const turn = odds(rolls);
+  let rolls, forced, before, when, apply;
+  if (next) {
+    ({rolls, forced} = next);
+    before = pathTo(S.cur);
+    when = turnName(pos.battle.turn);
+    apply = setUpcoming;
+  } else {
+    const node = S.study.nodes[S.cur];
+    rolls = pos.rolls; forced = node.forced;
+    before = pathTo(S.cur).slice(0, -1);
+    when = turnName(isReplayPos(node.parent) ? replayTurn(node.parent) : compute(node.parent).battle.turn);
+    apply = f => replay(f, node.seed);
+  }
+  const turn = odds(rolls), line = before.reduce((p, id) => p * odds(compute(id).rolls), turn);
   const oddsHTML = rolls.some(r => r.kind !== 'roll' && !(r.kind === 'int' && r.hi - r.lo > 10)) ? `<span class="rb-odds" title="Chance of these outcomes (damage rolls not counted)">` +
-    `This turn <b>${percent(turn)}</b>${line !== turn ? ` · Line <b>${percent(line)}</b>` : ''}</span>` : '';
-  el.innerHTML = `<div class="rb-dicehead"><h2>Dice</h2>${oddsHTML}<span>` +
+    `This turn <b>${percent(turn)}</b>${before.length ? ` · Line <b>${percent(line)}</b>` : ''}</span>` : '';
+  el.innerHTML = `<div class="rb-dicehead"><h2>Dice <small class="rb-dturn">${when}</small></h2>${oddsHTML}<span>` +
     `<button class="button" id="btnRandomize" title="Roll real dice for every outcome"><i class="fa fa-random" aria-hidden="true"></i> Randomize</button> ` +
-    `<button class="button" id="btnLikely" title="Back to the most likely outcomes" ${node.forced.length ? '' : 'disabled'}>Most likely</button></span></div>` +
+    `<button class="button" id="btnLikely" title="Back to the most likely outcomes" ${forced.length ? '' : 'disabled'}>Most likely</button></span></div>` +
     (rolls.length ? `<div class="rb-dice">${groups(rolls).map(groupHTML).join('')}</div>` : '');
 
-  const set = (i, value) => replay(rolls.map((r, j) => ({key: r.key, value: j === i ? value : r.value})), node.seed);
+  const set = (i, value) => apply(rolls.map((r, j) => ({key: r.key, value: j === i ? value : r.value})));
   for (const c of el.querySelectorAll('[data-roll]')) {
     const i = +c.dataset.roll, r = rolls[i];
     if (c.tagName === 'SELECT') c.onchange = () => set(i, r.kind === 'order' ? JSON.parse(c.value) : +c.value);
     else c.onclick = () => set(i, r.kind === 'order' ? JSON.parse(c.dataset.order) : !r.value);
   }
-  $id('btnRandomize').onclick = () => replay(rolls.map(r => ({key: r.key, value: randomOutcome(r)})), node.seed);
-  $id('btnLikely').onclick = () => replay([], node.seed);
+  $id('btnRandomize').onclick = () => apply(rolls.map(r => ({key: r.key, value: randomOutcome(r)})));
+  $id('btnLikely').onclick = () => apply([]);
 }
 
 // Play the current step again with these forced outcomes.

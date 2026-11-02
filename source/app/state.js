@@ -13,6 +13,7 @@ export const S = {
   sel: {},            // picks changed this turn, by player ('p1', 'p2'); the rest are what the replay's players did
   menu: null,         // the player whose move menu is open (0, 1) or null
   gimmick: {},        // by player: 'terastallize', 'mega', 'megax', 'megay', 'ultra', 'zmove' or 'dynamax' ticked with the move
+  next: null,         // the dice of the turn on the bar, before it is played: {key, forced, seed, base, rolls, for}
   err: '',            // last error to show in the picker
   tab: 'study',       // 'study' or 'teams'
   deleteArmed: null,  // line node that a second click on "Delete from here" will delete
@@ -30,7 +31,7 @@ export let E = null;
 export function setEngine(engine) { E = engine; }
 
 // Forget this turn's picks.
-export function clearPicks() { S.sel = {}; S.gimmick = {}; S.menu = null; }
+export function clearPicks() { S.sel = {}; S.gimmick = {}; S.menu = null; S.next = null; }
 
 export const $id = id => document.getElementById(id);
 export const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));

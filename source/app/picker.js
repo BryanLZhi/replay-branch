@@ -8,6 +8,7 @@ import {showPickerSetting, showPosition, isPlaying} from './viewer.js';
 import {renderPanels, go} from './navigation.js';
 import {movesDatalist} from './teams.js';
 import {setTooltipRequest} from './tooltips.js';
+import {upcomingDice, sameStep, renderDice} from './dice.js';
 
 export const pickerOn = () => stored('rb-picker', 'on') !== 'off';
 export function setPicker(on) { store('rb-picker', on ? 'on' : 'off'); clearPicks(); renderPanels(); }
@@ -143,10 +144,10 @@ function wireMenu(pos) {
   $id('btnCloseMenu').onclick = () => { closeMenu(); renderPicker(pos); };
   for (const b of menu.querySelectorAll('[data-pick]')) b.onclick = () => {
     S.sel[pid(si)] = b.dataset.pick; S.err = '';
-    closeMenu(); renderPicker(pos);
+    closeMenu(); renderPicker(pos); renderDice(pos);
   };
   for (const box of menu.querySelectorAll('[data-gimmick]')) box.onchange = () => {
-    S.gimmick[pid(si)] = box.checked ? box.dataset.gimmick : ''; renderPicker(pos);   // (Z-Power and Dynamax rename the moves)
+    S.gimmick[pid(si)] = box.checked ? box.dataset.gimmick : ''; renderPicker(pos); renderDice(pos);   // (Z-Power and Dynamax rename the moves)
   };
   for (const b of menu.querySelectorAll('[data-edit]')) b.onclick = () => editGuessedMove(pos, si, b);
 }
@@ -248,19 +249,32 @@ function replaceMove(pos, si, k, oldMove, newMove) {
 }
 
 // ---------------------------------------------------------------- playing the turn
-// Play the turn as the bar shows it: the replay's own turn if nothing differs from it, else a line.
-export function playTurn(pos) {
-  const choices = {}, picks = {}, gimmicks = {};
-  pos.battle.sides.forEach((side, si) => {
-    const req = requestOf(pos, si);
-    if (!req) return;
+// The turn as the bar shows it, once every choice is in: {choices, parent, sets, replay (nothing differs from the
+// replay's own turn)}, else null.
+export function barTurn(pos) {
+  const battle = pos.battle;
+  if (!battle || battle.ended || isDoubles()) return null;
+  const need = [0, 1].map(si => requestOf(pos, si));
+  if (!need.some(Boolean)) return null;
+  const choices = {}, onReplay = pos.kind === 'turn' || pos.kind === 'preview';
+  let replay = onReplay;
+  for (const [si, req] of need.entries()) {
+    if (!req) continue;
     const s = slot(pos, si, req);
-    picks[si] = s.pick; gimmicks[si] = s.gimmick;
+    if (!s.pick) return null;
     choices[pid(si)] = s.pick.startsWith('move') && s.gimmick ? s.pick + ' ' + s.gimmick : s.pick;
-  });
+    replay &&= matchesPlayed(battle.sides[si], s.pick, s.gimmick, playedChoice(pos.t, si));
+  }
+  return {choices, replay, parent: onReplay ? 'r' + pos.t : S.cur, sets: onReplay ? S.study.sets : undefined};
+}
+
+// Play the turn as the bar shows it: the replay's own turn if nothing differs from it, else a line (with the dice as
+// set before playing).
+export function playTurn(pos) {
+  const turn = barTurn(pos);
+  if (!turn) return;
   const reset = () => { clearPicks(); S.err = ''; };
-  const onReplay = pos.kind === 'turn' || pos.kind === 'preview';
-  if (onReplay && pos.battle.sides.every((side, si) => !requestOf(pos, si) || matchesPlayed(side, picks[si], gimmicks[si], playedChoice(pos.t, si)))) {
+  if (turn.replay) {
     reset();
     S.stopAt = pos.t + 1;
     if (pos.t === 0) S.psb.reset(); else S.psb.seekTurn(pos.t);
@@ -268,11 +282,11 @@ export function playTurn(pos) {
     renderPanels();
     return;
   }
-  const parent = onReplay ? 'r' + pos.t : S.cur;
-  const same = k => JSON.stringify(S.study.nodes[k].choices) === JSON.stringify(choices) && !S.study.nodes[k].forced.length;
-  let id = kids(parent).find(same);
+  const {choices, parent, sets} = turn, dice = upcomingDice(pos);
+  const forced = dice ? dice.forced : [], seed = dice?.seed;
+  let id = sameStep(parent, choices, forced, seed);
   if (!id) {
-    id = addNode(parent, choices, [], undefined, onReplay ? S.study.sets : undefined);
+    id = addNode(parent, choices, forced, seed, sets);
     try { compute(id); } catch (e) { deleteNode(id); save(); S.err = e.message || String(e); renderPicker(pos); return; }
   }
   reset();
