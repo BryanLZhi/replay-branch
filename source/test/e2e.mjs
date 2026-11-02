@@ -300,7 +300,19 @@ try {
     if (GIMMICK_FORMATS.includes(format)) {
       // back on the replay, walk the turns to one where the player to move can Mega Evolve / use Z-Power / Dynamax
       await control('reset'); await sleep(400);
-      for (let i = 0; i < 60 && !await page.$('#pickSec [data-gimmick]:not([data-gimmick=terastallize])'); i++) { await press('ArrowRight'); await sleep(200); }
+      const GIMMICK = '#pickSec [data-gimmick]:not([data-gimmick=terastallize])';
+      for (let i = 0; i < 60 && !await page.$(GIMMICK); i++) {
+        // player 2's choice too: pick player 1's first option, look, and take it back
+        const first = await page.$('#pickSec .rb-mv:not(:disabled)');
+        if (first && /what will/.test(await question())) {
+          const q = await question();
+          await first.click(); await sleep(150);
+          if (await page.$(GIMMICK)) break;
+          if (await page.$('#btnUndo') && await question() !== q) { await page.click('#btnUndo'); await sleep(150); }
+          if (await page.$('#rbTitle .rb-mode')) { await settled(); await press('ArrowLeft'); await sleep(200); }
+        }
+        await press('ArrowRight'); await sleep(200);
+      }
       const box = await page.$('#pickSec [data-gimmick]:not([data-gimmick=terastallize])');
       if (!box) { check(false, `${format}: a Mega Evolution / Z-Power / Dynamax choice turns up`); continue; }
       const kind = await box.evaluate(b => b.parentElement.textContent.trim());

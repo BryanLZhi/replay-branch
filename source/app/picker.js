@@ -85,14 +85,16 @@ function moveButtons(pos, si, req, active, played) {
   const calcs = mode ? [] : E.damageCalcs(pos.battle, si);   // (the calc numbers are for the regular moves)
   const moves = act.moves.map((m, i) => {
     const as = mode === 'zmove' ? act.canZMove[i] : mode === 'maxmove' ? act.maxMoves.maxMoves[i] : null;
-    const type = E.Dex.moves.get(as ? as.move : m.id || m.move).type || 'Normal';
+    const shown = as && E.Dex.moves.get(as.move);   // (a status Z-Move, "Z-Roost", is not a move of its own)
+    const name = !as ? m.move : shown.exists ? shown.name : as.move;
+    const type = (shown?.exists ? shown : E.Dex.moves.get(m.id || m.move)).type || 'Normal';
     const was = played && played.kind === 'move' && moveNames(act, i + 1).includes(E.toID(played.name));
     const guessed = k >= 0 && !pasted && !known.includes(E.toID(m.move)) && !['struggle', 'recharge'].includes(E.toID(m.move));
     const note = guessed ? 'Guessed' : was ? 'Used in the replay' : '';
     const disabled = m.disabled || m.pp === 0 || (mode === 'zmove' && !as);
     return `<div class="rb-mvwrap"><button type="button" class="rb-mv has-tooltip t-${esc(type)} ${was ? 'played' : ''} ${guessed ? 'guess' : ''}" data-pick="move ${i + 1}" ` +
       `data-tooltip="move|${i}|${mode}" ${note ? `data-note="${note}"` : ''} ${calcs[i]?.desc ? `data-calc="${esc(calcs[i].desc)}"` : ''} ${disabled ? 'disabled' : ''}>` +
-      `<b>${esc(as ? E.Dex.moves.get(as.move).name : m.move)}</b><small><span>${esc(type)}</span>${calcs[i] ? `<span class="rb-dmg">${esc(calcs[i].range)}</span>` : ''}` +
+      `<b>${esc(name)}</b><small><span>${esc(type)}</span>${calcs[i] ? `<span class="rb-dmg">${esc(calcs[i].range)}</span>` : ''}` +
       `<span>${m.maxpp ? `${m.pp}/${m.maxpp}` : ''}</span></small></button>` +
       (guessed ? `<button type="button" class="rb-edit" data-edit="${esc(m.move)}" title="Change this guessed move" aria-label="Change ${esc(m.move)}"><i class="fa fa-pencil" aria-hidden="true"></i></button>` : '') + `</div>`;
   });
