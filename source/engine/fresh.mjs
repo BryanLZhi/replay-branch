@@ -3,6 +3,22 @@
 // both teams is listed (|poke|), and each goes by its species, so the page knows them all from the start.
 import {Battle as SimBattle, Dex, toID} from '@pkmn/sim';
 
+// The formats a new battle can be: singles and doubles (not triples, free-for-all or multi battles), not random battles
+// (they make their own teams), and only those Showdown lets players challenge each other in. Newest generation first,
+// singles before doubles: [{group: 'Gen 9 · Singles', formats: [{id, name}]}].
+export function freshFormats() {
+  const groups = new Map();
+  const usable = Dex.formats.all().filter(f => f.exists && f.effectType === 'Format' && ['singles', 'doubles'].includes(f.gameType || 'singles') &&
+    !f.team && f.challengeShow !== false);
+  usable.sort((a, b) => (Dex.forFormat(b).gen - Dex.forFormat(a).gen) || ((a.gameType === 'doubles') - (b.gameType === 'doubles')));
+  for (const f of usable) {
+    const group = `Gen ${Dex.forFormat(f).gen} · ${f.gameType === 'doubles' ? 'Doubles' : 'Singles'}`;
+    if (!groups.has(group)) groups.set(group, []);
+    groups.get(group).push({id: f.id, name: f.name.replace(/^\[Gen \d+\] /, '')});
+  }
+  return [...groups].map(([group, formats]) => ({group, formats}));
+}
+
 // teams: two lists of sets (as parseTeam gives them); names: the two players. Returns the log, and the sets as the battle
 // has them (named by species).
 export function freshBattle(formatid, teams, names = ['Player 1', 'Player 2']) {

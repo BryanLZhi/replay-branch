@@ -1534,6 +1534,11 @@ function wireLanding() {
     if (id) visit(id);
   };
   $id("btnPasteLog").onclick = () => $id("btnLoad").click();
+  S.ready.then(() => {
+    const select2 = $id("freshFormat"), was = select2.value || "gen9ou";
+    select2.innerHTML = E.freshFormats().map((g) => `<optgroup label="${esc(g.group)}">` + g.formats.map((f) => `<option value="${esc(f.id)}" ${f.id === was ? "selected" : ""}>${esc(f.name)}</option>`).join("") + `</optgroup>`).join("");
+  }).catch(() => {
+  });
   $id("freshForm").onsubmit = async (e) => {
     e.preventDefault();
     $id("freshErr").textContent = "";

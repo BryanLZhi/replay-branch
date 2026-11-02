@@ -1,5 +1,5 @@
 // The landing page: open a replay by link, search Showdown's replays, and the replays opened before (with their lines).
-import {$id, esc, stored, unstore} from './state.js';
+import {S, E, $id, esc, stored, unstore} from './state.js';
 import {replayIdFrom, visit, SAMPLE, startFresh, showPage} from './load.js';
 
 export function renderLanding() {
@@ -15,6 +15,12 @@ export function wireLanding() {
     if (id) visit(id);
   };
   $id('btnPasteLog').onclick = () => $id('btnLoad').click();
+  // (the formats a new battle can be, once the simulator is loaded)
+  S.ready.then(() => {
+    const select = $id('freshFormat'), was = select.value || 'gen9ou';
+    select.innerHTML = E.freshFormats().map(g => `<optgroup label="${esc(g.group)}">` +
+      g.formats.map(f => `<option value="${esc(f.id)}" ${f.id === was ? 'selected' : ''}>${esc(f.name)}</option>`).join('') + `</optgroup>`).join('');
+  }).catch(() => {});
   $id('freshForm').onsubmit = async e => {
     e.preventDefault();
     $id('freshErr').textContent = '';
