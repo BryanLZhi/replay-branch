@@ -6,6 +6,7 @@ import {onKey, onOutsideClick} from './navigation.js';
 import {route, wireDialogs} from './load.js';
 import {wireLanding} from './landing.js';
 import {listenForTooltips} from './tooltips.js';
+import {wireChapters} from './chapters.js';
 
 // Hover tooltips for older generations use Showdown's teambuilder tables (16 MB); fetch them once the page is usable.
 const TEAMBUILDER_TABLES = 'https://play.pokemonshowdown.com/data/teambuilder-tables.js?a7';
@@ -42,6 +43,7 @@ S.ready.catch(e => {
 });
 wireDialogs();
 wireLanding();
+wireChapters();
 $id('home').onclick = e => { e.preventDefault(); history.pushState(null, '', location.pathname); route(); };
 window.addEventListener('popstate', route);
 route();

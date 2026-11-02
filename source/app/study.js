@@ -1,6 +1,7 @@
 // The study tree. Replay positions are 'r<turn>' (start of that turn; 'r0' = team preview, r<last+1> = the end).
 // Your lines are nodes 'n<k>' hanging off a replay position or another node; each stores only the choices, the dice
-// it forced and a seed, so every position is recomputed from them on demand.
+// it forced and a seed, so every position is recomputed from them on demand. A node can instead hold an edit of the position
+// (engine edit.mjs): it changes the position without playing a turn.
 import {S, E, clone, hash, stored, store} from './state.js';
 
 const SEED = [11, 22, 33, 44];   // fixed seed for setting up positions on the replay
@@ -64,11 +65,11 @@ export const startOf = (parent, sets) => parent === 'r0' ? previewPos(sets).json
   : isReplayPos(parent) ? replayTurnPos(replayTurn(parent), sets).json
   : compute(parent).json;
 
-// Play a line node from its parent position: {json, battle, lines (protocol), rolls (dice)}.
+// Play a line node from its parent position: {json, battle, lines (protocol), rolls (dice)} (an edit has no dice).
 export function compute(id) {
   if (S.lines.has(id)) return S.lines.get(id);
   const n = S.study.nodes[id];
-  const r = E.step(startOf(n.parent, n.sets), n.choices, n.forced, n.seed);
+  const r = n.edit ? {...E.editPosition(startOf(n.parent, n.sets), n.edit), rolls: []} : E.step(startOf(n.parent, n.sets), n.choices, n.forced, n.seed);
   const out = {json: E.serialize(r.battle), battle: r.battle, lines: r.lines, rolls: r.rolls};
   S.lines.set(id, out);
   return out;
@@ -79,6 +80,14 @@ export const newSeed = () => [0, 0, 0, 0].map(() => Math.floor(Math.random() * 6
 export function addNode(parent, choices, forced, seed, sets) {
   const id = 'n' + (++S.study.seq);
   S.study.nodes[id] = {id, parent, choices, forced: forced || [], seed: seed || newSeed(), sets: sets && clone(sets), comment: '', glyph: ''};
+  (S.study.kids[parent] ||= []).push(id);
+  save();
+  return id;
+}
+// A step that edits the position (sets: for a step off the replay).
+export function addEdit(parent, edit, sets) {
+  const id = 'n' + (++S.study.seq);
+  S.study.nodes[id] = {id, parent, choices: {}, forced: [], edit, sets: sets && clone(sets), comment: '', glyph: ''};
   (S.study.kids[parent] ||= []).push(id);
   save();
   return id;

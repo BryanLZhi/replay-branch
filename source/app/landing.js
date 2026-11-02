@@ -1,8 +1,10 @@
 // The landing page: open a replay by link, search Showdown's replays, and the replays opened before (with their lines).
 import {S, E, $id, esc, stored, store, unstore} from './state.js';
 import {replayIdFrom, visit, SAMPLE, startFresh, showPage} from './load.js';
+import {renderStudies} from './chapters.js';
 
 export function renderLanding() {
+  renderStudies();
   renderRecent();
   $id('openUrl').focus();
 }
@@ -78,7 +80,7 @@ function wireFormatMenu() {
 }
 
 // ---------------------------------------------------------------- recent
-const ago = ms => {
+export const ago = ms => {
   const min = (Date.now() - ms) / 60000;
   if (min < 1) return 'just now';
   if (min < 60) return `${Math.floor(min)} min ago`;
@@ -126,7 +128,10 @@ function renderRecent() {
   };
   for (const b of list.querySelectorAll('[data-remove]')) b.onclick = e => {
     e.preventDefault();
-    if (removeArmed === b.dataset.remove) { unstore('rbv:' + b.dataset.remove); removeArmed = null; } else removeArmed = b.dataset.remove;
+    if (removeArmed === b.dataset.remove) {
+      unstore('rbv:' + b.dataset.remove); removeArmed = null;
+      if (S.key === b.dataset.remove) S.key = '';   // (the open copy goes too: opening it again starts afresh)
+    } else removeArmed = b.dataset.remove;
     renderRecent();
   };
 }

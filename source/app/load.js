@@ -7,21 +7,26 @@ import {go} from './navigation.js';
 import {renderLanding} from './landing.js';
 import {pasteText} from './teams.js';
 import {isFresh} from './replay.js';
+import {studyInAddress, startOfStudy, openSharedStudy, renderChapterBar, keptChapter} from './chapters.js';
 
 export const SAMPLE = 'oumonotype-82345404';
 
 // ---------------------------------------------------------------- pages
 // The address says what to show: the landing page, ?r=<replay id, or the key of a saved study of a pasted log>, or
-// #s=<a shared study>.
+// #s=<a shared study>; ?c=<id>&r=<key>: that replay as a chapter of a study of several (chapters.js), #c=<a shared one>.
 export async function route() {
-  const key = new URLSearchParams(location.search).get('r');
-  const shared = location.hash.startsWith('#s=');
-  showPage(key || shared ? 'viewer' : 'landing');
-  if (!key && !shared) { renderLanding(); return; }
+  let key = new URLSearchParams(location.search).get('r');
+  const shared = location.hash.startsWith('#s='), sharedChapters = location.hash.startsWith('#c='), inStudy = studyInAddress();
+  showPage(key || shared || sharedChapters || inStudy ? 'viewer' : 'landing');
+  if (!key && !shared && !sharedChapters && !inStudy) { renderLanding(); return; }
   await S.ready;
   try {
+    if (sharedChapters) key = await openSharedStudy();
+    else if (!key && !shared) key = startOfStudy(inStudy);
+    renderChapterBar(shared ? null : key);   // (at once, while the replay loads)
     if (shared) await openSharedLink();
     else if (key !== S.key) await openKey(key);
+    renderChapterBar();
   } catch (e) {
     history.replaceState(null, '', location.pathname);
     showPage('landing'); renderLanding();
@@ -39,10 +44,11 @@ export function showPage(page) {
   document.body.dataset.page = page;
   if (page === 'landing') document.title = 'Replay Branch';
 }
-// (a pasted log is kept with its study; a shared copy's key is "<replay id>~<n>")
+// (a pasted log is kept with its study, and with the studies it is a chapter of; a shared copy's key is "<replay id>~<n>")
 async function openKey(key) {
-  const meta = loadSaved(key)?.meta || {};
+  const saved = loadSaved(key), meta = saved?.meta || {}, kept = !saved && keptChapter(key);
   if (meta.log) await loadText(meta.log, {key});
+  else if (kept) await loadText(kept.log, {key, known: kept.teams});
   else {
     const id = meta.replayId || key.split('~')[0];
     await loadText(await fetchReplay(id), {replayId: id, key});
@@ -101,10 +107,11 @@ export async function startFresh(format, teamTexts) {
   showPage('viewer');
   await loadText(log, {known: sets});
   history.pushState(null, '', '?r=' + encodeURIComponent(S.key));
+  renderChapterBar();
 }
 
 // Where a replay's study is kept: its replay id, or for a log that has none a hash of it.
-const replayKey = rep => rep.meta.id || 'log-' + hash(rep.lines.slice(0, 40).join('\n') + rep.lines.length);
+export const replayKey = rep => rep.meta.id || 'log-' + hash(rep.lines.slice(0, 40).join('\n') + rep.lines.length);
 
 // Usage stats for a format (null for formats without them).
 let statsIndex = null;
@@ -124,7 +131,7 @@ export function replayIdFrom(s) {
     .match(/^(?:https?:\/\/)?(?:replay\.pokemonshowdown\.com|psim\.us\/r)\/([a-z0-9-]+)$/i);
   return m ? m[1] : null;
 }
-async function fetchReplay(id) {
+export async function fetchReplay(id) {
   const r = await fetch(`https://replay.pokemonshowdown.com/${id}.json`);
   if (!r.ok) throw new Error(r.status === 404 ? 'Replay not found (it may be private or deleted).' : `Could not load the replay (${r.status}).`);
   return r.text();
@@ -156,15 +163,16 @@ export async function openSharedLink() {
   const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
   const payload = JSON.parse(await new Response(stream).text());
   const text = payload.id ? await fetchReplay(payload.id) : payload.log;
-  // Someone else's study never replaces yours: if you have lines or notes on this replay that differ, theirs is kept
-  // beside yours, as "<replay>~<its hash>" (the same link opens the same copy again).
-  const own = replayKey(E.parseReplayInput(text));
-  const mine = loadSaved(own);
-  const hasWork = s => s && (Object.keys(s.nodes || {}).length || Object.values(s.notes || {}).some(n => n?.comment || n?.glyph));
-  const theirs = JSON.stringify(payload.study || {});
-  const key = hasWork(mine) && JSON.stringify(mine.nodes) !== JSON.stringify(payload.study?.nodes) ? own + '~' + hash(theirs) : own;
+  const key = sharedKey(replayKey(E.parseReplayInput(text)), payload.study);
   await loadText(text, {replayId: payload.id || null, study: payload.study, key, shared: true});
   history.replaceState(null, '', '?r=' + encodeURIComponent(S.key));
+}
+// Someone else's study never replaces yours: if you have lines or notes on this replay (kept under own) that differ, theirs
+// is kept beside yours, as "<replay>~<its hash>" (the same link opens the same copy again).
+export function sharedKey(own, study) {
+  const mine = loadSaved(own);
+  const hasWork = s => s && (Object.keys(s.nodes || {}).length || Object.values(s.notes || {}).some(n => n?.comment || n?.glyph));
+  return hasWork(mine) && JSON.stringify(mine.nodes) !== JSON.stringify(study?.nodes) ? own + '~' + hash(JSON.stringify(study || {})) : own;
 }
 
 // ---------------------------------------------------------------- dialogs
@@ -206,6 +214,7 @@ async function loadFrom(get) {
     showPage('viewer');
     await loadText(text, {replayId});
     history.pushState(null, '', '?r=' + encodeURIComponent(S.key));
+    renderChapterBar();
     $id('loader').hidden = true; $id('pasteBox').value = ''; $id('replayUrl').value = '';
   } catch (e) {
     if (wasLanding) showPage('landing');

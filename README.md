@@ -21,8 +21,9 @@ The repository root is the site (GitHub Pages). Everything in it except `sample.
 | `source/app/` | the page script, as ES modules bundled into `app.js` |
 | &nbsp;&nbsp;`main.js` | start-up |
 | &nbsp;&nbsp;`landing.js` | the landing page: open a replay, recent studies, search Showdown's replays |
+| &nbsp;&nbsp;`chapters.js` | studies of several replays (chapters, as in lichess studies): the chapter bar, Add to study, the Studies list, a whole study's share link |
 | &nbsp;&nbsp;`state.js` | shared state and small helpers |
-| &nbsp;&nbsp;`clean.js` | rebuilds studies from share links, exports and storage field by field (nothing else gets through) |
+| &nbsp;&nbsp;`clean.js` | rebuilds studies (and studies of several replays) from share links, exports and storage field by field (nothing else gets through) |
 | &nbsp;&nbsp;`study.js` | the study tree: replay positions `r<turn>`, your lines `n<id>`, computing positions |
 | &nbsp;&nbsp;`replay.js` | facts read from the replay's log (who played what) |
 | &nbsp;&nbsp;`viewer.js` | drives Showdown's replay viewer |
@@ -31,9 +32,10 @@ The repository root is the site (GitHub Pages). Everything in it except `sample.
 | &nbsp;&nbsp;`tooltips.js` | Showdown's hover tooltips on the picker's buttons |
 | &nbsp;&nbsp;`dice.js` | the dice of the turn on the bar (set before playing it; on the replay, as the turn went), else of a line's last step; their odds |
 | &nbsp;&nbsp;`panels.js` | the study panel and its Study tab |
+| &nbsp;&nbsp;`editor.js` | the position editor (Edit on the turn bar): HP, status, stat stages and items, weather, terrain, Trick Room, hazards and screens, applied as a step of its own |
 | &nbsp;&nbsp;`teams.js` | the Teams tab, and importing a team (checked against the replay) |
-| &nbsp;&nbsp;`load.js` | loading replays and studies, share links, which page the address shows |
-| `source/engine/` | bundled into `engine.js`: `core.mjs` (replay parsing, sets, the simulator with controllable RNG), `calc.mjs` (Smogon's damage calc), `paste.mjs` (team import and its checks), `realdice.mjs` (the dice a replay turn rolled, found from its log) |
+| &nbsp;&nbsp;`load.js` | loading replays and studies, share links, which page the address shows (`?r=<replay>`, `?c=<study>&r=<chapter>`) |
+| `source/engine/` | bundled into `engine.js`: `core.mjs` (replay parsing, sets, the simulator with controllable RNG), `calc.mjs` (Smogon's damage calc), `paste.mjs` (team import and its checks), `realdice.mjs` (the dice a replay turn rolled, found from its log), `edit.mjs` (an edited position: the change made with the simulator's own functions, and the lines that show it in the viewer) |
 | `source/embed/` | Showdown's `replay-embed.js` and the small changes made to it for `js/replay-embed.js` |
 | `source/index.template.html`, `source/style.css` | the page |
 | `source/stats/build_stats.py` | rebuilds `stats/` |

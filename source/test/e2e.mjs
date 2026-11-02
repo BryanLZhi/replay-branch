@@ -271,6 +271,36 @@ try {
   await page.click('#studySec [data-glyph="!?"]'); await sleep(100);
   await page.type('#comment', 'interesting try');
   await page.$eval('#comment', el => el.blur()); await sleep(200);
+
+  // ---------------------------------------------------------------- the position editor
+  await control('reset'); await sleep(400);
+  for (let i = 0; i < 3; i++) { await control('ff'); await sleep(250); }   // (turn 3 of the replay)
+  await barReady(); await settled();
+  const editTurn = await turnLabel();
+  await page.click('#btnEdit');
+  await until(() => !document.querySelector('#editor').hidden, null, 10000);
+  check(await page.$$eval('#editor .rb-edmon', m => m.length) === 12 && !!await page.$('#editor .rb-edmon.on [data-boost=atk]') && !!await page.$('#editor [data-cond=stealthrock]'),
+    "Edit opens the position editor on a replay turn: both teams, the stat stages of those on the field, each side's hazards");
+  await page.$eval('#editor .rb-edside[data-side="0"] .rb-edmon.on [data-f=hp]', el => { el.value = '40'; el.dispatchEvent(new Event('input')); });
+  await page.click('#editor .rb-edside[data-side="1"] [data-cond=stealthrock]');
+  await page.click('#btnEditApply');
+  await until(() => document.querySelector('#editor').hidden && document.querySelector('#rbTitle .rb-mode'), null, 30000); await settled();
+  const editedStep = await text('#studySec .rb-tok.rb-edited.cur');
+  check(/✎/.test(editedStep) && /40%/.test(editedStep) && /Stealth Rock/.test(editedStep), 'applying an edit adds an edited step to the move list', editedStep);
+  const hpShown = await page.$$eval('.statbar .hptext', t => t.map(x => x.textContent));
+  check(await turnLabel() === editTurn && hpShown.includes('40%') && !await visible('#diceSec'), 'the viewer shows the edited position, and the same turn is asked next', `${await turnLabel()}, HP ${hpShown.join(' / ')}`);
+  await branchTurn(); await sleep(500); await settled();
+  const afterEdit = await page.$$eval('#studySec .rb-tok', t => { const i = t.findIndex(x => x.classList.contains('cur')); return i > 0 && t[i - 1].classList.contains('rb-edited'); });
+  check(afterEdit && !await text('#pickSec .rb-err'), 'a turn plays on from the edited position', await text('#pickSec .rb-err'));
+  // editing again, in the line: the hazard is still there; another step
+  await barReady();
+  await page.click('#btnEdit');
+  await until(() => !document.querySelector('#editor').hidden, null, 10000);
+  check(await page.$eval('#editor .rb-edside[data-side="1"] [data-cond=stealthrock]', b => b.checked), 'the editor opens on a position in a line, with the edit kept');
+  await page.select('#editor .rb-edside[data-side="1"] .rb-edmon.on [data-f=status]', 'par');
+  await page.click('#btnEditApply');
+  await until(() => document.querySelector('#editor').hidden, null, 30000); await settled();
+  check(await page.$$eval('#studySec .rb-tok.rb-edited', t => t.length) === 2 && /PAR/.test(await text('#studySec .rb-tok.rb-edited.cur')), 'editing again adds another edited step', await text('#studySec .rb-tok.rb-edited.cur'));
   const lineCount = await page.$$eval('#studySec .rb-tok', t => t.length);
   const tokens = await page.$$eval('#studySec .rb-tok', t => t.map(x => x.textContent));
   check(tokens.some(t => t.includes('!?') && t.includes('interesting try')), 'glyph and note show on the line');
@@ -279,6 +309,7 @@ try {
   await barReady();
   const reloaded = await page.$$eval('#studySec .rb-tok', t => t.map(x => x.textContent));
   check(reloaded.length === lineCount && reloaded.some(t => t.includes('!?') && t.includes('interesting try')), 'the study is kept across a reload', reloaded.length + ' lines');
+  check(reloaded.filter(t => t.includes('✎')).length === 2, 'edited steps too');
 
   // ---------------------------------------------------------------- share (link and text), delete, load the text back
   await page.click('#btnShare'); await sleep(300);
@@ -296,6 +327,7 @@ try {
     const shared = await p2.$$eval('#studySec .rb-tok', t => t.map(x => x.textContent));
     check(shared.length === lineCount && shared.some(t => t.includes('interesting try')) && !p2.url().includes('#s='),
       'the link opens the study for someone else', shared.length + ' lines');
+    check(shared.filter(t => t.includes('✎') && !t.includes('error')).length === 2, 'with its edited steps');
     await other.close();
   }
   {
@@ -303,8 +335,11 @@ try {
     const xss = '<img src=x onerror="window.pwned=1">';
     const study = {
       nodes: {'n1" onmouseover="window.pwned=1': {parent: 'r1', choices: {p1: 'move 1', p2: 'move 1'}},
-        n2: {parent: 'r1', choices: {p1: 'move 1', p2: 'move 1"><b>'}, forced: [{key: xss, value: xss}], seed: [1, 2, 3, 4], comment: xss, glyph: xss}},
-      kids: {r1: ['n1" onmouseover="window.pwned=1', 'n2']}, notes: {r2: {comment: xss, glyph: xss}},
+        n2: {parent: 'r1', choices: {p1: 'move 1', p2: 'move 1"><b>'}, forced: [{key: xss, value: xss}], seed: [1, 2, 3, 4], comment: xss, glyph: xss},
+        // (edited positions: what holds is kept, the rest dropped)
+        n3: {parent: 'r2', edit: {mons: [{s: 0, k: 0, hp: 50, status: xss, item: xss, boosts: {atk: xss, [xss]: 1}}, {s: xss, k: 1, hp: 10}], field: {weather: xss, terrain: 'electricterrain'}, sides: [{[xss]: 1, spikes: xss}, {stealthrock: 1}]}},
+        n4: {parent: 'r2', edit: {mons: [{s: 0, k: 0, hp: xss}], field: {weather: xss}}, comment: xss}},
+      kids: {r1: ['n1" onmouseover="window.pwned=1', 'n2'], r2: ['n3', 'n4']}, notes: {r2: {comment: xss, glyph: xss}},
       sets: [[{name: xss, species: 'Talonflame', evs: {hp: '"><img src=x onerror="window.pwned=1">'}, level: '"><img src=x onerror="window.pwned=1">', moves: [xss]}]],
     };
     const evil = url.replace(/[?#].*$/, '') + '#s=' + zlib.deflateRawSync(Buffer.from(JSON.stringify({rbv: 1, id: SAMPLE, study}))).toString('base64url');
@@ -356,6 +391,9 @@ try {
   check(/again/.test(await text('#btnDelete')), 'Delete asks for a second click');
   await page.click('#btnDelete'); await sleep(300);
   check(await page.$$eval('#studySec .rb-tok', t => t.length) === lineCount - 1 && !await inLine(), 'Delete removes the line');
+  await page.click('#studySec .rb-tok.rb-edited'); await sleep(300); await settled();
+  await page.click('#btnDelete'); await sleep(100); await page.click('#btnDelete'); await sleep(300);
+  check(!await page.$('#studySec .rb-tok.rb-edited') && !await inLine(), 'an edited step deletes with what follows it');
   await page.click('#btnLoad'); await sleep(200);
   await page.$eval('#pasteBox', (el, v) => { el.value = v; }, exported);
   await page.click('#btnDoLoad'); await sleep(1000);
@@ -589,6 +627,117 @@ try {
     await page.click('#recent [data-visit]'); await barReady();   // (back to a battle for what follows)
   }
 
+  // ---------------------------------------------------------------- studies of several replays (chapters)
+  {
+    const chapterNo = () => text('#chapBar .rb-chapno');
+    const atChapter = (n, title) => until(([n, title]) => document.querySelector('#chapBar .rb-chapno')?.textContent === n &&
+      document.querySelector('#rbTitle')?.textContent.includes(title) && document.querySelector('#studySec .rb-movelist'), [n, title], 60000);
+    // the new battle, then the sample replay, into a new study
+    await page.click('#btnAddStudy'); await page.waitForSelector('#addMenu:not([hidden])');
+    await page.type('#newStudyName', 'Test study'); await page.keyboard.press('Enter');
+    await until(() => !document.querySelector('#chapBar').hidden, null, 30000);
+    check(/[?&]c=\w+/.test(page.url()) && await chapterNo() === 'Chapter 1 / 1' && /Test study/.test(await text('#chapBar')),
+      'Add to study makes a new study of this replay', await text('#chapBar'));
+    await page.click('#home'); await sleep(300);
+    await page.click(`#recent [data-visit="${SAMPLE}"]`);
+    await until(() => /kdarewolf/.test(document.querySelector('#rbTitle')?.textContent), null, 60000); await barReady();
+    check(!await visible('#chapBar'), 'a replay opened by itself shows no chapter bar');
+    const sampleLines = await page.$$eval('#studySec .rb-tok', t => t.length);
+    await page.click('#btnAddStudy'); await page.waitForSelector('#addMenu [data-add]');
+    await page.click('#addMenu [data-add]');
+    await atChapter('Chapter 2 / 2', 'kdarewolf');
+    check(page.url().includes('c=') && page.url().includes(SAMPLE), 'and another replay goes in as chapter 2', await text('#chapBar'));
+    await page.click('#chapPrev');
+    await atChapter('Chapter 1 / 2', 'Chomp vs Tusk').catch(() => {});
+    check(await chapterNo() === 'Chapter 1 / 2' && /Chomp vs Tusk/.test(await text('#rbTitle')), 'the chapter bar goes to the previous chapter', await text('#chapBar'));
+    await page.click('#chapNext');
+    await atChapter('Chapter 2 / 2', 'kdarewolf').catch(() => {});
+    await until(n => document.querySelectorAll('#studySec .rb-tok').length === n, sampleLines, 30000).catch(() => {});
+    check(await page.$$eval('#studySec .rb-tok', t => t.length) === sampleLines, 'and to the next, with its lines', `${await chapterNo()}, ${sampleLines} lines`);
+    // the chapter list: rename, move, jump
+    await page.click('#chapMenuBtn'); await page.waitForSelector('#chapMenu:not([hidden])');
+    await page.click('#chapMenu [data-retitle="1"]'); await page.waitForSelector('#chapRename');
+    await page.type('#chapRename', 'Kecleon game'); await page.keyboard.press('Enter'); await sleep(200);
+    check(await text('#chapBar .rb-chaptitle') === 'Kecleon game', 'a chapter can be renamed', await text('#chapBar .rb-chaptitle'));
+    await page.click('#chapMenu [data-up="1"]'); await sleep(200);
+    const order = await page.$$eval('#chapMenu [data-chapter]', b => b.map(x => x.textContent));
+    check(await chapterNo() === 'Chapter 1 / 2' && /Kecleon game/.test(order[0]), 'and moved up', order.join(' | '));
+    await page.click('#chapMenu [data-chapter="1"]');
+    await atChapter('Chapter 2 / 2', 'Chomp vs Tusk').catch(() => {});
+    check(await chapterNo() === 'Chapter 2 / 2' && /Chomp vs Tusk/.test(await text('#rbTitle')), 'the list jumps to a chapter', await text('#chapBar'));
+    await page.reload({waitUntil: 'domcontentloaded'});
+    await atChapter('Chapter 2 / 2', 'Chomp vs Tusk').catch(() => {});
+    check(await chapterNo() === 'Chapter 2 / 2' && page.url().includes('c='), 'a reload stays in the study', page.url());
+    // the landing page lists it; opening it goes to the chapter last opened
+    await page.click('#home'); await sleep(300);
+    const studies = await page.$$eval('#studies [data-study]', r => r.map(x => x.textContent));
+    check(studies.some(s => /Test study/.test(s) && /2 chapters/.test(s)), 'Studies on the landing page lists it', studies.join(' | '));
+    await page.click('#studies [data-study]');
+    await atChapter('Chapter 2 / 2', 'Chomp vs Tusk').catch(() => {});
+    check(await chapterNo() === 'Chapter 2 / 2', 'opening it goes to the chapter last opened', await text('#chapBar'));
+    // one link for the whole study: someone else gets every chapter (the sample by its id, the new battle by its log)
+    await page.click('#chapMenuBtn'); await page.click('#btnShareStudy');
+    await page.waitForSelector('#studySharer:not([hidden])');
+    const studyLink = await page.$eval('#studyLink', el => el.value);
+    check(/#c=[\w-]+$/.test(studyLink), 'Share study gives one link', studyLink.length + ' characters');
+    await page.click('#btnCloseStudyShare');
+    {
+      const other = await browser.createBrowserContext();
+      const p2 = await other.newPage(); await p2.setViewport({width: 1280, height: 1000});
+      p2.on('pageerror', e => pageErrors.push(e.message));
+      await watchPolicy(p2);
+      await p2.goto(studyLink, {waitUntil: 'domcontentloaded'});
+      if (await p2.$eval('#gate', el => !el.hidden).catch(() => false)) { await p2.type('#gatePw', process.env.RBV_PW); await p2.keyboard.press('Enter'); }
+      const p2Chapter = (n, title, lines) => p2.waitForFunction(([n, title, lines]) => document.querySelector('#chapBar .rb-chapno')?.textContent === n &&
+        document.querySelector('#rbTitle')?.textContent.includes(title) && (lines < 0 || document.querySelectorAll('#studySec .rb-tok').length === lines),
+        {timeout: 90000, polling: 100}, [n, title, lines]).catch(() => {});
+      const p2text = sel => p2.$eval(sel, el => el.textContent.trim()).catch(() => '');
+      await p2Chapter('Chapter 1 / 2', 'kdarewolf', sampleLines);
+      check(await p2text('#chapBar .rb-chapno') === 'Chapter 1 / 2' && await p2text('#chapBar .rb-chaptitle') === 'Kecleon game' &&
+        await p2.$$eval('#studySec .rb-tok', t => t.length) === sampleLines && !p2.url().includes('#c='), 'the study link opens it for someone else', await p2text('#chapBar'));
+      await p2.click('#chapNext');
+      await p2Chapter('Chapter 2 / 2', 'Chomp vs Tusk', -1);
+      check(/Chomp vs Tusk/.test(await p2text('#rbTitle')), 'with every chapter', await p2text('#rbTitle'));
+      await p2.click('#home'); await sleep(300);
+      const theirs = await p2.$$eval('#studies [data-study]', r => r.map(x => x.textContent));
+      check(theirs.some(s => /Test study/.test(s) && /2 chapters/.test(s) && /shared with you/.test(s)), 'and it is in their Studies', theirs.join(' | '));
+      // a crafted study link: HTML in names stays text, chapters are capped
+      const xss = '<img src=x onerror="window.pwned=1">';
+      const evil = url.replace(/[?#].*$/, '') + '#c=' + zlib.deflateRawSync(Buffer.from(JSON.stringify({rbv: 1, name: xss,
+        chapters: Array.from({length: 80}, () => ({id: SAMPLE, title: xss, study: {name: xss, notes: {r2: {comment: xss}}}}))}))).toString('base64url');
+      await p2.goto(evil, {waitUntil: 'domcontentloaded'});
+      await p2.waitForSelector('#chapBar:not([hidden])', {timeout: 60000}).catch(() => {});
+      await p2.click('#chapMenuBtn').catch(() => {}); await sleep(300);
+      const result = await p2.evaluate(() => ({pwned: !!window.pwned, injected: document.querySelectorAll('img[src="x"]').length, bar: document.querySelector('#chapBar').textContent}));
+      check(!result.pwned && !result.injected && /Chapter 1 \/ 1/.test(result.bar) && result.bar.includes('<img'), 'a crafted study link cannot run anything', JSON.stringify(result).slice(0, 160));
+      await other.close();
+    }
+    // removing a chapter keeps the replay's own study
+    await page.click('#chapMenuBtn'); await page.waitForSelector('#chapMenu:not([hidden])');
+    await page.click('#chapMenu [data-remove="0"]'); await sleep(100);
+    await page.click('#chapMenu [data-remove="0"]'); await sleep(300);
+    const left = await chapterNo(), battleKey = new URL(page.url()).searchParams.get('r');
+    await page.click('#home'); await sleep(300);
+    check(left === 'Chapter 1 / 1' && !!await page.$(`#recent [data-visit="${SAMPLE}"]`) && /1 chapter\b/.test(await text('#studies')),
+      'a chapter can be removed, and its replay stays in Recent', left);
+    // the new battle (no replay id) taken off Recent: its chapter still opens, empty, and still goes into the study's link
+    await page.click(`#recent [data-visit="${battleKey}"] [data-remove]`); await sleep(100);
+    await page.click(`#recent [data-visit="${battleKey}"] [data-remove]`); await sleep(300);
+    const gone = /^log-/.test(battleKey) && !await page.$(`#recent [data-visit="${battleKey}"]`);
+    await page.click('#studies [data-study]');
+    await atChapter('Chapter 1 / 1', 'Player 1').catch(() => {}); await barReady();   // (the bar stays for what follows)
+    await page.click('[data-tab=teams]'); await sleep(300);
+    const guessed = await page.$$eval('#studySec .rb-mon .guess', g => g.length);
+    await page.click('[data-tab=study]'); await sleep(200);
+    check(gone && await chapterNo() === 'Chapter 1 / 1' && /Player 1 vs\. Player 2/.test(await text('#rbTitle')) && await page.$$eval('#studySec .rb-tok', t => t.length) === 0 && guessed === 0,
+      'a chapter whose replay was taken off Recent still opens, with its teams', `${gone} ${await text('#rbTitle')}, ${guessed} guesses`);
+    await page.click('#chapMenuBtn'); await page.click('#btnShareStudy');
+    await page.waitForSelector('#studySharer:not([hidden])');
+    const kept = JSON.parse(zlib.inflateRawSync(Buffer.from((await page.$eval('#studyLink', el => el.value)).split('#c=')[1], 'base64url')).toString());
+    check(kept.chapters.length === 1 && /\|player\|p1\|Player 1/.test(kept.chapters[0].log || ''), "and goes into the study's link with its log", kept.chapters.length + ' chapters');
+    await page.click('#btnCloseStudyShare');
+  }
+
   // ---------------------------------------------------------------- dark mode, phone width
   await page.click('.colorchooser button[value=dark]'); await sleep(200);
   const bg = await page.$eval('#studySec', el => getComputedStyle(el).backgroundColor);
@@ -597,6 +746,21 @@ try {
   await page.setViewport({width: 412, height: 900}); await sleep(800);
   const width = await page.evaluate(() => document.documentElement.scrollWidth);
   check(width <= 412, 'phone width: nothing sticks out sideways', width + 'px');
+  // the position editor on a phone, in dark mode (on the sample, which has lines by now)
+  await page.goto(url.replace(/[?#].*$/, '') + '?r=' + SAMPLE, {waitUntil: 'domcontentloaded'});
+  await page.waitForSelector('#studySec .rb-tok', {timeout: 60000});
+  await page.click('.colorchooser button[value=dark]'); await sleep(200);
+  await page.click('#studySec .rb-tok'); await sleep(300); await settled(); await barReady();
+  await page.click('#btnEdit');
+  await until(() => !document.querySelector('#editor').hidden, null, 10000);
+  const phoneEditor = await page.evaluate(() => {
+    const sec = document.querySelector('#editor .rb-section');
+    return {page: document.documentElement.scrollWidth, inner: sec.scrollWidth - sec.clientWidth, bg: getComputedStyle(sec).backgroundColor};
+  });
+  check(phoneEditor.page <= 412 && phoneEditor.inner <= 0 && phoneEditor.bg === 'rgb(38, 41, 46)', 'the position editor fits a phone, in dark mode too', JSON.stringify(phoneEditor));
+  await page.keyboard.press('Escape'); await sleep(200);
+  check(!await visible('#editor'), 'Esc closes the editor');
+  await page.click('.colorchooser button[value=light]');
   await page.setViewport({width: 1280, height: 1000});
 } catch (e) {
   check(false, 'test run', e.stack || e.message);

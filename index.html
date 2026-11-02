@@ -15,7 +15,8 @@
 
 <header class="rb-head">
   <a href="./" id="home">Replay Branch</a>
-  <span id="viewerBtns" hidden><button class="button" type="button" id="btnLoad">Load replay</button> <button class="button" type="button" id="btnShare">Share</button></span>
+  <span id="viewerBtns" hidden><button class="button" type="button" id="btnLoad">Load replay</button> <button class="button" type="button" id="btnShare">Share</button>
+    <div class="rb-popwrap"><button class="button" type="button" id="btnAddStudy" aria-haspopup="true" aria-expanded="false" title="Add to study" aria-label="Add to study"><i class="fa fa-book" aria-hidden="true"></i><span class="rb-wide"> Add to study</span></button><div class="rb-pop" id="addMenu" hidden></div></div></span>
 </header>
 
 <main class="rb-landing" id="landing" hidden>
@@ -42,6 +43,10 @@
     </form>
     <p class="rb-err" id="freshErr"></p>
   </section>
+  <section class="rb-sheet" id="studiesSec" hidden>
+    <h2>Studies</h2>
+    <div class="rb-links" id="studies"></div>
+  </section>
   <section class="rb-sheet">
     <h2>Recent</h2>
     <div class="rb-links" id="recent"></div>
@@ -60,6 +65,7 @@
 </main>
 
 <div id="viewer" class="rb-sheet" hidden>
+<div class="rb-chapbar" id="chapBar" hidden></div>
 <!-- Showdown's replay viewer (built by js/replay-embed.js from the log below), with the turn bar and dice under its controls -->
 <div class="wrapper replay-wrapper">
 <input type="hidden" name="replayid" value="oumonotype-82345404" />
@@ -255,6 +261,14 @@
     <p class="rb-row"><input id="shareLink" class="textbox" readonly style="flex:1;min-width:0" aria-label="Link"><button class="button" type="button" id="btnCopyLink">Copy link</button></p>
     <textarea id="exportBox" class="textbox" readonly aria-label="Study"></textarea>
     <p class="rb-row" style="justify-content:flex-end"><span class="rb-note" id="copyMsg"></span><button class="button" type="button" id="btnCopy">Copy text</button><button class="button" type="button" id="btnCloseShare">Close</button></p>
+  </section>
+</div>
+<div class="rb-modal" id="editor" hidden></div>
+<div class="rb-modal" id="studySharer" hidden>
+  <section class="rb-section" role="dialog" aria-labelledby="studyShareTitle">
+    <h2 id="studyShareTitle">Share study</h2>
+    <p class="rb-row"><input id="studyLink" class="textbox" readonly style="flex:1;min-width:0" aria-label="Link"><button class="button" type="button" id="btnCopyStudyLink">Copy link</button><button class="button" type="button" id="btnCloseStudyShare">Close</button></p>
+    <p class="rb-note" id="studyCopyMsg"></p>
   </section>
 </div>
 <div class="rb-modal" id="importer" hidden>

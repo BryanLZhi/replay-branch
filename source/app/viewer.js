@@ -6,6 +6,7 @@ import {isReplayPos, replayTurn, pathTo, compute, save} from './study.js';
 import {startIndex, playerName} from './replay.js';
 import {renderPanels, go, step} from './navigation.js';
 import {pickerOn, setPicker} from './picker.js';
+import {renderChapterBar} from './chapters.js';
 
 const FADE = {hyperfast: 40, fast: 50, normal: 300, slow: 500, reallyslow: 1000};
 const DELAY = {hyperfast: 1, fast: 1, normal: 1, slow: 1000, reallyslow: 3000};
@@ -119,6 +120,7 @@ function rename() {
       if (v) S.study.name = v; else delete S.study.name;
       save();
       document.title = `${v || S.study.meta?.players?.join(' vs. ') || 'Replay'} - Replay Branch`;
+      renderChapterBar();   // (a chapter goes by the study's name)
     }
     showTitle();
   };

@@ -188,6 +188,47 @@ body.dark .rb-edit { background: rgba(255,255,255,.12); }
 .rb-mv.played, .rb-sw.played { position: relative; }
 .rb-mv.played::after, .rb-sw.played::after { content: ''; position: absolute; top: 4px; right: 4px; width: 6px; height: 6px; border-radius: 50%; background: var(--rb-branch); }
 
+/* position editor: the field, then each side's Pokemon (statbar-like rows; on the field, stat stages and item) and hazards */
+.rb-bar .rb-editbtn { white-space: nowrap; }
+.rb-modal .rb-section.rb-editor { width: min(880px, 100%); padding: 10px 12px; }
+.rb-editor h2 { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.rb-editor h2 .rb-linkbtn { font-size: 14pt; line-height: 1; opacity: .6; }
+.rb-edfield { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; font-size: 9pt; padding: 5px 8px; background: var(--rb-panel2); border: 1px solid var(--rb-line); border-radius: 5px; }
+.rb-edsides { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr)); gap: 10px; margin-top: 8px; }
+.rb-edside h3 { margin: 0 0 4px; font-size: 9.5pt; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rb-edmons { display: flex; flex-direction: column; gap: 3px; }
+.rb-edmon { border: 1px solid var(--rb-line); border-radius: 5px; padding: 2px 6px; font-size: 9pt; min-width: 0; }
+.rb-edmon.on { background: var(--rb-panel2); border-color: var(--rb-curline); }
+.rb-edmon.fnt .rb-picon, .rb-edmon.fnt .nm { opacity: .45; }
+.rb-edhd { display: flex; align-items: center; gap: 5px; min-width: 0; min-height: 26px; }
+.rb-edhd .rb-picon { margin: -4px -6px -4px -8px; flex: none; }
+.rb-edhd .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rb-hpbar { flex: 0 1 64px; min-width: 24px; height: 5px; border: 1px solid #777; border-radius: 3px; background: #fcfeff; overflow: hidden; }
+body.dark .rb-hpbar { background: #1c1f23; }
+.rb-hpbar span { display: block; height: 100%; background: #00dd60; }
+.rb-hpbar .hp-y { background: #f5c000; }
+.rb-hpbar .hp-r { background: #f03c3c; }
+.rb-edhp { display: inline-flex; align-items: center; gap: 1px; white-space: nowrap; }
+.rb-edhp input { width: 3.4em; text-align: right; padding: 2px 3px; }
+.rb-edst { width: 4.8em; font-weight: bold; padding: 2px 1px; }
+.rb-edst option { background: var(--rb-panel); color: var(--rb-fg); font-weight: normal; }
+.rb-edst.st-brn { background: #ee5533; color: #fff; } .rb-edst.st-par { background: #9aa400; color: #fff; } .rb-edst.st-slp { background: #aa77aa; color: #fff; }
+.rb-edst.st-frz { background: #009aa4; color: #fff; } .rb-edst.st-psn, .rb-edst.st-tox { background: #a4009a; color: #fff; }   /* (Showdown's status colours) */
+.rb-edboosts { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 3px; margin: 3px 0 2px; }
+.rb-edboosts label { display: flex; flex-direction: column; font-size: 7.5pt; color: var(--rb-muted); text-align: center; min-width: 0; }
+.rb-edboosts select { width: 100%; padding: 1px 0; font-size: 8.5pt; }
+.rb-edboosts select.up { color: var(--rb-branch); font-weight: bold; }
+.rb-edboosts select.down { color: var(--rb-bad); font-weight: bold; }
+.rb-edboosts option { color: var(--rb-fg); font-weight: normal; }
+.rb-editem { display: flex; align-items: center; gap: 6px; font-size: 8pt; color: var(--rb-muted); margin: 2px 0 3px; }
+.rb-editem input { flex: 1; min-width: 0; }
+.rb-edconds { display: flex; flex-wrap: wrap; gap: 3px 12px; margin-top: 6px; font-size: 8.5pt; }
+.rb-edcond { white-space: nowrap; }
+.rb-edcond select { padding: 1px 2px; }
+.rb-edfoot { justify-content: flex-end; position: sticky; bottom: -10px; margin: 8px -12px -10px; padding: 6px 12px 8px; background: var(--rb-panel); border-top: 1px solid var(--rb-line); }
+.rb-edfoot .rb-err { flex: 1; }
+.rb-tok .rb-pencil { color: var(--rb-muted); margin-right: 2px; }
+
 /* dice */
 .rb-dicehead { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 6px; }
 .rb-dicehead h2 { margin: 0; }
@@ -247,6 +288,44 @@ body.dark .rb-edit { background: rgba(255,255,255,.12); }
 .rb-teamhead span { display: flex; gap: 4px; }
 .rb-problems { margin: 8px 0 0; padding-left: 18px; font-size: 9pt; color: var(--rb-bad); max-height: 40vh; overflow: auto; }
 
+/* studies of several replays: the chapter bar over the viewer, its chapter list, Add to study, the Studies list */
+.rb-popwrap { position: relative; min-width: 0; }
+.rb-pop { position: absolute; z-index: 40; top: calc(100% + 4px); left: 0; width: min(420px, calc(100vw - 24px)); max-height: min(440px, 70vh); overflow-y: auto;
+  box-sizing: border-box; background: var(--rb-panel); color: var(--rb-fg); border: 1px solid #999; border-radius: 5px; box-shadow: 0 3px 12px rgba(0, 0, 0, .35);
+  padding: 6px; font-size: 9pt; text-shadow: none; }
+body.dark .rb-pop { background: #2a2f36; border-color: #555; }
+.rb-head .rb-pop { left: auto; right: 0; width: min(300px, calc(100vw - 24px)); }
+.rb-head span.rb-wide { display: inline; }
+/* (the chapter list opens under the whole bar) */
+.rb-chapbar { position: relative; display: flex; align-items: center; gap: 4px; max-width: 1180px; margin: -10px auto 10px; }
+.rb-chapbar > .button { flex: none; padding: 3px 9px; }
+.rb-chapbar .rb-chapwrap { position: static; flex: 0 1 auto; max-width: 640px; }
+.rb-chapbar .rb-pop { width: min(420px, 100%); }
+#chapBar .rb-chapbtn { width: 100%; display: flex; align-items: center; gap: 6px; text-align: left; white-space: nowrap; overflow: hidden; }
+.rb-chapbtn strong { overflow: hidden; text-overflow: ellipsis; min-width: 3em; flex: 0 1 auto; }
+.rb-chapno { color: var(--rb-muted); flex: none; }
+.rb-chaptitle { overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 0 1000 auto; }   /* (gives way first) */
+.rb-chaptitle::before { content: '· '; color: var(--rb-muted); }
+.rb-chapbtn .fa-caret-down { margin-left: auto; opacity: .6; }
+.rb-pophead { display: flex; align-items: center; gap: 6px; padding: 0 2px 6px; margin-bottom: 4px; border-bottom: 1px solid rgba(128, 128, 128, .35); }
+.rb-pophead strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.rb-pophead .button { margin-left: auto; }
+.rb-pop .textbox { flex: 1; min-width: 0; }
+.rb-chap { display: flex; align-items: center; gap: 2px; border-radius: 3px; min-height: 22px; }
+.rb-chap.cur { background: rgba(80, 130, 200, .22); }
+.rb-chap.cur .rb-fitem { font-weight: bold; }
+.rb-chap .rb-fitem, .rb-additem { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rb-chapn { display: inline-block; min-width: 20px; color: var(--rb-muted); font-weight: normal; }
+.rb-chaptools { display: flex; flex: none; }
+.rb-chaptools .rb-linkbtn { font-size: 9pt; padding: 2px 5px; }
+.rb-linkbtn:disabled { opacity: .2; cursor: default; text-decoration: none; }
+.rb-additem { display: flex !important; align-items: center; gap: 6px; }
+.rb-additem small { margin-left: auto; opacity: .6; }
+.rb-additem:disabled { opacity: .5; cursor: default; }
+.rb-popnew { display: flex; gap: 4px; margin-top: 4px; padding-top: 6px; border-top: 1px solid rgba(128, 128, 128, .35); }
+.rb-pop .rb-popnew:first-child { margin-top: 0; padding-top: 0; border-top: 0; }
+.rb-acts { display: flex; gap: 10px; flex: none; }
+
 /* dialogs and the password gate */
 .rb-modal { position: fixed; inset: 0; background: rgba(0,0,0,.55); display: flex; align-items: center; justify-content: center; padding: 16px; z-index: 50; }
 .rb-modal .rb-section { width: min(640px, 100%); max-height: 90vh; overflow: auto; box-sizing: border-box; margin: 0; }
@@ -263,6 +342,8 @@ body.dark .rb-edit { background: rgba(255,255,255,.12); }
   .rb-bar { flex-wrap: wrap; }
   .rb-slots { order: 3; flex-basis: 100%; }
   .rb-play { margin-left: auto; }
+  .rb-editbtn { margin-left: auto; }
+  .rb-editbtn + .rb-play { margin-left: 0; }
   /* doubles on a phone: a slot takes two lines (the Pokemon, then its move and target) rather than cutting off */
   .rb-bar.doubles .rb-slot { white-space: normal; flex-wrap: wrap; row-gap: 0; }
   .rb-bar.doubles .rb-place { flex-basis: 100%; }
@@ -277,4 +358,8 @@ body.dark .rb-edit { background: rgba(255,255,255,.12); }
   .rb-wrap { padding-left: 8px; padding-right: 8px; }
   #viewer { padding: 10px 4px; margin: 10px 6px; }
   .rb-landing { padding: 0 6px; }
+  .rb-head span.rb-wide { display: none; }
+  .rb-head #home { white-space: nowrap; }
+  .rb-head .button { padding: 4px 9px; white-space: nowrap; }
+  .rb-chapbar { margin: 0 4px 8px; }
 }

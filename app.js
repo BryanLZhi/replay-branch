@@ -166,7 +166,7 @@ var startOf = (parent, sets) => parent === "r0" ? previewPos(sets).json : isRepl
 function compute(id) {
   if (S.lines.has(id)) return S.lines.get(id);
   const n = S.study.nodes[id];
-  const r = E.step(startOf(n.parent, n.sets), n.choices, n.forced, n.seed);
+  const r = n.edit ? { ...E.editPosition(startOf(n.parent, n.sets), n.edit), rolls: [] } : E.step(startOf(n.parent, n.sets), n.choices, n.forced, n.seed);
   const out = { json: E.serialize(r.battle), battle: r.battle, lines: r.lines, rolls: r.rolls };
   S.lines.set(id, out);
   return out;
@@ -180,6 +180,14 @@ function addNode(parent, choices, forced, seed, sets) {
   var _a;
   const id = "n" + ++S.study.seq;
   S.study.nodes[id] = { id, parent, choices, forced: forced || [], seed: seed || newSeed(), sets: sets && clone(sets), comment: "", glyph: "" };
+  ((_a = S.study.kids)[parent] || (_a[parent] = [])).push(id);
+  save();
+  return id;
+}
+function addEdit(parent, edit, sets) {
+  var _a;
+  const id = "n" + ++S.study.seq;
+  S.study.nodes[id] = { id, parent, choices: {}, forced: [], edit, sets: sets && clone(sets), comment: "", glyph: "" };
   ((_a = S.study.kids)[parent] || (_a[parent] = [])).push(id);
   save();
   return id;
@@ -500,7 +508,7 @@ var turnName = (t) => t ? "Turn " + t : "Team preview";
 function sameStep(parent, choices, forced, seed) {
   return kids(parent).find((k) => {
     const n = S.study.nodes[k];
-    return same(n.choices, choices) && same(n.forced, forced) && (!seed || same(n.seed, seed));
+    return !n.edit && same(n.choices, choices) && same(n.forced, forced) && (!seed || same(n.seed, seed));
   });
 }
 function realDice(t, turn) {
@@ -524,7 +532,7 @@ function upcomingDice(pos) {
       const real = realDice(pos.t, turn);
       S.next = { key, turn, real, forced: real, seed: REAL_SEED };
     } else {
-      const played = kids(turn.parent).map((k) => S.study.nodes[k]).find((n) => same(n.choices, turn.choices));
+      const played = kids(turn.parent).map((k) => S.study.nodes[k]).find((n) => !n.edit && same(n.choices, turn.choices));
       S.next = { key, turn, forced: played ? played.forced : [], seed: played ? played.seed : newSeed() };
     }
     S.next.base = S.next.seed;
@@ -550,37 +558,37 @@ function setUpcoming(forced) {
 function renderDice(pos) {
   const el = $id("diceSec");
   const next = upcomingDice(pos);
-  el.hidden = next ? !next.rolls.length : pos.kind !== "line";
+  el.hidden = next ? !next.rolls.length : pos.kind !== "line" || !!S.study.nodes[S.cur].edit;
   if (el.hidden) {
     el.textContent = "";
     return;
   }
-  let rolls, forced, before, when, apply2;
+  let rolls, forced, before, when, apply3;
   if (next) {
     ({ rolls, forced } = next);
     before = pathTo(S.cur);
     when = turnName(pos.battle.turn);
-    apply2 = setUpcoming;
+    apply3 = setUpcoming;
   } else {
     const node = S.study.nodes[S.cur];
     rolls = pos.rolls;
     forced = node.forced;
     before = pathTo(S.cur).slice(0, -1);
     when = turnName(isReplayPos(node.parent) ? replayTurn(node.parent) : compute(node.parent).battle.turn);
-    apply2 = (f) => replay(f, node.seed);
+    apply3 = (f) => replay(f, node.seed);
   }
   const turn = odds(rolls), line = before.reduce((p, id) => p * odds(compute(id).rolls), turn);
   const oddsHTML = rolls.some((r) => r.kind !== "roll" && !(r.kind === "int" && r.hi - r.lo > 10)) ? `<span class="rb-odds" title="Chance of these outcomes (damage rolls not counted)">This turn <b>${percent(turn)}</b>${before.length ? ` \xB7 Line <b>${percent(line)}</b>` : ""}</span>` : "";
   el.innerHTML = `<div class="rb-dicehead"><h2>Dice <small class="rb-dturn">${when}</small></h2>${oddsHTML}<span><button class="button" id="btnRandomize" title="Roll real dice for every outcome"><i class="fa fa-random" aria-hidden="true"></i> Randomize</button> <button class="button" id="btnLikely" title="Back to the most likely outcomes" ${forced.length ? "" : "disabled"}>Most likely</button>` + (next?.real ? ` <button class="button" id="btnReal" title="Back to how the turn went" ${same(forced, next.real) ? "disabled" : ""}>As played</button>` : "") + `</span></div>` + (rolls.length ? `<div class="rb-dice">${groups(rolls).map(groupHTML).join("")}</div>` : "");
-  const set = (i, value) => apply2(rolls.map((r, j) => ({ key: r.key, value: j === i ? value : r.value })));
+  const set = (i, value) => apply3(rolls.map((r, j) => ({ key: r.key, value: j === i ? value : r.value })));
   for (const c of el.querySelectorAll("[data-roll]")) {
     const i = +c.dataset.roll, r = rolls[i];
     if (c.tagName === "SELECT") c.onchange = () => set(i, r.kind === "order" ? JSON.parse(c.value) : +c.value);
     else c.onclick = () => set(i, r.kind === "order" ? JSON.parse(c.dataset.order) : !r.value);
   }
-  $id("btnRandomize").onclick = () => apply2(rolls.map((r) => ({ key: r.key, value: randomOutcome(r) })));
-  $id("btnLikely").onclick = () => apply2([]);
-  if (next?.real) $id("btnReal").onclick = () => apply2(next.real);
+  $id("btnRandomize").onclick = () => apply3(rolls.map((r) => ({ key: r.key, value: randomOutcome(r) })));
+  $id("btnLikely").onclick = () => apply3([]);
+  if (next?.real) $id("btnReal").onclick = () => apply3(next.real);
 }
 function replay(forced, seed) {
   const node = S.study.nodes[S.cur];
@@ -721,6 +729,318 @@ function permutations(n) {
   return out;
 }
 
+// source/app/clean.js
+var str = (v, max = 100) => typeof v === "string" ? v.slice(0, max) : "";
+var int = (v, lo, hi, fallback) => Number.isInteger(v) ? Math.max(lo, Math.min(hi, v)) : fallback;
+var STATS2 = ["hp", "atk", "def", "spa", "spd", "spe"];
+var stats = (o, max, fallback) => Object.fromEntries(STATS2.map((s) => [s, int(o?.[s], 0, max, fallback)]));
+var CHOICE = /^(move [1-4]( (mega|megax|megay|ultra|zmove|dynamax|terastallize))?|switch [1-6]|team [1-6]|pass)$/;
+function cleanSet(set, fallback) {
+  if (!set || typeof set !== "object") return JSON.parse(JSON.stringify(fallback));
+  const out = {
+    name: str(set.name, 40) || fallback.name,
+    species: str(set.species, 40) || fallback.species,
+    item: str(set.item, 40),
+    ability: str(set.ability, 40),
+    nature: str(set.nature, 20),
+    teraType: str(set.teraType, 20),
+    gender: str(set.gender, 2),
+    moves: (Array.isArray(set.moves) ? set.moves : []).slice(0, 4).map((m) => str(m, 40)),
+    evs: stats(set.evs, 255, 0),
+    ivs: stats(set.ivs, 31, 31),
+    level: int(set.level, 1, 100, 100),
+    itemGone: !!set.itemGone,
+    fixed: fallback.fixed
+  };
+  if (set.pasted) out.pasted = true;
+  return out;
+}
+function cleanSets(sets, base) {
+  return base.map((side, si) => side.map((b, k) => cleanSet(Array.isArray(sets?.[si]) ? sets[si][k] : null, b)));
+}
+function cleanForced(list) {
+  const value = (v) => typeof v === "boolean" || Number.isInteger(v) ? v : Array.isArray(v) && v.length <= 8 && v.every(Number.isInteger) ? v : void 0;
+  return (Array.isArray(list) ? list : []).slice(0, 200).map((f) => ({ key: str(f?.key, 200), value: value(f?.value) })).filter((f) => f.key && f.value !== void 0);
+}
+var KEY = /^[a-z0-9]{1,40}$/;
+var isKey = (v, table) => typeof v === "string" && KEY.test(v) && Object.keys(table).includes(v);
+function cleanEdit(e) {
+  if (!e || typeof e !== "object") return null;
+  const out = { mons: [], field: {}, sides: [{}, {}] };
+  for (const m of (Array.isArray(e.mons) ? e.mons : []).slice(0, 48)) {
+    if (!m || typeof m !== "object" || ![0, 1].includes(m.s) || !Number.isInteger(m.k) || m.k < 0 || m.k > 23) continue;
+    if (out.mons.some((x) => x.s === m.s && x.k === m.k)) continue;
+    const c = { s: m.s, k: m.k };
+    if (Number.isInteger(m.hp) && m.hp >= 0 && m.hp <= 100) c.hp = m.hp;
+    if (m.status === "" || E.EDIT_STATUSES.includes(m.status)) c.status = m.status;
+    if (m.boosts && typeof m.boosts === "object") {
+      const b = {};
+      for (const stat of E.EDIT_BOOSTS) if (Number.isInteger(m.boosts[stat]) && m.boosts[stat] >= -6 && m.boosts[stat] <= 6) b[stat] = m.boosts[stat];
+      if (Object.keys(b).length) c.boosts = b;
+    }
+    if (m.item === "" || typeof m.item === "string" && KEY.test(m.item) && E.Dex.items.get(m.item).exists && E.Dex.items.get(m.item).id === m.item) c.item = m.item;
+    if (Object.keys(c).length > 2) out.mons.push(c);
+  }
+  const f = e.field && typeof e.field === "object" ? e.field : {};
+  if (f.weather === "" || isKey(f.weather, E.EDIT_WEATHERS)) out.field.weather = f.weather;
+  if (f.terrain === "" || isKey(f.terrain, E.EDIT_TERRAINS)) out.field.terrain = f.terrain;
+  if (f.trickroom === 0 || f.trickroom === 1) out.field.trickroom = f.trickroom;
+  for (const si of [0, 1]) {
+    const conds = Array.isArray(e.sides) && e.sides[si] && typeof e.sides[si] === "object" ? e.sides[si] : {};
+    for (const [id, c] of Object.entries(E.EDIT_SIDE)) if (Number.isInteger(conds[id]) && conds[id] >= 0 && conds[id] <= c[2]) out.sides[si][id] = conds[id];
+  }
+  const empty = !out.mons.length && !Object.keys(out.field).length && out.sides.every((c) => !Object.keys(c).length);
+  return empty ? null : out;
+}
+function cleanStudy(raw, base) {
+  var _a;
+  const study = { rbv: 1, sets: cleanSets(raw?.sets, base), nodes: {}, kids: {}, notes: {}, seq: 0 };
+  if (str(raw?.name, 80).trim()) study.name = str(raw.name, 80).trim();
+  const nodes = raw?.nodes && typeof raw.nodes === "object" ? raw.nodes : {};
+  const ids = Object.keys(nodes).filter((id) => /^n\d{1,6}$/.test(id)).sort((a, b) => +a.slice(1) - +b.slice(1));
+  for (const id of ids) {
+    const n = nodes[id];
+    if (!n || typeof n !== "object") continue;
+    const parent = str(n.parent, 12);
+    if (!/^r\d{1,4}$/.test(parent) && !study.nodes[parent]) continue;
+    const edit = "edit" in n ? cleanEdit(n.edit) : null;
+    if ("edit" in n && (!edit || parent === "r0")) continue;
+    const choices = {};
+    if (!edit) {
+      for (const p of ["p1", "p2"]) if (typeof n.choices?.[p] === "string" && CHOICE.test(n.choices[p])) choices[p] = n.choices[p];
+    }
+    const seed = Array.isArray(n.seed) && n.seed.length === 4 && n.seed.every((x) => Number.isInteger(x) && x >= 0 && x < 65536) ? n.seed : [1, 2, 3, 4];
+    study.nodes[id] = {
+      id,
+      parent,
+      choices,
+      forced: edit ? [] : cleanForced(n.forced),
+      ...edit ? { edit } : { seed },
+      comment: str(n.comment, 2e3),
+      glyph: GLYPHS.includes(n.glyph) ? n.glyph : "",
+      .../^r/.test(parent) ? { sets: cleanSets(n.sets, base) } : {}
+    };
+    study.seq = Math.max(study.seq, +id.slice(1));
+  }
+  for (const id of Object.keys(study.nodes)) {
+    const parent = study.nodes[id].parent;
+    ((_a = study.kids)[parent] || (_a[parent] = [])).push(id);
+  }
+  for (const [parent, list] of Object.entries(study.kids)) {
+    const order = Array.isArray(raw?.kids?.[parent]) ? raw.kids[parent] : [];
+    list.sort((a, b) => (order.indexOf(a) + 1 || 1e9) - (order.indexOf(b) + 1 || 1e9));
+  }
+  for (const [id, note] of Object.entries(raw?.notes && typeof raw.notes === "object" ? raw.notes : {})) {
+    if (/^r\d{1,4}$/.test(id)) study.notes[id] = { comment: str(note?.comment, 2e3), glyph: GLYPHS.includes(note?.glyph) ? note.glyph : "" };
+  }
+  if (raw?.meta && typeof raw.meta === "object") {
+    study.meta = {
+      format: str(raw.meta.format),
+      players: (Array.isArray(raw.meta.players) ? raw.meta.players : []).slice(0, 2).map((p) => str(p, 40)),
+      ...typeof raw.meta.log === "string" ? { log: raw.meta.log } : {},
+      .../^[a-z0-9-]{1,120}$/.test(raw.meta.replayId || "") ? { replayId: raw.meta.replayId } : {},
+      ...raw.meta.shared ? { shared: true } : {}
+    };
+  }
+  if (Number.isFinite(raw?.opened)) study.opened = raw.opened;
+  return study;
+}
+var MAX_CHAPTERS = 64;
+var CHAPTER_KEY = /^[\w-]{1,120}(~[a-z0-9]{1,13})?$/;
+var REPLAY_ID = /^[a-z0-9-]{1,120}$/;
+var MAX_LOG = 4e6;
+function cleanCollection(raw) {
+  const chapters = [], seen = /* @__PURE__ */ new Set();
+  for (const ch of (Array.isArray(raw?.chapters) ? raw.chapters : []).slice(0, MAX_CHAPTERS)) {
+    const key = str(ch?.key, 140);
+    if (!CHAPTER_KEY.test(key) || seen.has(key)) continue;
+    seen.add(key);
+    const title = str(ch.title, 80).trim();
+    const log = typeof ch.log === "string" && ch.log.length <= MAX_LOG ? ch.log : null;
+    chapters.push({ key, ...title ? { title } : {}, ...log ? { log } : {}, ...log && Array.isArray(ch.teams) ? { teams: looseSets(ch.teams) } : {} });
+  }
+  const out = { name: str(raw?.name, 80).trim() || "Study", chapters };
+  if (chapters.some((ch) => ch.key === raw?.last)) out.last = raw.last;
+  if (Number.isFinite(raw?.opened)) out.opened = raw.opened;
+  if (raw?.shared) out.shared = true;
+  return out;
+}
+function cleanStudyLink(raw) {
+  const chapters = [];
+  for (const ch of (Array.isArray(raw?.chapters) ? raw.chapters : []).slice(0, MAX_CHAPTERS)) {
+    if (!ch || typeof ch !== "object") continue;
+    const id = typeof ch.id === "string" && REPLAY_ID.test(ch.id) ? ch.id : null;
+    const log = !id && typeof ch.log === "string" && ch.log.length <= MAX_LOG ? ch.log : null;
+    if (!id && !log) continue;
+    chapters.push({ ...id ? { id } : { log }, title: str(ch.title, 80).trim(), study: ch.study && typeof ch.study === "object" && !Array.isArray(ch.study) ? ch.study : null });
+  }
+  return { name: str(raw?.name, 80).trim() || "Study", chapters };
+}
+var looseSets = (s) => [0, 1].map((si) => (Array.isArray(s?.[si]) ? s[si] : []).slice(0, 24).map((set) => set && typeof set === "object" ? cleanSet(set, { name: "", species: "" }) : null));
+function cleanChapterStudy(raw) {
+  const sets = looseSets;
+  const study = cleanStudy(raw, [[], []]);
+  study.sets = sets(raw?.sets);
+  for (const [id, n] of Object.entries(study.nodes)) if (n.sets) n.sets = sets(raw.nodes[id].sets);
+  delete study.meta;
+  delete study.opened;
+  return study;
+}
+
+// source/app/editor.js
+var STATUS_NAMES = { "": "\u2014", brn: "BRN", par: "PAR", psn: "PSN", tox: "TOX", slp: "SLP", frz: "FRZ" };
+var icon2 = (species) => {
+  try {
+    return Dex.getPokemonIcon(species);
+  } catch {
+    return "";
+  }
+};
+var hpColor = (hp) => hp > 50 ? "g" : hp > 20 ? "y" : "r";
+var at = null;
+var canEdit = (pos) => !!pos.battle && !pos.battle.ended && (pos.kind === "turn" || pos.kind === "line") && !watchOnly() && ["move", "switch"].includes(pos.battle.requestState);
+function openEditor(pos) {
+  if (!canEdit(pos)) return;
+  const onReplay = pos.kind === "turn";
+  const state = E.editState(pos.battle);
+  at = { parent: onReplay ? "r" + pos.t : S.cur, sets: onReplay ? S.study.sets : void 0, state, options: E.editOptions(state.gen) };
+  render();
+}
+function close() {
+  at = null;
+  const el = $id("editor");
+  el.hidden = true;
+  el.innerHTML = "";
+}
+function heldItems(gen) {
+  const id = "dl-held" + gen;
+  if (!$id(id)) {
+    const d = document.createElement("datalist");
+    d.id = id;
+    d.innerHTML = E.Dex.items.all().filter((i) => i.gen <= gen && (!i.isNonstandard || i.isNonstandard === "Past")).map((i) => `<option value="${esc(i.name)}">`).join("");
+    document.body.appendChild(d);
+  }
+  return id;
+}
+var select2 = (attrs, options, value, cls = "") => `<select class="textbox ${cls}" ${attrs}>` + options.map(([v, label2]) => `<option value="${esc(v)}" ${String(v) === String(value) ? "selected" : ""}>${esc(label2)}</option>`).join("") + `</select>`;
+function monHTML(si, m) {
+  const { options, state } = at;
+  const STAT = { atk: "Atk", def: "Def", spa: state.gen === 1 ? "Spc" : "SpA", spd: "SpD", spe: "Spe", accuracy: "Acc", evasion: "Eva" };
+  const levels = Array.from({ length: 13 }, (_, k) => [6 - k, (6 - k > 0 ? "+" : "") + (6 - k)]);
+  const stuck = m.fainted && m.active;
+  const head = `<div class="rb-edhd"><span class="rb-picon" style="${icon2(m.species)}"></span><b class="nm">${esc(m.name)}</b><span class="rb-hpbar" aria-hidden="true"><span class="hp-${hpColor(m.hp)}" style="width:${m.hp}%"></span></span><label class="rb-edhp"><input class="textbox" type="number" min="0" max="100" step="1" inputmode="numeric" data-f="hp" value="${m.hp}" ${stuck ? "disabled" : ""} aria-label="${esc(m.name)} HP">%</label>` + select2(`data-f="status" aria-label="${esc(m.name)} status" ${m.fainted ? "disabled" : ""}`, ["", ...options.statuses].map((s) => [s, STATUS_NAMES[s]]), m.status, "rb-edst st-" + (m.status || "none")) + `</div>`;
+  const extra = m.active ? `<div class="rb-edboosts">${options.boosts.map((b) => `<label><span>${STAT[b]}</span>` + select2(`data-boost="${b}" aria-label="${esc(m.name)} ${STAT[b]}"`, levels, m.boosts[b] || 0, (m.boosts[b] || 0) > 0 ? "up" : (m.boosts[b] || 0) < 0 ? "down" : "") + `</label>`).join("")}</div>` + (options.items ? `<label class="rb-editem"><span>Item</span><input class="textbox" data-f="item" list="${heldItems(state.gen)}" value="${esc(m.itemName)}" autocomplete="off" aria-label="${esc(m.name)} item"></label>` : "") : "";
+  return `<div class="rb-edmon ${m.active ? "on" : ""} ${m.fainted ? "fnt" : ""}" data-s="${si}" data-k="${m.k}">${head}${extra}</div>`;
+}
+function sideHTML(si) {
+  const side = at.state.sides[si];
+  const conds = at.options.side.map(([id, name, max]) => max > 1 ? `<label class="rb-edcond">${esc(name)} ${select2(`data-cond="${id}"`, Array.from({ length: max + 1 }, (_, n) => [n, n ? "\xD7" + n : "\u2014"]), side.conds[id])}</label>` : `<label class="rb-edcond"><input type="checkbox" data-cond="${id}" ${side.conds[id] ? "checked" : ""}> ${esc(name)}</label>`).join("");
+  return `<div class="rb-edside" data-side="${si}"><h3>${esc(playerName(si))}</h3><div class="rb-edmons">${side.mons.map((m) => monHTML(si, m)).join("")}</div>` + (conds ? `<div class="rb-edconds">${conds}</div>` : "") + `</div>`;
+}
+function render() {
+  const el = $id("editor");
+  const { state, options } = at;
+  const f = state.field;
+  const weathers = [["", "None"], ...options.weathers, ...f.weather && !options.weathers.some((w) => w[0] === f.weather) ? [[f.weather, E.weatherName(f.weather)]] : []];
+  const field = [
+    options.weathers.length ? `<label>Weather ${select2('data-field="weather"', weathers, f.weather)}</label>` : "",
+    options.terrains.length ? `<label>Terrain ${select2('data-field="terrain"', [["", "None"], ...options.terrains], f.terrain)}</label>` : "",
+    options.trickRoom ? `<label><input type="checkbox" data-field="trickroom" ${f.trickroom ? "checked" : ""}> Trick Room</label>` : ""
+  ].join("");
+  el.innerHTML = `<section class="rb-section rb-editor" role="dialog" aria-labelledby="editTitle">
+    <h2 id="editTitle"><span>Edit position <small class="rb-dturn">Turn ${state.turn}</small></span><button type="button" class="rb-linkbtn" id="btnEditClose" aria-label="Close">&times;</button></h2>
+    ${field ? `<div class="rb-edfield">${field}</div>` : ""}
+    <div class="rb-edsides">${sideHTML(0)}${sideHTML(1)}</div>
+    <p class="rb-row rb-edfoot"><span class="rb-err" id="editErr"></span>
+      <button type="button" class="button" id="btnEditCancel">Cancel</button><button type="button" class="button" id="btnEditApply"><strong>Apply</strong></button></p>
+  </section>`;
+  el.hidden = false;
+  for (const input of el.querySelectorAll("[data-f=hp]")) input.oninput = () => {
+    const v = Math.max(0, Math.min(100, Math.round(+input.value) || 0));
+    const bar = input.closest(".rb-edhd").querySelector(".rb-hpbar span");
+    bar.style.width = v + "%";
+    bar.className = "hp-" + hpColor(v);
+  };
+  for (const s of el.querySelectorAll("[data-f=status]")) s.onchange = () => {
+    s.className = s.className.replace(/st-\w+/, "st-" + (s.value || "none"));
+  };
+  for (const s of el.querySelectorAll("[data-boost]")) s.onchange = () => {
+    s.classList.toggle("up", +s.value > 0);
+    s.classList.toggle("down", +s.value < 0);
+  };
+  $id("btnEditClose").onclick = $id("btnEditCancel").onclick = close;
+  $id("btnEditApply").onclick = apply2;
+  el.onclick = (e) => {
+    if (e.target === el) close();
+  };
+  el.onkeydown = (e) => {
+    if (e.key === "Escape") close();
+  };
+  el.querySelector("select, input").focus();
+}
+function collect() {
+  const el = $id("editor"), { state } = at;
+  const edit = { mons: [], field: {}, sides: [{}, {}] };
+  for (const row of el.querySelectorAll(".rb-edmon")) {
+    const s = +row.dataset.s, k = +row.dataset.k, m = state.sides[s].mons.find((x) => x.k === k);
+    const c = { s, k };
+    const hpBox = row.querySelector("[data-f=hp]");
+    if (!hpBox.disabled) {
+      const raw = hpBox.value.trim(), hp = Math.round(+raw);
+      if (!/^\d+(\.\d*)?$/.test(raw) || hp > 100) return { error: `${m.name}: HP is 0 to 100%.` };
+      if (hp !== m.hp) c.hp = hp;
+    }
+    const st = row.querySelector("[data-f=status]");
+    if (!st.disabled && st.value !== m.status && c.hp !== 0) c.status = st.value;
+    for (const b of row.querySelectorAll("[data-boost]")) {
+      if (+b.value !== (m.boosts[b.dataset.boost] || 0)) (c.boosts || (c.boosts = {}))[b.dataset.boost] = +b.value;
+    }
+    const itemBox = row.querySelector("[data-f=item]");
+    if (itemBox) {
+      const name = itemBox.value.trim(), item = name ? E.Dex.items.get(name) : null;
+      if (item && !item.exists) return { error: `"${name}" is not an item.` };
+      const id = item ? item.id : "";
+      if (id !== m.item) c.item = id;
+    }
+    if (Object.keys(c).length > 2) edit.mons.push(c);
+  }
+  for (const box of el.querySelectorAll("[data-field]")) {
+    const id = box.dataset.field, v = box.type === "checkbox" ? +box.checked : box.value;
+    if (v !== state.field[id]) edit.field[id] = v;
+  }
+  for (const box of el.querySelectorAll("[data-cond]")) {
+    const si = +box.closest("[data-side]").dataset.side, id = box.dataset.cond, v = box.type === "checkbox" ? +box.checked : +box.value;
+    if (v !== state.sides[si].conds[id]) edit.sides[si][id] = v;
+  }
+  return { edit: cleanEdit(edit) };
+}
+function apply2() {
+  const { edit, error } = collect();
+  if (error) {
+    $id("editErr").textContent = error;
+    return;
+  }
+  if (!edit) {
+    close();
+    return;
+  }
+  const { parent, sets } = at;
+  let id = kids(parent).find((k) => JSON.stringify(S.study.nodes[k].edit) === JSON.stringify(edit));
+  if (!id) {
+    id = addEdit(parent, edit, sets);
+    try {
+      compute(id);
+    } catch (e) {
+      deleteNode(id);
+      save();
+      $id("editErr").textContent = e.message || String(e);
+      return;
+    }
+  }
+  close();
+  go(id, { animate: true });
+}
+
 // source/app/picker.js
 var pickerOn = () => stored("rb-picker", "on") !== "off";
 function setPicker(on) {
@@ -729,7 +1049,7 @@ function setPicker(on) {
   renderPanels();
 }
 var typeTag2 = (t) => t ? `<span class="rb-type t-${esc(t)}">${esc(t)}</span>` : "";
-var icon2 = (species) => {
+var icon3 = (species) => {
   try {
     return Dex.getPokemonIcon(species);
   } catch {
@@ -800,7 +1120,7 @@ function pickLabel(pos, si, place, req, pick, gimmick) {
     return { html: esc(name) + extra + aim, type };
   }
   const p = req.side.pokemon[n - 1];
-  return { html: `<span class="rb-picon" style="${icon2(p.details.split(",")[0])}"></span>${kind === "switch" ? "&rarr; " : ""}${esc(nameOf(p.ident))}`, type: "" };
+  return { html: `<span class="rb-picon" style="${icon3(p.details.split(",")[0])}"></span>${kind === "switch" ? "&rarr; " : ""}${esc(nameOf(p.ident))}`, type: "" };
 }
 function targetName(pos, si, loc) {
   const side = pos.battle.sides[loc > 0 ? 1 - si : si], p = side.active[Math.abs(loc) - 1];
@@ -838,13 +1158,17 @@ function renderPicker(pos) {
       }).join("") + `</div>`;
     });
   }
-  el.innerHTML = `<div class="rb-bar ${doubles ? "doubles" : ""}"><span class="rb-turn">${turnLabel}</span><div class="rb-slots">${groups2.join("")}</div><button type="button" class="button rb-play" id="btnPlayTurn" ${playable ? "" : "disabled"}><i class="fa fa-play" aria-hidden="true"></i> Play turn</button></div>` + (S.err ? `<p class="rb-err">${esc(S.err)}</p>` : "") + menuHTML(pos);
+  el.innerHTML = `<div class="rb-bar ${doubles ? "doubles" : ""}"><span class="rb-turn">${turnLabel}</span><div class="rb-slots">${groups2.join("")}</div><button type="button" class="button rb-editbtn" id="btnEdit" ${canEdit(pos) ? "" : "disabled"}><i class="fa fa-pencil" aria-hidden="true"></i> Edit</button><button type="button" class="button rb-play" id="btnPlayTurn" ${playable ? "" : "disabled"}><i class="fa fa-play" aria-hidden="true"></i> Play turn</button></div>` + (S.err ? `<p class="rb-err">${esc(S.err)}</p>` : "") + menuHTML(pos);
   for (const b of el.querySelectorAll("[data-slot]")) b.onclick = (e) => {
     e.stopPropagation();
     openMenu(pos, +b.dataset.slot, +(b.dataset.place || 0));
   };
   $id("btnPlayTurn").onclick = () => {
     if (playable) playTurn(pos);
+  };
+  $id("btnEdit").onclick = () => {
+    closeMenu();
+    openEditor(pos);
   };
   wireMenu(pos);
 }
@@ -869,13 +1193,13 @@ function closeMenu() {
 }
 var menuSlot = () => S.menu ? { si: +S.menu[1] - 1, place: "abc".indexOf(S.menu[2]) } : null;
 function menuHTML(pos) {
-  const at = menuSlot();
-  const req = at && pos.battle && !pos.battle.ended ? requestOf(pos, at.si) : null;
-  if (!req || !placesOf(pos, at.si, req).includes(at.place)) {
+  const at2 = menuSlot();
+  const req = at2 && pos.battle && !pos.battle.ended ? requestOf(pos, at2.si) : null;
+  if (!req || !placesOf(pos, at2.si, req).includes(at2.place)) {
     setTooltipRequest(null);
     return "";
   }
-  const { si, place } = at;
+  const { si, place } = at2;
   setTooltipRequest(si, req, place);
   const s = slot(pos, si, place, req);
   const forced = !!req.forceSwitch;
@@ -944,7 +1268,7 @@ var playedHere = (s, pick) => s.def?.pick === pick || (s.def?.pick || "").starts
 function leadButtons(req, s, taken) {
   return `<div class="rb-switches">${req.side.pokemon.map((p, n) => {
     const pick = "team " + (n + 1), was = playedHere(s, pick);
-    return `<button type="button" class="button rb-sw has-tooltip ${was} ${pickedHere(s, pick)}" data-pick="${pick}" data-tooltip="switchpokemon|${n}" ${was ? 'data-note="Lead in the replay"' : ""} ${taken.includes(pick) ? "disabled" : ""}><span class="rb-picon" style="${icon2(p.details.split(",")[0])}"></span>${esc(nameOf(p.ident))}</button>`;
+    return `<button type="button" class="button rb-sw has-tooltip ${was} ${pickedHere(s, pick)}" data-pick="${pick}" data-tooltip="switchpokemon|${n}" ${was ? 'data-note="Lead in the replay"' : ""} ${taken.includes(pick) ? "disabled" : ""}><span class="rb-picon" style="${icon3(p.details.split(",")[0])}"></span>${esc(nameOf(p.ident))}</button>`;
   }).join("")}</div>`;
 }
 function gimmicks(act, othersUse) {
@@ -979,7 +1303,7 @@ function moveButtons(pos, si, place, req, active, s, taken) {
     const disabled = m.disabled || m.pp === 0 || mode === "zmove" && !as;
     const ranges = calcs.map((c, j) => c[i] && { ...c[i], foe: doublesBattle(pos) ? pos.battle.sides[1 - si].active[foes[j]] : null }).filter(Boolean);
     const desc = ranges.map((c) => c.desc).filter(Boolean).join("\n");
-    return `<div class="rb-mvwrap"><button type="button" class="rb-mv has-tooltip t-${esc(type)} ${was} ${pickedHere(s, pick)} ${guessed ? "guess" : ""}" data-pick="${pick}" data-tooltip="move|${i}|${mode}" ${note ? `data-note="${note}"` : ""} ${desc ? `data-calc="${esc(desc)}"` : ""} ${disabled ? "disabled" : ""}><b>${esc(name)}</b><small><span>${esc(type)}</span>${ranges.map((c) => `<span class="rb-dmg">${c.foe ? `<span class="rb-picon mini" style="${icon2(c.foe.species.name)}"></span>` : ""}${esc(c.range)}</span>`).join("")}<span>${m.maxpp ? `${m.pp}/${m.maxpp}` : ""}</span></small></button>` + (guessed ? `<button type="button" class="rb-edit" data-edit="${esc(m.move)}" title="Change this guessed move" aria-label="Change ${esc(m.move)}"><i class="fa fa-pencil" aria-hidden="true"></i></button>` : "") + `</div>`;
+    return `<div class="rb-mvwrap"><button type="button" class="rb-mv has-tooltip t-${esc(type)} ${was} ${pickedHere(s, pick)} ${guessed ? "guess" : ""}" data-pick="${pick}" data-tooltip="move|${i}|${mode}" ${note ? `data-note="${note}"` : ""} ${desc ? `data-calc="${esc(desc)}"` : ""} ${disabled ? "disabled" : ""}><b>${esc(name)}</b><small><span>${esc(type)}</span>${ranges.map((c) => `<span class="rb-dmg">${c.foe ? `<span class="rb-picon mini" style="${icon3(c.foe.species.name)}"></span>` : ""}${esc(c.range)}</span>`).join("")}<span>${m.maxpp ? `${m.pp}/${m.maxpp}` : ""}</span></small></button>` + (guessed ? `<button type="button" class="rb-edit" data-edit="${esc(m.move)}" title="Change this guessed move" aria-label="Change ${esc(m.move)}"><i class="fa fa-pencil" aria-hidden="true"></i></button>` : "") + `</div>`;
   });
   const othersUse = placesOf(pos, si, req).filter((p) => p !== place).map((p) => family2(S.gimmick[keyOf(si, p)] ?? slot(pos, si, p, req).gimmick)).filter(Boolean);
   const boxes = gimmicks(act, othersUse).map(([value, label2]) => `<label><input type="checkbox" data-gimmick="${value}" ${s.gimmick === value ? "checked" : ""}> ${label2}</label>` + (value === "terastallize" ? " " + typeTag2(act.canTerastallize) : "")).join(" ");
@@ -992,7 +1316,7 @@ function targetButtons(pos, si, place, req) {
   const button = (loc) => {
     const side = pos.battle.sides[loc > 0 ? 1 - si : si], p = side.active[Math.abs(loc) - 1];
     if (!p) return "";
-    return `<button type="button" class="button rb-sw" data-target="${loc}" ${ok.includes(loc) ? "" : "disabled"}><span class="rb-picon" style="${icon2(p.species.name)}"></span>${esc(p.name)} <small>${p.fainted ? 0 : Math.round(p.hp / p.maxhp * 100)}%</small></button>`;
+    return `<button type="button" class="button rb-sw" data-target="${loc}" ${ok.includes(loc) ? "" : "disabled"}><span class="rb-picon" style="${icon3(p.species.name)}"></span>${esc(p.name)} <small>${p.fainted ? 0 : Math.round(p.hp / p.maxhp * 100)}%</small></button>`;
   };
   return `<div class="rb-switches">${button(2)}${button(1)}</div><div class="rb-switches">${button(-1)}${button(-2)}</div><p class="rb-row" style="margin-top:6px"><button type="button" class="rb-linkbtn" id="btnAimBack">&larr; Back</button></p>`;
 }
@@ -1004,7 +1328,7 @@ function switchButtons(req, forced, s, trapped, taken) {
     const fainted = /fnt/.test(p.condition);
     const unavailable = reviving ? !fainted : fainted || p.active || trapped || taken.includes(pick);
     const [hp, max] = p.condition.split(" ")[0].split("/");
-    return `<button type="button" class="button rb-sw has-tooltip ${was} ${pickedHere(s, pick)}" data-pick="${pick}" data-tooltip="switchpokemon|${n}" ${was ? 'data-note="Used in the replay"' : ""} ${unavailable ? "disabled" : ""}><span class="rb-picon" style="${icon2(p.details.split(",")[0])}"></span>${esc(nameOf(p.ident))} <small>${fainted ? 0 : Math.round(hp / max * 100)}%</small></button>`;
+    return `<button type="button" class="button rb-sw has-tooltip ${was} ${pickedHere(s, pick)}" data-pick="${pick}" data-tooltip="switchpokemon|${n}" ${was ? 'data-note="Used in the replay"' : ""} ${unavailable ? "disabled" : ""}><span class="rb-picon" style="${icon3(p.details.split(",")[0])}"></span>${esc(nameOf(p.ident))} <small>${fainted ? 0 : Math.round(hp / max * 100)}%</small></button>`;
   }).join("")}</div>`;
 }
 function editGuessedMove(pos, si, place, button) {
@@ -1147,9 +1471,21 @@ function lineToken(id) {
     return `<span class="rb-tok rb-err" data-go="${esc(id)}">(error)</span>`;
   }
   const n = S.study.nodes[id];
-  const s = E.summarize(line.lines);
   const turn = isReplayPos(n.parent) ? replayTurn(n.parent) : compute(n.parent).battle.turn;
-  return `<span class="rb-tok ${id === S.cur ? "cur" : ""}" data-go="${esc(id)}"><span class="tn">${turn}.</span>${esc(s.p1 || "\u2026")} <span class="tn">|</span> ${esc(s.p2 || "\u2026")}` + (n.forced.length ? ' <i class="fa fa-cube" title="Dice set by you" aria-hidden="true"></i>' : "") + (n.glyph ? `<span class="rb-glyph">${esc(n.glyph)}</span>` : "") + (n.comment ? ` <i class="rb-cmt">${esc(n.comment.slice(0, 60))}</i>` : "") + `</span>`;
+  let what;
+  if (n.edit) {
+    const s = E.editSummary(isReplayPos(n.parent) ? replayTurnPos(turn, n.sets).battle : compute(n.parent).battle, n.edit);
+    const cut = (list) => {
+      const t = list.join(", ");
+      return t.length > 60 ? t.slice(0, 59) + "\u2026" : t;
+    };
+    const left = cut([...s.field, ...s.p1]), right = cut(s.p2);
+    what = `<span class="rb-pencil" aria-label="Edited">\u270E</span> ${esc(right ? left || "\u2014" : left)}${right ? ` <span class="tn">|</span> ${esc(right)}` : ""}`;
+  } else {
+    const s = E.summarize(line.lines);
+    what = `${esc(s.p1 || "\u2026")} <span class="tn">|</span> ${esc(s.p2 || "\u2026")}`;
+  }
+  return `<span class="rb-tok ${n.edit ? "rb-edited" : ""} ${id === S.cur ? "cur" : ""}" data-go="${esc(id)}"><span class="tn">${turn}.</span>${what}` + (n.forced.length ? ' <i class="fa fa-cube" title="Dice set by you" aria-hidden="true"></i>' : "") + (n.glyph ? `<span class="rb-glyph">${esc(n.glyph)}</span>` : "") + (n.comment ? ` <i class="rb-cmt">${esc(n.comment.slice(0, 60))}</i>` : "") + `</span>`;
 }
 function lineHTML(first) {
   let html = "";
@@ -1323,6 +1659,800 @@ function onOutsideClick(e) {
   if (!e.target.closest("#pickSec") && closeMenu()) renderNow();
 }
 
+// source/app/landing.js
+function renderLanding() {
+  renderStudies();
+  renderRecent();
+  $id("openUrl").focus();
+}
+function wireLanding() {
+  $id("openForm").onsubmit = (e) => {
+    e.preventDefault();
+    const id = replayIdFrom($id("openUrl").value);
+    $id("openErr").textContent = id ? "" : "Not a replay link.";
+    if (id) visit(id);
+  };
+  $id("btnPasteLog").onclick = () => $id("btnLoad").click();
+  wireFormatMenu();
+  $id("freshForm").onsubmit = async (e) => {
+    e.preventDefault();
+    $id("freshErr").textContent = "";
+    try {
+      await startFresh($id("freshFormat").value, [$id("freshTeam1").value, $id("freshTeam2").value]);
+    } catch (err) {
+      showPage("landing");
+      $id("freshErr").textContent = err.message || String(err);
+    }
+  };
+  $id("searchForm").onsubmit = (e) => {
+    e.preventDefault();
+    search();
+  };
+  $id("btnMore").onclick = () => search(lastResult);
+  fetch("stats/index.json").then((r) => r.json()).then((formats) => {
+    const d = document.createElement("datalist");
+    d.id = "dl-formats";
+    d.innerHTML = Object.keys(formats).map((f) => `<option value="${f}">`).join("");
+    document.body.appendChild(d);
+  }).catch(() => {
+  });
+}
+function wireFormatMenu() {
+  const button = $id("btnFormat"), menu = $id("formatMenu"), value = $id("freshFormat");
+  let sections = null;
+  const open = () => {
+    try {
+      return new Set(JSON.parse(stored("rb-format-open", "[]")));
+    } catch {
+      return /* @__PURE__ */ new Set();
+    }
+  };
+  const render2 = (query = "") => {
+    const q = query.trim().toLowerCase(), shown = open();
+    const current = sections.find((s) => s.formats.some((f) => f.id === value.value))?.section;
+    menu.innerHTML = `<input class="textbox" id="formatSearch" placeholder="Search" aria-label="Search formats" value="${esc(query)}">` + sections.map((s) => {
+      const formats = q ? s.formats.filter((f) => f.full.toLowerCase().includes(q) || f.id.includes(q.replace(/[^a-z0-9]/g, ""))) : s.formats;
+      if (!formats.length) return "";
+      const expanded = !!q || shown.has(s.section) || !shown.size && s.section === current;
+      return `<div class="rb-fsec"><button type="button" class="rb-fhead" data-sec="${esc(s.section)}" aria-expanded="${expanded}"><i class="fa fa-caret-${expanded ? "down" : "right"}" aria-hidden="true"></i>${esc(s.section)}<small>${formats.length}</small></button><div class="rb-fitems" ${expanded ? "" : "hidden"}>${formats.map((f) => `<button type="button" class="rb-fitem ${f.id === value.value ? "cur" : ""}" data-format="${esc(f.id)}" title="${esc(f.full)}">${esc(f.name)}</button>`).join("")}</div></div>`;
+    }).join("");
+    const search2 = $id("formatSearch");
+    search2.oninput = () => {
+      render2(search2.value);
+      const again = $id("formatSearch");
+      again.focus();
+      again.setSelectionRange(again.value.length, again.value.length);
+    };
+    for (const h of menu.querySelectorAll("[data-sec]")) h.onclick = () => {
+      const now = open();
+      if (!now.size && h.dataset.sec === current) now.add(current);
+      if (now.has(h.dataset.sec)) now.delete(h.dataset.sec);
+      else now.add(h.dataset.sec);
+      store("rb-format-open", JSON.stringify([...now]));
+      render2(search2.value);
+    };
+    for (const b of menu.querySelectorAll("[data-format]")) b.onclick = () => {
+      value.value = b.dataset.format;
+      $id("formatName").textContent = b.title;
+      close2();
+    };
+  };
+  const raise = (up) => button.closest(".rb-sheet")?.classList.toggle("rb-raised", up);
+  const close2 = () => {
+    menu.hidden = true;
+    button.setAttribute("aria-expanded", "false");
+    raise(false);
+  };
+  button.onclick = async (e) => {
+    e.stopPropagation();
+    if (!menu.hidden) {
+      close2();
+      return;
+    }
+    await S.ready;
+    sections || (sections = E.freshFormats());
+    render2();
+    menu.hidden = false;
+    button.setAttribute("aria-expanded", "true");
+    raise(true);
+    menu.querySelector(".rb-fitem.cur")?.scrollIntoView({ block: "nearest" });
+  };
+  menu.onclick = (e) => e.stopPropagation();
+  document.addEventListener("click", () => {
+    if (!menu.hidden) close2();
+  });
+  menu.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") {
+      close2();
+      button.focus();
+    }
+  });
+}
+var ago = (ms) => {
+  const min = (Date.now() - ms) / 6e4;
+  if (min < 1) return "just now";
+  if (min < 60) return `${Math.floor(min)} min ago`;
+  if (min < 60 * 24) return `${Math.floor(min / 60)} h ago`;
+  return date(ms);
+};
+var date = (ms) => new Date(ms).toLocaleDateString(void 0, { year: "numeric", month: "short", day: "numeric" });
+function savedStudies() {
+  const out = [];
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (!k.startsWith("rbv:")) continue;
+      try {
+        const study = JSON.parse(localStorage.getItem(k));
+        out.push({ key: k.slice(4), meta: study.meta || {}, name: typeof study.name === "string" ? study.name : "", lines: Object.keys(study.nodes || {}).length, opened: study.opened || 0 });
+      } catch {
+      }
+    }
+  } catch {
+  }
+  return out.sort((a, b) => b.opened - a.opened);
+}
+var players = (list) => (list || []).map((p) => `<strong>${esc(p)}</strong>`).join(" vs. ");
+var entry = (key, details, who, end = "") => `<a class="blocklink" href="?r=${encodeURIComponent(key)}" data-visit="${esc(key)}"><span><small>${details}</small><br>${who}</span>${end}</a>`;
+var opensHere = (e) => !(e.ctrlKey || e.metaKey || e.shiftKey || e.button === 1);
+var removeArmed = null;
+function renderRecent() {
+  const list = $id("recent");
+  const studies = savedStudies();
+  list.innerHTML = studies.length ? studies.map((s) => {
+    const lines = s.lines ? ` \xB7 ${s.lines} line${s.lines > 1 ? "s" : ""}` : "";
+    const details = `${esc(s.meta.format || s.key)}${s.name ? " \xB7 " + (s.meta.players || []).map(esc).join(" vs. ") : ""}`;
+    return entry(
+      s.key,
+      `${details}${s.meta.shared ? " \xB7 shared with you" : ""}${lines}${s.opened ? " \xB7 " + ago(s.opened) : ""}`,
+      s.name ? `<strong>${esc(s.name)}</strong>` : players(s.meta.players),
+      `<button class="rb-linkbtn" data-remove="${esc(s.key)}">${removeArmed === s.key ? "Remove for good?" : "Remove"}</button>`
+    );
+  }).join("") : `<p class="rb-dim">Nothing yet. <a href="?r=${SAMPLE}" data-visit="${SAMPLE}">Open a sample replay</a></p>`;
+  for (const link of list.querySelectorAll("[data-visit]")) link.onclick = (e) => {
+    if (e.target.closest("[data-remove]") || !opensHere(e)) return;
+    e.preventDefault();
+    visit(link.dataset.visit);
+  };
+  for (const b of list.querySelectorAll("[data-remove]")) b.onclick = (e) => {
+    e.preventDefault();
+    if (removeArmed === b.dataset.remove) {
+      unstore("rbv:" + b.dataset.remove);
+      removeArmed = null;
+      if (S.key === b.dataset.remove) S.key = "";
+    } else removeArmed = b.dataset.remove;
+    renderRecent();
+  };
+}
+var lastResult = null;
+async function search(after) {
+  const user = $id("searchUser").value.trim(), format = $id("searchFormat").value.trim();
+  const list = $id("searchResults"), err = $id("searchErr");
+  err.textContent = "";
+  if (!user && !format) {
+    err.textContent = "Enter a username or a format.";
+    return;
+  }
+  const q = new URLSearchParams();
+  if (user) q.set("user", user);
+  if (format) q.set("format", format);
+  if (after) q.set("before", after.uploadtime);
+  let found;
+  try {
+    const r = await fetch("https://replay.pokemonshowdown.com/search.json?" + q);
+    if (!r.ok) throw new Error();
+    found = await r.json();
+  } catch {
+    err.textContent = "Could not search replays.";
+    return;
+  }
+  const more = found.length > 50;
+  found = found.slice(0, 50);
+  lastResult = found[found.length - 1];
+  const entries = found.map((x) => entry(
+    x.id,
+    esc(x.format) + (x.rating ? ` \xB7 Rating: ${x.rating}` : ""),
+    players(x.players),
+    `<small>${date(x.uploadtime * 1e3)}</small>`
+  )).join("");
+  if (!after) list.innerHTML = "";
+  list.insertAdjacentHTML("beforeend", entries || `<p class="rb-dim">No replays found.</p>`);
+  list.hidden = false;
+  $id("searchMore").hidden = !more;
+  for (const link of list.querySelectorAll("[data-visit]")) link.onclick = (e) => {
+    if (!opensHere(e)) return;
+    e.preventDefault();
+    visit(link.dataset.visit);
+  };
+}
+
+// source/app/load.js
+var SAMPLE = "oumonotype-82345404";
+async function route() {
+  let key = new URLSearchParams(location.search).get("r");
+  const shared = location.hash.startsWith("#s="), sharedChapters = location.hash.startsWith("#c="), inStudy = studyInAddress();
+  showPage(key || shared || sharedChapters || inStudy ? "viewer" : "landing");
+  if (!key && !shared && !sharedChapters && !inStudy) {
+    renderLanding();
+    return;
+  }
+  await S.ready;
+  try {
+    if (sharedChapters) key = await openSharedStudy();
+    else if (!key && !shared) key = startOfStudy(inStudy);
+    renderChapterBar(shared ? null : key);
+    if (shared) await openSharedLink();
+    else if (key !== S.key) await openKey(key);
+    renderChapterBar();
+  } catch (e) {
+    history.replaceState(null, "", location.pathname);
+    showPage("landing");
+    renderLanding();
+    $id("openErr").textContent = e.message || String(e);
+  }
+}
+function visit(key) {
+  history.pushState(null, "", "?r=" + encodeURIComponent(key));
+  route();
+}
+function showPage(page) {
+  $id("landing").hidden = page !== "landing";
+  $id("viewer").hidden = $id("viewerBtns").hidden = page !== "viewer";
+  document.body.dataset.page = page;
+  if (page === "landing") document.title = "Replay Branch";
+}
+async function openKey(key) {
+  const saved = loadSaved(key), meta = saved?.meta || {}, kept = !saved && keptChapter(key);
+  if (meta.log) await loadText(meta.log, { key });
+  else if (kept) await loadText(kept.log, { key, known: kept.teams });
+  else {
+    const id = meta.replayId || key.split("~")[0];
+    await loadText(await fetchReplay(id), { replayId: id, key });
+  }
+}
+async function loadText(text, { shown = false, replayId = null, study = null, key = null, shared = false, known = null } = {}) {
+  const t = String(text || "").trim();
+  let exported = null;
+  if (t.startsWith("{")) {
+    try {
+      const j = JSON.parse(t);
+      if (j && j.rbv && j.log) exported = j;
+    } catch {
+    }
+  }
+  const rep = E.parseReplayInput(exported ? exported.log : t);
+  S.rep = rep;
+  S.replayId = replayId;
+  S.key = key || replayKey(rep);
+  S.lines.clear();
+  S.replayPos.clear();
+  S.realDice.clear();
+  S.stats = await fetchStats(rep.formatid);
+  S.cbEnd = E.clientAt(rep, rep.lastTurn + 1);
+  S.base = E.revealedTeams(rep).map((team) => team.map((k) => E.suggestSet(k, S.stats, rep.gen)));
+  const raw = study || exported?.study || loadSaved(S.key);
+  const full = known || isFresh(rep) && raw?.sets;
+  if (full) S.base = S.base.map((side, si) => side.map((b) => {
+    const s = (full[si] || []).find((x) => x && x.name === b.name);
+    return s ? { ...b, ...s, pasted: true, fixed: { moves: s.moves.filter(Boolean), item: true, ability: true, tera: true } } : b;
+  }));
+  S.study = cleanStudy(raw || newStudy(), S.base);
+  const was = S.study.meta || {};
+  S.study.meta = {
+    format: rep.tier || rep.formatid,
+    players: [S.cbEnd.p1.name, S.cbEnd.p2.name],
+    ...replayId ? { replayId } : { log: rep.lines.join("\n") },
+    ...shared || was.shared ? { shared: true } : {}
+  };
+  S.study.opened = Date.now();
+  save();
+  document.title = `${S.study.name || S.study.meta.players.join(" vs. ")} - Replay Branch`;
+  clearPicks();
+  S.err = "";
+  if (!shown) S.psMode = "";
+  S.cur = "";
+  go(full && rep.lastTurn >= 1 ? "r1" : "r0");
+}
+async function startFresh(format, teamTexts) {
+  await S.ready;
+  const teams = await Promise.all(teamTexts.map(async (t, si) => {
+    const sets2 = E.parseTeam(await pasteText(t));
+    if (!sets2.length) throw new Error(`Team ${si + 1}: no Pok\xE9mon found.`);
+    return sets2;
+  }));
+  const { log, sets } = E.freshBattle(String(format || "").trim().toLowerCase().replace(/[^a-z0-9]/g, "") || "gen9ou", teams);
+  showPage("viewer");
+  await loadText(log, { known: sets });
+  history.pushState(null, "", "?r=" + encodeURIComponent(S.key));
+  renderChapterBar();
+}
+var replayKey = (rep) => rep.meta.id || "log-" + hash(rep.lines.slice(0, 40).join("\n") + rep.lines.length);
+var statsIndex = null;
+async function fetchStats(formatid) {
+  try {
+    statsIndex || (statsIndex = fetch("stats/index.json").then((r2) => r2.json()));
+    const id = E.statsFormat(formatid, await statsIndex);
+    if (!id) return null;
+    const r = await fetch("stats/" + id + ".json");
+    return r.ok ? await r.json() : null;
+  } catch {
+    statsIndex = null;
+    return null;
+  }
+}
+function replayIdFrom(s) {
+  const m = String(s || "").trim().replace(/[?#].*$/, "").replace(/\.(json|log|html)$/, "").match(/^(?:https?:\/\/)?(?:replay\.pokemonshowdown\.com|psim\.us\/r)\/([a-z0-9-]+)$/i);
+  return m ? m[1] : null;
+}
+async function fetchReplay(id) {
+  const r = await fetch(`https://replay.pokemonshowdown.com/${id}.json`);
+  if (!r.ok) throw new Error(r.status === 404 ? "Replay not found (it may be private or deleted)." : `Could not load the replay (${r.status}).`);
+  return r.text();
+}
+var shareable = () => ({ ...S.study, meta: void 0, opened: void 0 });
+async function shareLink() {
+  const byId = S.replayId && !/pw$/.test(S.replayId);
+  const payload = { rbv: 1, study: shareable(), ...byId ? { id: S.replayId } : { log: S.rep.lines.join("\n") } };
+  const stream = new Blob([JSON.stringify(payload)]).stream().pipeThrough(new CompressionStream("deflate-raw"));
+  const bytes = new Uint8Array(await new Response(stream).arrayBuffer());
+  let binary = "";
+  for (let i = 0; i < bytes.length; i += 32768) binary += String.fromCharCode(...bytes.subarray(i, i + 32768));
+  const data = btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  return location.origin + location.pathname + "#s=" + data;
+}
+async function openSharedLink() {
+  const m = /^#s=([\w-]+)$/.exec(location.hash);
+  if (!m) return;
+  const binary = atob(m[1].replace(/-/g, "+").replace(/_/g, "/"));
+  const bytes = Uint8Array.from(binary, (c) => c.charCodeAt(0));
+  const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("deflate-raw"));
+  const payload = JSON.parse(await new Response(stream).text());
+  const text = payload.id ? await fetchReplay(payload.id) : payload.log;
+  const key = sharedKey(replayKey(E.parseReplayInput(text)), payload.study);
+  await loadText(text, { replayId: payload.id || null, study: payload.study, key, shared: true });
+  history.replaceState(null, "", "?r=" + encodeURIComponent(S.key));
+}
+function sharedKey(own, study) {
+  const mine = loadSaved(own);
+  const hasWork = (s) => s && (Object.keys(s.nodes || {}).length || Object.values(s.notes || {}).some((n) => n?.comment || n?.glyph));
+  return hasWork(mine) && JSON.stringify(mine.nodes) !== JSON.stringify(study?.nodes) ? own + "~" + hash(JSON.stringify(study || {})) : own;
+}
+function wireDialogs() {
+  const loader = $id("loader"), sharer = $id("sharer");
+  $id("btnLoad").onclick = () => {
+    loader.hidden = false;
+    $id("loadErr").textContent = "";
+    $id("replayUrl").focus();
+  };
+  $id("btnShare").onclick = async () => {
+    $id("exportBox").value = JSON.stringify({ rbv: 1, log: S.rep.lines.join("\n"), study: shareable() });
+    $id("shareLink").value = await shareLink();
+    $id("copyMsg").textContent = "";
+    sharer.hidden = false;
+  };
+  $id("fileIn").onchange = async () => {
+    const f = $id("fileIn").files[0];
+    if (f) $id("pasteBox").value = await f.text();
+  };
+  $id("btnDoLoad").onclick = () => loadFrom(async () => {
+    const id = replayIdFrom($id("replayUrl").value) || replayIdFrom($id("pasteBox").value);
+    return id ? { text: await fetchReplay(id), replayId: id } : { text: $id("pasteBox").value };
+  });
+  $id("btnSample").onclick = () => {
+    $id("loader").hidden = true;
+    visit(SAMPLE);
+  };
+  $id("btnCancel").onclick = () => {
+    loader.hidden = true;
+  };
+  const copy = async (box, done) => {
+    try {
+      await navigator.clipboard.writeText(box.value);
+      $id("copyMsg").textContent = done;
+    } catch {
+      box.select();
+      $id("copyMsg").textContent = "Press Ctrl+C to copy";
+    }
+  };
+  $id("btnCopyLink").onclick = () => copy($id("shareLink"), "Link copied");
+  $id("btnCopy").onclick = () => copy($id("exportBox"), "Text copied");
+  $id("btnCloseShare").onclick = () => {
+    sharer.hidden = true;
+  };
+  for (const modal of [loader, sharer, $id("importer")]) {
+    modal.addEventListener("click", (e) => {
+      if (e.target === modal) modal.hidden = true;
+    });
+    modal.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") modal.hidden = true;
+    });
+  }
+}
+async function loadFrom(get) {
+  $id("loadErr").textContent = "";
+  const wasLanding = !$id("landing").hidden;
+  try {
+    const { text, replayId } = await get();
+    await S.ready;
+    E.parseReplayInput(text.trim().startsWith("{") ? JSON.parse(text).log || text : text);
+    showPage("viewer");
+    await loadText(text, { replayId });
+    history.pushState(null, "", "?r=" + encodeURIComponent(S.key));
+    renderChapterBar();
+    $id("loader").hidden = true;
+    $id("pasteBox").value = "";
+    $id("replayUrl").value = "";
+  } catch (e) {
+    if (wasLanding) showPage("landing");
+    $id("loadErr").textContent = e.message || String(e);
+  }
+}
+
+// source/app/chapters.js
+var ID = /^[a-z0-9]{1,16}$/;
+var newId = () => Date.now().toString(36).slice(-4) + Math.random().toString(36).slice(2, 8);
+function loadCollection(id) {
+  if (!ID.test(id || "")) return null;
+  try {
+    const raw = JSON.parse(stored("rbs:" + id, "null"));
+    return raw ? cleanCollection(raw) : null;
+  } catch {
+    return null;
+  }
+}
+var saveCollection = (id, st) => store("rbs:" + id, JSON.stringify(st));
+function allCollections() {
+  const out = [];
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      const st = k.startsWith("rbs:") && loadCollection(k.slice(4));
+      if (st) out.push({ id: k.slice(4), ...st });
+    }
+  } catch {
+  }
+  return out.sort((a, b) => (b.opened || 0) - (a.opened || 0));
+}
+function studyInAddress() {
+  const id = new URLSearchParams(location.search).get("c");
+  return ID.test(id || "") ? id : null;
+}
+var chapterUrl = (id, key) => `?c=${id}` + (key ? "&r=" + encodeURIComponent(key) : "");
+function visitChapter(id, key) {
+  closePops();
+  history.pushState(null, "", chapterUrl(id, key));
+  route();
+}
+function startOfStudy(id) {
+  const st = loadCollection(id);
+  if (!st?.chapters.length) throw new Error("Study not found.");
+  const key = st.last || st.chapters[0].key;
+  history.replaceState(null, "", chapterUrl(id, key));
+  return key;
+}
+function keptChapter(key) {
+  const id = studyInAddress();
+  for (const st of [id && loadCollection(id), ...allCollections()]) {
+    const ch = st?.chapters.find((c) => c.key === key && c.log);
+    if (ch) return { log: ch.log, teams: ch.teams || null };
+  }
+  return null;
+}
+var thisChapter = () => S.study?.meta?.replayId || !S.study?.meta?.log ? { key: S.key } : { key: S.key, log: S.study.meta.log, ...isFresh(S.rep) ? { teams: S.study.sets } : {} };
+function chapterTitle(ch) {
+  if (ch.title) return ch.title;
+  const saved = loadSaved(ch.key), meta = saved?.meta || {};
+  if (typeof saved?.name === "string" && saved.name.trim()) return saved.name.trim().slice(0, 80);
+  const players2 = (Array.isArray(meta.players) ? meta.players : []).filter((p) => typeof p === "string" && p).join(" vs. ");
+  return [typeof meta.format === "string" ? meta.format : "", players2].filter(Boolean).join(" \xB7 ") || ch.key;
+}
+var menuOpen = false;
+var editing = null;
+var removeArmed2 = -1;
+function renderChapterBar(key = S.key) {
+  const bar = $id("chapBar");
+  const id = studyInAddress(), st = id && loadCollection(id);
+  const i = st && key ? st.chapters.findIndex((ch) => ch.key === key) : -1;
+  if (i < 0) {
+    bar.hidden = true;
+    bar.innerHTML = "";
+    menuOpen = false;
+    return;
+  }
+  st.last = key;
+  st.opened = Date.now();
+  saveCollection(id, st);
+  const n = st.chapters.length;
+  bar.hidden = false;
+  bar.innerHTML = `<button type="button" class="button" id="chapPrev" title="Previous chapter" aria-label="Previous chapter" ${i ? "" : "disabled"}><i class="fa fa-chevron-left" aria-hidden="true"></i></button><div class="rb-popwrap rb-chapwrap"><button type="button" class="button rb-chapbtn" id="chapMenuBtn" aria-haspopup="true" aria-expanded="${menuOpen}"><i class="fa fa-book" aria-hidden="true"></i><strong>${esc(st.name)}</strong><span class="rb-chapno">Chapter ${i + 1} / ${n}</span><span class="rb-chaptitle">${esc(chapterTitle(st.chapters[i]))}</span><i class="fa fa-caret-down" aria-hidden="true"></i></button><div class="rb-pop" id="chapMenu" ${menuOpen ? "" : "hidden"}></div></div><button type="button" class="button" id="chapNext" title="Next chapter" aria-label="Next chapter" ${i < n - 1 ? "" : "disabled"}><i class="fa fa-chevron-right" aria-hidden="true"></i></button>`;
+  $id("chapPrev").onclick = () => visitChapter(id, st.chapters[i - 1].key);
+  $id("chapNext").onclick = () => visitChapter(id, st.chapters[i + 1].key);
+  $id("chapMenuBtn").onclick = (e) => {
+    e.stopPropagation();
+    const open = !menuOpen;
+    closePops();
+    menuOpen = open;
+    renderChapterBar();
+  };
+  if (menuOpen) renderChapterMenu(id, st, i);
+}
+function renderChapterMenu(id, st, i) {
+  const menu = $id("chapMenu"), n = st.chapters.length;
+  const tool = (attr, j, title, icon4, off = false) => `<button type="button" class="rb-linkbtn" ${attr}="${j}" title="${title}" aria-label="${title}" ${off ? "disabled" : ""}>${icon4}</button>`;
+  menu.innerHTML = `<div class="rb-pophead">` + (editing === "name" ? `<input class="textbox" id="studyRename" maxlength="80" value="${esc(st.name)}" aria-label="Study name">` : `<strong>${esc(st.name)}</strong>${tool("data-rename-study", 0, "Rename study", '<i class="fa fa-pencil" aria-hidden="true"></i>')}`) + `<button type="button" class="button" id="btnShareStudy">Share</button></div>` + st.chapters.map((ch, j) => `<div class="rb-chap ${j === i ? "cur" : ""}">` + (editing === j ? `<input class="textbox" id="chapRename" maxlength="80" value="${esc(ch.title || "")}" placeholder="${esc(chapterTitle({ key: ch.key }))}" aria-label="Chapter title">` : `<button type="button" class="rb-fitem" data-chapter="${j}"><span class="rb-chapn">${j + 1}</span>${esc(chapterTitle(ch))}</button>`) + `<span class="rb-chaptools">${tool("data-up", j, "Move up", '<i class="fa fa-caret-up" aria-hidden="true"></i>', !j)}` + tool("data-down", j, "Move down", '<i class="fa fa-caret-down" aria-hidden="true"></i>', j === n - 1) + tool("data-retitle", j, "Rename chapter", '<i class="fa fa-pencil" aria-hidden="true"></i>') + (n > 1 ? tool("data-remove", j, "Remove chapter", removeArmed2 === j ? "Remove?" : '<i class="fa fa-times" aria-hidden="true"></i>') : "") + `</span></div>`).join("");
+  const redo = () => renderChapterBar();
+  const change = (f) => {
+    f();
+    saveCollection(id, st);
+    redo();
+  };
+  menu.onclick = (e) => e.stopPropagation();
+  for (const b of menu.querySelectorAll("[data-chapter]")) b.onclick = () => visitChapter(id, st.chapters[+b.dataset.chapter].key);
+  for (const b of menu.querySelectorAll("[data-up], [data-down]")) b.onclick = () => change(() => {
+    const j = +(b.dataset.up ?? b.dataset.down), k = b.dataset.up !== void 0 ? j - 1 : j + 1;
+    [st.chapters[j], st.chapters[k]] = [st.chapters[k], st.chapters[j]];
+    removeArmed2 = -1;
+  });
+  for (const b of menu.querySelectorAll("[data-retitle]")) b.onclick = () => {
+    editing = +b.dataset.retitle;
+    removeArmed2 = -1;
+    redo();
+  };
+  for (const b of menu.querySelectorAll("[data-rename-study]")) b.onclick = () => {
+    editing = "name";
+    removeArmed2 = -1;
+    redo();
+  };
+  for (const b of menu.querySelectorAll("[data-remove]")) b.onclick = () => {
+    const j = +b.dataset.remove;
+    if (removeArmed2 !== j) {
+      removeArmed2 = j;
+      redo();
+      return;
+    }
+    removeArmed2 = -1;
+    const [gone] = st.chapters.splice(j, 1);
+    saveCollection(id, st);
+    if (gone.key === S.key) visitChapter(id, st.chapters[Math.min(j, st.chapters.length - 1)].key);
+    else redo();
+  };
+  const input = $id("studyRename") || $id("chapRename");
+  if (input) {
+    input.focus();
+    input.select();
+    let done = false;
+    const finish = (keep) => {
+      if (done) return;
+      done = true;
+      const v = input.value.trim().slice(0, 80);
+      if (keep && editing === "name") {
+        if (v) st.name = v;
+      } else if (keep) {
+        const ch = st.chapters[editing];
+        if (v) ch.title = v;
+        else delete ch.title;
+      }
+      editing = null;
+      if (keep) saveCollection(id, st);
+      redo();
+    };
+    input.onkeydown = (e) => {
+      if (e.key === "Enter") finish(true);
+      else if (e.key === "Escape") {
+        e.stopPropagation();
+        finish(false);
+      }
+    };
+    input.onblur = () => finish(true);
+  }
+  $id("btnShareStudy").onclick = () => shareStudy(st);
+}
+function renderAddMenu() {
+  const menu = $id("addMenu"), list = allCollections(), ok = CHAPTER_KEY.test(S.key || "");
+  menu.innerHTML = list.map((s) => {
+    const has = s.chapters.some((ch) => ch.key === S.key);
+    return `<button type="button" class="rb-fitem rb-additem" data-add="${s.id}" ${ok && (has || s.chapters.length < MAX_CHAPTERS) ? "" : "disabled"}><i class="fa fa-${has ? "check" : "plus"}" aria-hidden="true"></i>${esc(s.name)}<small>${s.chapters.length}</small></button>`;
+  }).join("") + `<form class="rb-popnew" id="newStudyForm"><input class="textbox" id="newStudyName" maxlength="80" placeholder="New study" aria-label="New study name"><button type="submit" class="button" ${ok ? "" : "disabled"}>Create</button></form>`;
+  for (const b of menu.querySelectorAll("[data-add]")) b.onclick = () => {
+    const id = b.dataset.add, st = loadCollection(id);
+    if (!st) return;
+    if (!st.chapters.some((ch) => ch.key === S.key)) {
+      st.chapters.push(thisChapter());
+      saveCollection(id, st);
+    }
+    visitChapter(id, S.key);
+  };
+  $id("newStudyForm").onsubmit = (e) => {
+    e.preventDefault();
+    const id = newId(), name = $id("newStudyName").value.trim().slice(0, 80) || `Study ${list.length + 1}`;
+    saveCollection(id, { name, chapters: [thisChapter()], last: S.key, opened: Date.now() });
+    visitChapter(id, S.key);
+  };
+}
+function closePops() {
+  $id("addMenu").hidden = true;
+  $id("btnAddStudy").setAttribute("aria-expanded", "false");
+  if (menuOpen) {
+    menuOpen = false;
+    editing = null;
+    removeArmed2 = -1;
+    $id("chapMenu")?.setAttribute("hidden", "");
+    $id("chapMenuBtn")?.setAttribute("aria-expanded", "false");
+  }
+}
+function wireChapters() {
+  $id("btnAddStudy").onclick = (e) => {
+    e.stopPropagation();
+    const open = $id("addMenu").hidden;
+    closePops();
+    if (!open || !S.rep) return;
+    renderAddMenu();
+    $id("addMenu").hidden = false;
+    $id("btnAddStudy").setAttribute("aria-expanded", "true");
+    $id("newStudyName").focus();
+  };
+  $id("addMenu").onclick = (e) => e.stopPropagation();
+  document.addEventListener("click", (e) => {
+    if (!e.target.closest(".rb-popwrap")) closePops();
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") closePops();
+  });
+  const modal = $id("studySharer");
+  $id("btnCopyStudyLink").onclick = async () => {
+    try {
+      await navigator.clipboard.writeText($id("studyLink").value);
+      $id("studyCopyMsg").textContent = "Link copied";
+    } catch {
+      $id("studyLink").select();
+      $id("studyCopyMsg").textContent = "Press Ctrl+C to copy";
+    }
+  };
+  $id("btnCloseStudyShare").onclick = () => {
+    modal.hidden = true;
+  };
+  modal.addEventListener("click", (e) => {
+    if (e.target === modal) modal.hidden = true;
+  });
+  modal.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") modal.hidden = true;
+  });
+}
+var landingEdit = null;
+var landingRemove = null;
+function renderStudies() {
+  const list = allCollections(), box = $id("studies");
+  $id("studiesSec").hidden = !list.length;
+  box.innerHTML = list.map((s) => {
+    const n = s.chapters.length;
+    const details = `${n} chapter${n === 1 ? "" : "s"}${s.shared ? " \xB7 shared with you" : ""}${s.opened ? " \xB7 " + ago(s.opened) : ""}`;
+    if (landingEdit === s.id) return `<div class="blocklink"><span><small>${details}</small><br><input class="textbox" id="studyRenameHome" maxlength="80" value="${esc(s.name)}" aria-label="Study name"></span></div>`;
+    return `<a class="blocklink" href="${chapterUrl(s.id, s.last || s.chapters[0]?.key)}" data-study="${s.id}"><span><small>${details}</small><br><strong>${esc(s.name)}</strong></span><span class="rb-acts"><button type="button" class="rb-linkbtn" data-rename-home="${s.id}">Rename</button><button type="button" class="rb-linkbtn" data-remove-home="${s.id}">${landingRemove === s.id ? "Remove for good?" : "Remove"}</button></span></a>`;
+  }).join("");
+  for (const a of box.querySelectorAll("[data-study]")) a.onclick = (e) => {
+    if (e.target.closest("button") || e.ctrlKey || e.metaKey || e.shiftKey || e.button === 1) return;
+    e.preventDefault();
+    const st = loadCollection(a.dataset.study);
+    if (st?.chapters.length) visitChapter(a.dataset.study, st.last || st.chapters[0].key);
+  };
+  for (const b of box.querySelectorAll("[data-rename-home]")) b.onclick = (e) => {
+    e.preventDefault();
+    landingEdit = b.dataset.renameHome;
+    landingRemove = null;
+    renderStudies();
+  };
+  for (const b of box.querySelectorAll("[data-remove-home]")) b.onclick = (e) => {
+    e.preventDefault();
+    if (landingRemove === b.dataset.removeHome) {
+      unstore("rbs:" + b.dataset.removeHome);
+      landingRemove = null;
+    } else landingRemove = b.dataset.removeHome;
+    renderStudies();
+  };
+  const input = $id("studyRenameHome");
+  if (input) {
+    input.focus();
+    input.select();
+    let done = false;
+    const finish = (keep) => {
+      if (done) return;
+      done = true;
+      const st = loadCollection(landingEdit), v = input.value.trim().slice(0, 80);
+      if (keep && st && v) {
+        st.name = v;
+        saveCollection(landingEdit, st);
+      }
+      landingEdit = null;
+      renderStudies();
+    };
+    input.onkeydown = (e) => {
+      if (e.key === "Enter") finish(true);
+      else if (e.key === "Escape") finish(false);
+    };
+    input.onblur = () => finish(true);
+  }
+}
+async function pack(payload) {
+  const stream = new Blob([JSON.stringify(payload)]).stream().pipeThrough(new CompressionStream("deflate-raw"));
+  const bytes = new Uint8Array(await new Response(stream).arrayBuffer());
+  let binary = "";
+  for (let i = 0; i < bytes.length; i += 32768) binary += String.fromCharCode(...bytes.subarray(i, i + 32768));
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+async function unpack(data) {
+  const bytes = Uint8Array.from(atob(data.replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0));
+  const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("deflate-raw"));
+  const text = await new Response(stream).text();
+  if (text.length > 64e6) throw new Error("This study link is too large.");
+  return JSON.parse(text);
+}
+async function shareStudy(st) {
+  closePops();
+  const chapters = [], left = [];
+  for (const ch of st.chapters) {
+    const saved = loadSaved(ch.key), meta = saved?.meta || {};
+    const kept = typeof meta.log === "string" ? meta.log : ch.log || null;
+    let id = typeof meta.replayId === "string" ? meta.replayId : !kept && !ch.key.startsWith("log-") ? ch.key.split("~")[0] : null;
+    let log = id ? null : kept;
+    if (id && /pw$/.test(id)) {
+      try {
+        log = E.parseReplayInput(await fetchReplay(id)).lines.join("\n");
+      } catch {
+      }
+      id = null;
+    }
+    if (!id && !log) {
+      left.push(chapterTitle(ch));
+      continue;
+    }
+    const study = saved ? { ...saved, meta: void 0, opened: void 0 } : ch.teams ? { sets: ch.teams } : void 0;
+    chapters.push({ ...ch.title ? { title: ch.title } : {}, study, ...id ? { id } : { log } });
+  }
+  $id("studyLink").value = location.origin + location.pathname + "#c=" + await pack({ rbv: 1, name: st.name, chapters });
+  $id("studyCopyMsg").textContent = left.length ? "Not included: " + left.join(", ") : "";
+  $id("studySharer").hidden = false;
+}
+async function openSharedStudy() {
+  const m = /^#c=([\w-]+)$/.exec(location.hash);
+  if (!m) throw new Error("Not a study link.");
+  const id = "s" + hash(m[1]);
+  if (!loadCollection(id)) {
+    const link = cleanStudyLink(await unpack(m[1]));
+    const texts = /* @__PURE__ */ new Map(), ids = [...new Set(link.chapters.map((ch) => ch.id).filter(Boolean))];
+    await Promise.all(Array.from({ length: 6 }, async () => {
+      while (ids.length) {
+        const rid = ids.shift();
+        try {
+          texts.set(rid, await fetchReplay(rid));
+        } catch {
+        }
+      }
+    }));
+    const chapters = [];
+    for (const ch of link.chapters) {
+      const text = ch.id ? texts.get(ch.id) : ch.log;
+      let rep;
+      try {
+        rep = E.parseReplayInput(text);
+      } catch {
+        continue;
+      }
+      const key = sharedKey(replayKey(rep), ch.study);
+      if (!CHAPTER_KEY.test(key) || chapters.some((c) => c.key === key)) continue;
+      const players2 = [1, 2].map((p) => (rep.lines.find((l) => l.startsWith(`|player|p${p}|`)) || "").split("|")[3] || "");
+      store("rbv:" + key, JSON.stringify({
+        ...cleanChapterStudy(ch.study),
+        meta: { format: rep.tier || rep.formatid, players: players2, ...ch.id ? { replayId: ch.id } : { log: rep.lines.join("\n") }, shared: true }
+      }));
+      const kept = cleanChapterStudy(ch.study);
+      chapters.push({ key, ...ch.title ? { title: ch.title } : {}, ...ch.id ? {} : { log: rep.lines.join("\n"), ...isFresh(rep) ? { teams: kept.sets } : {} } });
+    }
+    if (!chapters.length) throw new Error("Could not open the study (its replays may be private or deleted).");
+    saveCollection(id, { name: link.name, chapters, last: chapters[0].key, opened: Date.now(), shared: true });
+  }
+  return startOfStudy(id);
+}
+
 // source/app/viewer.js
 var FADE = { hyperfast: 40, fast: 50, normal: 300, slow: 500, reallyslow: 1e3 };
 var DELAY = { hyperfast: 1, fast: 1, normal: 1, slow: 1e3, reallyslow: 3e3 };
@@ -1456,6 +2586,7 @@ function rename() {
       else delete S.study.name;
       save();
       document.title = `${v || S.study.meta?.players?.join(" vs. ") || "Replay"} - Replay Branch`;
+      renderChapterBar();
     }
     showTitle();
   };
@@ -1464,508 +2595,6 @@ function rename() {
     else if (e.key === "Escape") finish(false);
   };
   input.onblur = () => finish(true);
-}
-
-// source/app/clean.js
-var str = (v, max = 100) => typeof v === "string" ? v.slice(0, max) : "";
-var int = (v, lo, hi, fallback) => Number.isInteger(v) ? Math.max(lo, Math.min(hi, v)) : fallback;
-var STATS2 = ["hp", "atk", "def", "spa", "spd", "spe"];
-var stats = (o, max, fallback) => Object.fromEntries(STATS2.map((s) => [s, int(o?.[s], 0, max, fallback)]));
-var CHOICE = /^(move [1-4]( (mega|megax|megay|ultra|zmove|dynamax|terastallize))?|switch [1-6]|team [1-6]|pass)$/;
-function cleanSet(set, fallback) {
-  if (!set || typeof set !== "object") return JSON.parse(JSON.stringify(fallback));
-  const out = {
-    name: str(set.name, 40) || fallback.name,
-    species: str(set.species, 40) || fallback.species,
-    item: str(set.item, 40),
-    ability: str(set.ability, 40),
-    nature: str(set.nature, 20),
-    teraType: str(set.teraType, 20),
-    gender: str(set.gender, 2),
-    moves: (Array.isArray(set.moves) ? set.moves : []).slice(0, 4).map((m) => str(m, 40)),
-    evs: stats(set.evs, 255, 0),
-    ivs: stats(set.ivs, 31, 31),
-    level: int(set.level, 1, 100, 100),
-    itemGone: !!set.itemGone,
-    fixed: fallback.fixed
-  };
-  if (set.pasted) out.pasted = true;
-  return out;
-}
-function cleanSets(sets, base) {
-  return base.map((side, si) => side.map((b, k) => cleanSet(Array.isArray(sets?.[si]) ? sets[si][k] : null, b)));
-}
-function cleanForced(list) {
-  const value = (v) => typeof v === "boolean" || Number.isInteger(v) ? v : Array.isArray(v) && v.length <= 8 && v.every(Number.isInteger) ? v : void 0;
-  return (Array.isArray(list) ? list : []).slice(0, 200).map((f) => ({ key: str(f?.key, 200), value: value(f?.value) })).filter((f) => f.key && f.value !== void 0);
-}
-function cleanStudy(raw, base) {
-  var _a;
-  const study = { rbv: 1, sets: cleanSets(raw?.sets, base), nodes: {}, kids: {}, notes: {}, seq: 0 };
-  if (str(raw?.name, 80).trim()) study.name = str(raw.name, 80).trim();
-  const nodes = raw?.nodes && typeof raw.nodes === "object" ? raw.nodes : {};
-  const ids = Object.keys(nodes).filter((id) => /^n\d{1,6}$/.test(id)).sort((a, b) => +a.slice(1) - +b.slice(1));
-  for (const id of ids) {
-    const n = nodes[id];
-    if (!n || typeof n !== "object") continue;
-    const parent = str(n.parent, 12);
-    if (!/^r\d{1,4}$/.test(parent) && !study.nodes[parent]) continue;
-    const choices = {};
-    for (const p of ["p1", "p2"]) if (typeof n.choices?.[p] === "string" && CHOICE.test(n.choices[p])) choices[p] = n.choices[p];
-    const seed = Array.isArray(n.seed) && n.seed.length === 4 && n.seed.every((x) => Number.isInteger(x) && x >= 0 && x < 65536) ? n.seed : [1, 2, 3, 4];
-    study.nodes[id] = {
-      id,
-      parent,
-      choices,
-      forced: cleanForced(n.forced),
-      seed,
-      comment: str(n.comment, 2e3),
-      glyph: GLYPHS.includes(n.glyph) ? n.glyph : "",
-      .../^r/.test(parent) ? { sets: cleanSets(n.sets, base) } : {}
-    };
-    study.seq = Math.max(study.seq, +id.slice(1));
-  }
-  for (const id of Object.keys(study.nodes)) {
-    const parent = study.nodes[id].parent;
-    ((_a = study.kids)[parent] || (_a[parent] = [])).push(id);
-  }
-  for (const [parent, list] of Object.entries(study.kids)) {
-    const order = Array.isArray(raw?.kids?.[parent]) ? raw.kids[parent] : [];
-    list.sort((a, b) => (order.indexOf(a) + 1 || 1e9) - (order.indexOf(b) + 1 || 1e9));
-  }
-  for (const [id, note] of Object.entries(raw?.notes && typeof raw.notes === "object" ? raw.notes : {})) {
-    if (/^r\d{1,4}$/.test(id)) study.notes[id] = { comment: str(note?.comment, 2e3), glyph: GLYPHS.includes(note?.glyph) ? note.glyph : "" };
-  }
-  if (raw?.meta && typeof raw.meta === "object") {
-    study.meta = {
-      format: str(raw.meta.format),
-      players: (Array.isArray(raw.meta.players) ? raw.meta.players : []).slice(0, 2).map((p) => str(p, 40)),
-      ...typeof raw.meta.log === "string" ? { log: raw.meta.log } : {},
-      .../^[a-z0-9-]{1,120}$/.test(raw.meta.replayId || "") ? { replayId: raw.meta.replayId } : {},
-      ...raw.meta.shared ? { shared: true } : {}
-    };
-  }
-  if (Number.isFinite(raw?.opened)) study.opened = raw.opened;
-  return study;
-}
-
-// source/app/landing.js
-function renderLanding() {
-  renderRecent();
-  $id("openUrl").focus();
-}
-function wireLanding() {
-  $id("openForm").onsubmit = (e) => {
-    e.preventDefault();
-    const id = replayIdFrom($id("openUrl").value);
-    $id("openErr").textContent = id ? "" : "Not a replay link.";
-    if (id) visit(id);
-  };
-  $id("btnPasteLog").onclick = () => $id("btnLoad").click();
-  wireFormatMenu();
-  $id("freshForm").onsubmit = async (e) => {
-    e.preventDefault();
-    $id("freshErr").textContent = "";
-    try {
-      await startFresh($id("freshFormat").value, [$id("freshTeam1").value, $id("freshTeam2").value]);
-    } catch (err) {
-      showPage("landing");
-      $id("freshErr").textContent = err.message || String(err);
-    }
-  };
-  $id("searchForm").onsubmit = (e) => {
-    e.preventDefault();
-    search();
-  };
-  $id("btnMore").onclick = () => search(lastResult);
-  fetch("stats/index.json").then((r) => r.json()).then((formats) => {
-    const d = document.createElement("datalist");
-    d.id = "dl-formats";
-    d.innerHTML = Object.keys(formats).map((f) => `<option value="${f}">`).join("");
-    document.body.appendChild(d);
-  }).catch(() => {
-  });
-}
-function wireFormatMenu() {
-  const button = $id("btnFormat"), menu = $id("formatMenu"), value = $id("freshFormat");
-  let sections = null;
-  const open = () => {
-    try {
-      return new Set(JSON.parse(stored("rb-format-open", "[]")));
-    } catch {
-      return /* @__PURE__ */ new Set();
-    }
-  };
-  const render = (query = "") => {
-    const q = query.trim().toLowerCase(), shown = open();
-    const current = sections.find((s) => s.formats.some((f) => f.id === value.value))?.section;
-    menu.innerHTML = `<input class="textbox" id="formatSearch" placeholder="Search" aria-label="Search formats" value="${esc(query)}">` + sections.map((s) => {
-      const formats = q ? s.formats.filter((f) => f.full.toLowerCase().includes(q) || f.id.includes(q.replace(/[^a-z0-9]/g, ""))) : s.formats;
-      if (!formats.length) return "";
-      const expanded = !!q || shown.has(s.section) || !shown.size && s.section === current;
-      return `<div class="rb-fsec"><button type="button" class="rb-fhead" data-sec="${esc(s.section)}" aria-expanded="${expanded}"><i class="fa fa-caret-${expanded ? "down" : "right"}" aria-hidden="true"></i>${esc(s.section)}<small>${formats.length}</small></button><div class="rb-fitems" ${expanded ? "" : "hidden"}>${formats.map((f) => `<button type="button" class="rb-fitem ${f.id === value.value ? "cur" : ""}" data-format="${esc(f.id)}" title="${esc(f.full)}">${esc(f.name)}</button>`).join("")}</div></div>`;
-    }).join("");
-    const search2 = $id("formatSearch");
-    search2.oninput = () => {
-      render(search2.value);
-      const again = $id("formatSearch");
-      again.focus();
-      again.setSelectionRange(again.value.length, again.value.length);
-    };
-    for (const h of menu.querySelectorAll("[data-sec]")) h.onclick = () => {
-      const now = open();
-      if (!now.size && h.dataset.sec === current) now.add(current);
-      if (now.has(h.dataset.sec)) now.delete(h.dataset.sec);
-      else now.add(h.dataset.sec);
-      store("rb-format-open", JSON.stringify([...now]));
-      render(search2.value);
-    };
-    for (const b of menu.querySelectorAll("[data-format]")) b.onclick = () => {
-      value.value = b.dataset.format;
-      $id("formatName").textContent = b.title;
-      close();
-    };
-  };
-  const raise = (up) => button.closest(".rb-sheet")?.classList.toggle("rb-raised", up);
-  const close = () => {
-    menu.hidden = true;
-    button.setAttribute("aria-expanded", "false");
-    raise(false);
-  };
-  button.onclick = async (e) => {
-    e.stopPropagation();
-    if (!menu.hidden) {
-      close();
-      return;
-    }
-    await S.ready;
-    sections || (sections = E.freshFormats());
-    render();
-    menu.hidden = false;
-    button.setAttribute("aria-expanded", "true");
-    raise(true);
-    menu.querySelector(".rb-fitem.cur")?.scrollIntoView({ block: "nearest" });
-  };
-  menu.onclick = (e) => e.stopPropagation();
-  document.addEventListener("click", () => {
-    if (!menu.hidden) close();
-  });
-  menu.addEventListener("keydown", (e) => {
-    if (e.key === "Escape") {
-      close();
-      button.focus();
-    }
-  });
-}
-var ago = (ms) => {
-  const min = (Date.now() - ms) / 6e4;
-  if (min < 1) return "just now";
-  if (min < 60) return `${Math.floor(min)} min ago`;
-  if (min < 60 * 24) return `${Math.floor(min / 60)} h ago`;
-  return date(ms);
-};
-var date = (ms) => new Date(ms).toLocaleDateString(void 0, { year: "numeric", month: "short", day: "numeric" });
-function savedStudies() {
-  const out = [];
-  try {
-    for (let i = 0; i < localStorage.length; i++) {
-      const k = localStorage.key(i);
-      if (!k.startsWith("rbv:")) continue;
-      try {
-        const study = JSON.parse(localStorage.getItem(k));
-        out.push({ key: k.slice(4), meta: study.meta || {}, name: typeof study.name === "string" ? study.name : "", lines: Object.keys(study.nodes || {}).length, opened: study.opened || 0 });
-      } catch {
-      }
-    }
-  } catch {
-  }
-  return out.sort((a, b) => b.opened - a.opened);
-}
-var players = (list) => (list || []).map((p) => `<strong>${esc(p)}</strong>`).join(" vs. ");
-var entry = (key, details, who, end = "") => `<a class="blocklink" href="?r=${encodeURIComponent(key)}" data-visit="${esc(key)}"><span><small>${details}</small><br>${who}</span>${end}</a>`;
-var opensHere = (e) => !(e.ctrlKey || e.metaKey || e.shiftKey || e.button === 1);
-var removeArmed = null;
-function renderRecent() {
-  const list = $id("recent");
-  const studies = savedStudies();
-  list.innerHTML = studies.length ? studies.map((s) => {
-    const lines = s.lines ? ` \xB7 ${s.lines} line${s.lines > 1 ? "s" : ""}` : "";
-    const details = `${esc(s.meta.format || s.key)}${s.name ? " \xB7 " + (s.meta.players || []).map(esc).join(" vs. ") : ""}`;
-    return entry(
-      s.key,
-      `${details}${s.meta.shared ? " \xB7 shared with you" : ""}${lines}${s.opened ? " \xB7 " + ago(s.opened) : ""}`,
-      s.name ? `<strong>${esc(s.name)}</strong>` : players(s.meta.players),
-      `<button class="rb-linkbtn" data-remove="${esc(s.key)}">${removeArmed === s.key ? "Remove for good?" : "Remove"}</button>`
-    );
-  }).join("") : `<p class="rb-dim">Nothing yet. <a href="?r=${SAMPLE}" data-visit="${SAMPLE}">Open a sample replay</a></p>`;
-  for (const link of list.querySelectorAll("[data-visit]")) link.onclick = (e) => {
-    if (e.target.closest("[data-remove]") || !opensHere(e)) return;
-    e.preventDefault();
-    visit(link.dataset.visit);
-  };
-  for (const b of list.querySelectorAll("[data-remove]")) b.onclick = (e) => {
-    e.preventDefault();
-    if (removeArmed === b.dataset.remove) {
-      unstore("rbv:" + b.dataset.remove);
-      removeArmed = null;
-    } else removeArmed = b.dataset.remove;
-    renderRecent();
-  };
-}
-var lastResult = null;
-async function search(after) {
-  const user = $id("searchUser").value.trim(), format = $id("searchFormat").value.trim();
-  const list = $id("searchResults"), err = $id("searchErr");
-  err.textContent = "";
-  if (!user && !format) {
-    err.textContent = "Enter a username or a format.";
-    return;
-  }
-  const q = new URLSearchParams();
-  if (user) q.set("user", user);
-  if (format) q.set("format", format);
-  if (after) q.set("before", after.uploadtime);
-  let found;
-  try {
-    const r = await fetch("https://replay.pokemonshowdown.com/search.json?" + q);
-    if (!r.ok) throw new Error();
-    found = await r.json();
-  } catch {
-    err.textContent = "Could not search replays.";
-    return;
-  }
-  const more = found.length > 50;
-  found = found.slice(0, 50);
-  lastResult = found[found.length - 1];
-  const entries = found.map((x) => entry(
-    x.id,
-    esc(x.format) + (x.rating ? ` \xB7 Rating: ${x.rating}` : ""),
-    players(x.players),
-    `<small>${date(x.uploadtime * 1e3)}</small>`
-  )).join("");
-  if (!after) list.innerHTML = "";
-  list.insertAdjacentHTML("beforeend", entries || `<p class="rb-dim">No replays found.</p>`);
-  list.hidden = false;
-  $id("searchMore").hidden = !more;
-  for (const link of list.querySelectorAll("[data-visit]")) link.onclick = (e) => {
-    if (!opensHere(e)) return;
-    e.preventDefault();
-    visit(link.dataset.visit);
-  };
-}
-
-// source/app/load.js
-var SAMPLE = "oumonotype-82345404";
-async function route() {
-  const key = new URLSearchParams(location.search).get("r");
-  const shared = location.hash.startsWith("#s=");
-  showPage(key || shared ? "viewer" : "landing");
-  if (!key && !shared) {
-    renderLanding();
-    return;
-  }
-  await S.ready;
-  try {
-    if (shared) await openSharedLink();
-    else if (key !== S.key) await openKey(key);
-  } catch (e) {
-    history.replaceState(null, "", location.pathname);
-    showPage("landing");
-    renderLanding();
-    $id("openErr").textContent = e.message || String(e);
-  }
-}
-function visit(key) {
-  history.pushState(null, "", "?r=" + encodeURIComponent(key));
-  route();
-}
-function showPage(page) {
-  $id("landing").hidden = page !== "landing";
-  $id("viewer").hidden = $id("viewerBtns").hidden = page !== "viewer";
-  document.body.dataset.page = page;
-  if (page === "landing") document.title = "Replay Branch";
-}
-async function openKey(key) {
-  const meta = loadSaved(key)?.meta || {};
-  if (meta.log) await loadText(meta.log, { key });
-  else {
-    const id = meta.replayId || key.split("~")[0];
-    await loadText(await fetchReplay(id), { replayId: id, key });
-  }
-}
-async function loadText(text, { shown = false, replayId = null, study = null, key = null, shared = false, known = null } = {}) {
-  const t = String(text || "").trim();
-  let exported = null;
-  if (t.startsWith("{")) {
-    try {
-      const j = JSON.parse(t);
-      if (j && j.rbv && j.log) exported = j;
-    } catch {
-    }
-  }
-  const rep = E.parseReplayInput(exported ? exported.log : t);
-  S.rep = rep;
-  S.replayId = replayId;
-  S.key = key || replayKey(rep);
-  S.lines.clear();
-  S.replayPos.clear();
-  S.realDice.clear();
-  S.stats = await fetchStats(rep.formatid);
-  S.cbEnd = E.clientAt(rep, rep.lastTurn + 1);
-  S.base = E.revealedTeams(rep).map((team) => team.map((k) => E.suggestSet(k, S.stats, rep.gen)));
-  const raw = study || exported?.study || loadSaved(S.key);
-  const full = known || isFresh(rep) && raw?.sets;
-  if (full) S.base = S.base.map((side, si) => side.map((b) => {
-    const s = (full[si] || []).find((x) => x && x.name === b.name);
-    return s ? { ...b, ...s, pasted: true, fixed: { moves: s.moves.filter(Boolean), item: true, ability: true, tera: true } } : b;
-  }));
-  S.study = cleanStudy(raw || newStudy(), S.base);
-  const was = S.study.meta || {};
-  S.study.meta = {
-    format: rep.tier || rep.formatid,
-    players: [S.cbEnd.p1.name, S.cbEnd.p2.name],
-    ...replayId ? { replayId } : { log: rep.lines.join("\n") },
-    ...shared || was.shared ? { shared: true } : {}
-  };
-  S.study.opened = Date.now();
-  save();
-  document.title = `${S.study.name || S.study.meta.players.join(" vs. ")} - Replay Branch`;
-  clearPicks();
-  S.err = "";
-  if (!shown) S.psMode = "";
-  S.cur = "";
-  go(full && rep.lastTurn >= 1 ? "r1" : "r0");
-}
-async function startFresh(format, teamTexts) {
-  await S.ready;
-  const teams = await Promise.all(teamTexts.map(async (t, si) => {
-    const sets2 = E.parseTeam(await pasteText(t));
-    if (!sets2.length) throw new Error(`Team ${si + 1}: no Pok\xE9mon found.`);
-    return sets2;
-  }));
-  const { log, sets } = E.freshBattle(String(format || "").trim().toLowerCase().replace(/[^a-z0-9]/g, "") || "gen9ou", teams);
-  showPage("viewer");
-  await loadText(log, { known: sets });
-  history.pushState(null, "", "?r=" + encodeURIComponent(S.key));
-}
-var replayKey = (rep) => rep.meta.id || "log-" + hash(rep.lines.slice(0, 40).join("\n") + rep.lines.length);
-var statsIndex = null;
-async function fetchStats(formatid) {
-  try {
-    statsIndex || (statsIndex = fetch("stats/index.json").then((r2) => r2.json()));
-    const id = E.statsFormat(formatid, await statsIndex);
-    if (!id) return null;
-    const r = await fetch("stats/" + id + ".json");
-    return r.ok ? await r.json() : null;
-  } catch {
-    statsIndex = null;
-    return null;
-  }
-}
-function replayIdFrom(s) {
-  const m = String(s || "").trim().replace(/[?#].*$/, "").replace(/\.(json|log|html)$/, "").match(/^(?:https?:\/\/)?(?:replay\.pokemonshowdown\.com|psim\.us\/r)\/([a-z0-9-]+)$/i);
-  return m ? m[1] : null;
-}
-async function fetchReplay(id) {
-  const r = await fetch(`https://replay.pokemonshowdown.com/${id}.json`);
-  if (!r.ok) throw new Error(r.status === 404 ? "Replay not found (it may be private or deleted)." : `Could not load the replay (${r.status}).`);
-  return r.text();
-}
-var shareable = () => ({ ...S.study, meta: void 0, opened: void 0 });
-async function shareLink() {
-  const byId = S.replayId && !/pw$/.test(S.replayId);
-  const payload = { rbv: 1, study: shareable(), ...byId ? { id: S.replayId } : { log: S.rep.lines.join("\n") } };
-  const stream = new Blob([JSON.stringify(payload)]).stream().pipeThrough(new CompressionStream("deflate-raw"));
-  const bytes = new Uint8Array(await new Response(stream).arrayBuffer());
-  let binary = "";
-  for (let i = 0; i < bytes.length; i += 32768) binary += String.fromCharCode(...bytes.subarray(i, i + 32768));
-  const data = btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-  return location.origin + location.pathname + "#s=" + data;
-}
-async function openSharedLink() {
-  const m = /^#s=([\w-]+)$/.exec(location.hash);
-  if (!m) return;
-  const binary = atob(m[1].replace(/-/g, "+").replace(/_/g, "/"));
-  const bytes = Uint8Array.from(binary, (c) => c.charCodeAt(0));
-  const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("deflate-raw"));
-  const payload = JSON.parse(await new Response(stream).text());
-  const text = payload.id ? await fetchReplay(payload.id) : payload.log;
-  const own = replayKey(E.parseReplayInput(text));
-  const mine = loadSaved(own);
-  const hasWork = (s) => s && (Object.keys(s.nodes || {}).length || Object.values(s.notes || {}).some((n) => n?.comment || n?.glyph));
-  const theirs = JSON.stringify(payload.study || {});
-  const key = hasWork(mine) && JSON.stringify(mine.nodes) !== JSON.stringify(payload.study?.nodes) ? own + "~" + hash(theirs) : own;
-  await loadText(text, { replayId: payload.id || null, study: payload.study, key, shared: true });
-  history.replaceState(null, "", "?r=" + encodeURIComponent(S.key));
-}
-function wireDialogs() {
-  const loader = $id("loader"), sharer = $id("sharer");
-  $id("btnLoad").onclick = () => {
-    loader.hidden = false;
-    $id("loadErr").textContent = "";
-    $id("replayUrl").focus();
-  };
-  $id("btnShare").onclick = async () => {
-    $id("exportBox").value = JSON.stringify({ rbv: 1, log: S.rep.lines.join("\n"), study: shareable() });
-    $id("shareLink").value = await shareLink();
-    $id("copyMsg").textContent = "";
-    sharer.hidden = false;
-  };
-  $id("fileIn").onchange = async () => {
-    const f = $id("fileIn").files[0];
-    if (f) $id("pasteBox").value = await f.text();
-  };
-  $id("btnDoLoad").onclick = () => loadFrom(async () => {
-    const id = replayIdFrom($id("replayUrl").value) || replayIdFrom($id("pasteBox").value);
-    return id ? { text: await fetchReplay(id), replayId: id } : { text: $id("pasteBox").value };
-  });
-  $id("btnSample").onclick = () => {
-    $id("loader").hidden = true;
-    visit(SAMPLE);
-  };
-  $id("btnCancel").onclick = () => {
-    loader.hidden = true;
-  };
-  const copy = async (box, done) => {
-    try {
-      await navigator.clipboard.writeText(box.value);
-      $id("copyMsg").textContent = done;
-    } catch {
-      box.select();
-      $id("copyMsg").textContent = "Press Ctrl+C to copy";
-    }
-  };
-  $id("btnCopyLink").onclick = () => copy($id("shareLink"), "Link copied");
-  $id("btnCopy").onclick = () => copy($id("exportBox"), "Text copied");
-  $id("btnCloseShare").onclick = () => {
-    sharer.hidden = true;
-  };
-  for (const modal of [loader, sharer, $id("importer")]) {
-    modal.addEventListener("click", (e) => {
-      if (e.target === modal) modal.hidden = true;
-    });
-    modal.addEventListener("keydown", (e) => {
-      if (e.key === "Escape") modal.hidden = true;
-    });
-  }
-}
-async function loadFrom(get) {
-  $id("loadErr").textContent = "";
-  const wasLanding = !$id("landing").hidden;
-  try {
-    const { text, replayId } = await get();
-    await S.ready;
-    E.parseReplayInput(text.trim().startsWith("{") ? JSON.parse(text).log || text : text);
-    showPage("viewer");
-    await loadText(text, { replayId });
-    history.pushState(null, "", "?r=" + encodeURIComponent(S.key));
-    $id("loader").hidden = true;
-    $id("pasteBox").value = "";
-    $id("replayUrl").value = "";
-  } catch (e) {
-    if (wasLanding) showPage("landing");
-    $id("loadErr").textContent = e.message || String(e);
-  }
 }
 
 // source/app/main.js
@@ -2006,6 +2635,7 @@ S.ready.catch((e) => {
 });
 wireDialogs();
 wireLanding();
+wireChapters();
 $id("home").onclick = (e) => {
   e.preventDefault();
   history.pushState(null, "", location.pathname);

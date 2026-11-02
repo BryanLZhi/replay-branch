@@ -14,7 +14,7 @@ const turnName = t => t ? 'Turn ' + t : 'Team preview';
 
 // A line from `parent` with these choices and dice (and this seed, when given), if there is one.
 export function sameStep(parent, choices, forced, seed) {
-  return kids(parent).find(k => { const n = S.study.nodes[k]; return same(n.choices, choices) && same(n.forced, forced) && (!seed || same(n.seed, seed)); });
+  return kids(parent).find(k => { const n = S.study.nodes[k]; return !n.edit && same(n.choices, choices) && same(n.forced, forced) && (!seed || same(n.seed, seed)); });
 }
 
 // The dice the replay's turn t rolled, as found from its log (engine realDice).
@@ -39,7 +39,7 @@ export function upcomingDice(pos) {
       const real = realDice(pos.t, turn);
       S.next = {key, turn, real, forced: real, seed: REAL_SEED};
     } else {
-      const played = kids(turn.parent).map(k => S.study.nodes[k]).find(n => same(n.choices, turn.choices));
+      const played = kids(turn.parent).map(k => S.study.nodes[k]).find(n => !n.edit && same(n.choices, turn.choices));
       S.next = {key, turn, forced: played ? played.forced : [], seed: played ? played.seed : newSeed()};
     }
     S.next.base = S.next.seed;
@@ -63,7 +63,7 @@ function setUpcoming(forced) {
 export function renderDice(pos) {
   const el = $id('diceSec');
   const next = upcomingDice(pos);
-  el.hidden = next ? !next.rolls.length : pos.kind !== 'line';
+  el.hidden = next ? !next.rolls.length : pos.kind !== 'line' || !!S.study.nodes[S.cur].edit;   // (an edit has no dice)
   if (el.hidden) { el.textContent = ''; return; }
   let rolls, forced, before, when, apply;
   if (next) {

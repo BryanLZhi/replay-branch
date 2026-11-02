@@ -10,6 +10,7 @@ import {renderPanels, go} from './navigation.js';
 import {movesDatalist} from './teams.js';
 import {setTooltipRequest} from './tooltips.js';
 import {upcomingDice, sameStep, renderDice} from './dice.js';
+import {canEdit, openEditor} from './editor.js';
 
 export const pickerOn = () => stored('rb-picker', 'on') !== 'off';
 export function setPicker(on) { store('rb-picker', on ? 'on' : 'off'); clearPicks(); renderPanels(); }
@@ -133,11 +134,13 @@ export function renderPicker(pos) {
     });
   }
   el.innerHTML = `<div class="rb-bar ${doubles ? 'doubles' : ''}"><span class="rb-turn">${turnLabel}</span><div class="rb-slots">${groups.join('')}</div>` +
+    `<button type="button" class="button rb-editbtn" id="btnEdit" ${canEdit(pos) ? '' : 'disabled'}><i class="fa fa-pencil" aria-hidden="true"></i> Edit</button>` +
     `<button type="button" class="button rb-play" id="btnPlayTurn" ${playable ? '' : 'disabled'}><i class="fa fa-play" aria-hidden="true"></i> Play turn</button></div>` +
     (S.err ? `<p class="rb-err">${esc(S.err)}</p>` : '') + menuHTML(pos);
 
   for (const b of el.querySelectorAll('[data-slot]')) b.onclick = e => { e.stopPropagation(); openMenu(pos, +b.dataset.slot, +(b.dataset.place || 0)); };
   $id('btnPlayTurn').onclick = () => { if (playable) playTurn(pos); };
+  $id('btnEdit').onclick = () => { closeMenu(); openEditor(pos); };
   wireMenu(pos);
 }
 

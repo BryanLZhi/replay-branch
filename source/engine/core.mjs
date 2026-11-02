@@ -1346,7 +1346,7 @@ function maxTypeOf(id, sp, set, use) {
 }
 
 // Gen 1 stats as the game keeps them: stat stages applied (capped at 999), then burn halving Attack and paralysis quartering Speed.
-function gen1Stats(sp) {
+export function gen1Stats(sp) {
   const mult = [25, 28, 33, 40, 50, 66, 100, 150, 200, 250, 300, 350, 400];
   for (const s of ['atk', 'def', 'spa', 'spd', 'spe']) {
     const stage = s === 'spd' ? sp.boosts.spa : sp.boosts[s];   // (one Special stat)
@@ -1740,7 +1740,19 @@ export function takeover(rep, t, sets, seed) {
   const split = rep.lines.slice(0, rep.turnIdx[t] ?? rep.lines.length).map(l => l.split('|'));
   for (const [si, ss] of battle.sides.entries()) for (const sp of ss.pokemon) monState(split, battle, sp, si);
   try { fromRecentTurns(rep, t, battle, notes); } catch (e) { notes.push('Effects of the turns before: ' + e.message); }
-  // who is trapped this turn: worked out at the end of each turn (as the simulator's endTurn does), which taking over skips
+  refreshLocks(battle);
+  if (battle.gen === 1) {
+    gen1Selection(rep, t, battle).forEach((s, si) => Object.assign(battle.sides[si], {lastSelectedMove: s.sel, lastSelectedMoveSlot: s.slot, lastEnemySelectedMove: s.enemy}));
+  }
+  battle.turn = t;
+  battle.makeRequest('move');
+  battle.log.push(`|takeover|${t}`);
+  return {battle, order, notes};
+}
+
+// Who is trapped this turn: worked out at the end of each turn (as the simulator's endTurn does), which taking over (or
+// editing a position) skips.
+export function refreshLocks(battle) {
   for (const side of battle.sides) for (const p of side.active) {
     if (!p || p.fainted) continue;
     // (and the moves it cannot choose: Choice lock, Gorilla Tactics, Taunt, Disable, Encore, Torment, Gigaton Hammer...; a
@@ -1757,13 +1769,6 @@ export function takeover(rep, t, sets, seed) {
     battle.runEvent('TrapPokemon', p);
     if (!p.knownType || battle.dex.getImmunity('trapped', p)) battle.runEvent('MaybeTrapPokemon', p);
   }
-  if (battle.gen === 1) {
-    gen1Selection(rep, t, battle).forEach((s, si) => Object.assign(battle.sides[si], {lastSelectedMove: s.sel, lastSelectedMoveSlot: s.slot, lastEnemySelectedMove: s.enemy}));
-  }
-  battle.turn = t;
-  battle.makeRequest('move');
-  battle.log.push(`|takeover|${t}`);
-  return {battle, order, notes};
 }
 
 // Team preview: a fresh battle with both teams (in the replay's team order), waiting for each player's lead choice ("team N").
