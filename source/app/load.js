@@ -1,7 +1,8 @@
 // Opening a replay (link, log, saved replay file or exported study), sharing a study (as a link or as text), and which page
 // the address shows.
-import {S, E, $id, clone, hash, clearPicks, store} from './state.js';
+import {S, E, $id, hash, clearPicks, store} from './state.js';
 import {newStudy, loadSaved, save} from './study.js';
+import {cleanStudy} from './clean.js';
 import {go} from './navigation.js';
 import {renderLanding} from './landing.js';
 
@@ -57,9 +58,7 @@ export async function loadText(text, {shown = false, replayId = null, study = nu
   S.stats = await fetchStats(rep.formatid);
   S.cbEnd = E.clientAt(rep, rep.lastTurn + 1);
   S.base = E.revealedTeams(rep).map(team => team.map(known => E.suggestSet(known, S.stats, rep.gen)));
-  S.study = study || exported?.study || loadSaved(S.key) || newStudy();
-  const fits = S.study.sets?.length === 2 && S.study.sets.every((side, si) => side.length === S.base[si].length);
-  if (!fits) S.study.sets = clone(S.base);
+  S.study = cleanStudy(study || exported?.study || loadSaved(S.key) || newStudy(), S.base);
   // what the landing page lists (a log that is not on the replay site is kept, to open it again)
   S.study.meta = {format: rep.tier || rep.formatid, players: [S.cbEnd.p1.name, S.cbEnd.p2.name], ...(replayId ? {} : {log: rep.lines.join('\n')})};
   S.study.opened = Date.now();
@@ -101,7 +100,9 @@ const shareable = () => ({...S.study, meta: undefined, opened: undefined});
 
 // The link carries the study, deflated, after #s= (and the replay's id, or its whole log if it is not on the replay site).
 async function shareLink() {
-  const payload = {rbv: 1, study: shareable(), ...(S.replayId ? {id: S.replayId} : {log: S.rep.lines.join('\n')})};
+  // (a private replay's id holds its password: send the battle itself, not a way into the replay)
+  const byId = S.replayId && !/pw$/.test(S.replayId);
+  const payload = {rbv: 1, study: shareable(), ...(byId ? {id: S.replayId} : {log: S.rep.lines.join('\n')})};
   const stream = new Blob([JSON.stringify(payload)]).stream().pipeThrough(new CompressionStream('deflate-raw'));
   const bytes = new Uint8Array(await new Response(stream).arrayBuffer());
   let binary = '';

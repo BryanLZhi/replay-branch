@@ -5,6 +5,8 @@ import {S, E, clone, hash, stored, store} from './state.js';
 
 const SEED = [11, 22, 33, 44];   // fixed seed for setting up positions on the replay
 
+export const GLYPHS = ['!!', '!', '!?', '?!', '?', '??'];
+
 export const isReplayPos = id => id[0] === 'r';
 export const replayTurn = id => +id.slice(1);
 

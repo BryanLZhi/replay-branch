@@ -20,6 +20,7 @@ The repository root is the site (GitHub Pages). Everything in it except `sample.
 | &nbsp;&nbsp;`main.js` | start-up |
 | &nbsp;&nbsp;`landing.js` | the landing page: open a replay, recent studies, search Showdown's replays |
 | &nbsp;&nbsp;`state.js` | shared state and small helpers |
+| &nbsp;&nbsp;`clean.js` | rebuilds studies from share links, exports and storage field by field (nothing else gets through) |
 | &nbsp;&nbsp;`study.js` | the study tree: replay positions `r<turn>`, your lines `n<id>`, computing positions |
 | &nbsp;&nbsp;`replay.js` | facts read from the replay's log (who played what) |
 | &nbsp;&nbsp;`viewer.js` | drives Showdown's replay viewer |

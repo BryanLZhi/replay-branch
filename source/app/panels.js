@@ -1,11 +1,10 @@
 // The study panel: the Study tab (the replay's turns with your lines under them, notes) and the Teams tab (teams.js).
 import {S, E, $id, esc} from './state.js';
-import {isReplayPos, replayTurn, kids, compute, noteOf, deleteNode, promote, save} from './study.js';
+import {isReplayPos, replayTurn, kids, compute, noteOf, deleteNode, promote, save, GLYPHS} from './study.js';
 import {turnSummary} from './replay.js';
 import {go} from './navigation.js';
 import {renderTeams} from './teams.js';
 
-const GLYPHS = ['!!', '!', '!?', '?!', '?', '??'];
 
 export function renderStudyPanel() {
   const el = $id('studySec');
@@ -18,11 +17,11 @@ export function renderStudyPanel() {
 // ---------------------------------------------------------------- Study tab
 function lineToken(id) {
   let line;
-  try { line = compute(id); } catch { return `<span class="rb-tok rb-err" data-go="${id}">(error)</span>`; }
+  try { line = compute(id); } catch { return `<span class="rb-tok rb-err" data-go="${esc(id)}">(error)</span>`; }
   const n = S.study.nodes[id];
   const s = E.summarize(line.lines);
   const turn = isReplayPos(n.parent) ? replayTurn(n.parent) : compute(n.parent).battle.turn;
-  return `<span class="rb-tok ${id === S.cur ? 'cur' : ''}" data-go="${id}"><span class="tn">${turn}.</span>${esc(s.p1 || '…')} <span class="tn">|</span> ${esc(s.p2 || '…')}` +
+  return `<span class="rb-tok ${id === S.cur ? 'cur' : ''}" data-go="${esc(id)}"><span class="tn">${turn}.</span>${esc(s.p1 || '…')} <span class="tn">|</span> ${esc(s.p2 || '…')}` +
     (n.forced.length ? ' <i class="fa fa-cube" title="Dice set by you" aria-hidden="true"></i>' : '') +
     (n.glyph ? `<span class="rb-glyph">${esc(n.glyph)}</span>` : '') +
     (n.comment ? ` <i class="rb-cmt">${esc(n.comment.slice(0, 60))}</i>` : '') + `</span>`;
@@ -41,7 +40,7 @@ const linesFrom = id => kids(id).length ? `<div class="rb-vars">${kids(id).map(k
 function renderStudy() {
   const body = $id('tabBody');
   const leads = E.replayLeads(S.rep);
-  const row = (id, no, cells, extra = '') => `<div class="rb-mrow ${extra} ${S.cur === id ? 'cur' : ''}" data-go="${id}"><div class="no">${no}</div>${cells}</div>`;
+  const row = (id, no, cells, extra = '') => `<div class="rb-mrow ${extra} ${S.cur === id ? 'cur' : ''}" data-go="${esc(id)}"><div class="no">${no}</div>${cells}</div>`;
   const rows = [
     row('r0', '', `<div class="a">Team preview</div>`, 'start'), linesFrom('r0'),
     row('r1', 0, `<div class="a">→ ${esc(leads.p1 || '?')}</div><div class="a">→ ${esc(leads.p2 || '?')}</div>`), linesFrom('r1'),

@@ -4,6 +4,7 @@
 import puppeteer from 'puppeteer-core';
 import fs from 'fs';
 import http from 'http';
+import zlib from 'zlib';
 import path from 'path';
 import {fileURLToPath} from 'url';
 
@@ -40,8 +41,17 @@ console.log('testing', url);
 const browser = await puppeteer.launch({executablePath: browserPath, headless: 'new', args: ['--disable-gpu', '--autoplay-policy=no-user-gesture-required']});
 const page = await browser.newPage();
 await page.setViewport({width: 1280, height: 1000});
-const pageErrors = [], failedRequests = [];
+const pageErrors = [], failedRequests = [], blocked = [];
 page.on('pageerror', e => pageErrors.push(e.message));
+// anything the Content Security Policy blocks
+async function watchPolicy(p) {
+  await p.exposeFunction('reportBlocked', v => blocked.push(v));
+  // (jQuery 1.11, which Showdown loads, tests for focusin support by setting an inline handler attribute: harmless)
+  await p.evaluateOnNewDocument(() => document.addEventListener('securitypolicyviolation', e => {
+    if (!(e.violatedDirective === 'script-src-attr' && /jquery-1\.11/.test(e.sourceFile))) window.reportBlocked(`${e.violatedDirective} ${e.blockedURI}`);
+  }));
+}
+await watchPolicy(page);
 page.on('requestfailed', r => { if (!/\.(mp3|wav|ogg)(\?|$)/.test(r.url())) failedRequests.push(r.url() + ' ' + r.failure()?.errorText); });
 page.on('response', r => { if (r.status() >= 400) failedRequests.push(r.url() + ' ' + r.status()); });
 
@@ -207,6 +217,29 @@ try {
       'the link opens the study for someone else', shared.length + ' lines');
     await other.close();
   }
+  {
+    // a crafted link: HTML in a line id, notes, a glyph, EVs and level must stay text (or be dropped), never run
+    const xss = '<img src=x onerror="window.pwned=1">';
+    const study = {
+      nodes: {'n1" onmouseover="window.pwned=1': {parent: 'r1', choices: {p1: 'move 1', p2: 'move 1'}},
+        n2: {parent: 'r1', choices: {p1: 'move 1', p2: 'move 1"><b>'}, forced: [{key: xss, value: xss}], seed: [1, 2, 3, 4], comment: xss, glyph: xss}},
+      kids: {r1: ['n1" onmouseover="window.pwned=1', 'n2']}, notes: {r2: {comment: xss, glyph: xss}},
+      sets: [[{name: xss, species: 'Talonflame', evs: {hp: '"><img src=x onerror="window.pwned=1">'}, level: '"><img src=x onerror="window.pwned=1">', moves: [xss]}]],
+    };
+    const evil = url.replace(/[?#].*$/, '') + '#s=' + zlib.deflateRawSync(Buffer.from(JSON.stringify({rbv: 1, id: 'smogtours-gen9uu-987009', study}))).toString('base64url');
+    const other = await browser.createBrowserContext();
+    const p3 = await other.newPage(); await p3.setViewport({width: 1280, height: 1000});
+    p3.on('pageerror', e => pageErrors.push(e.message));
+    await watchPolicy(p3);
+    await p3.goto(evil, {waitUntil: 'domcontentloaded'});
+    if (await p3.$eval('#gate', el => !el.hidden).catch(() => false)) { await p3.type('#gatePw', process.env.RBV_PW); await p3.keyboard.press('Enter'); }
+    await p3.waitForSelector('#studySec .rb-movelist', {timeout: 60000}).catch(() => {});
+    await p3.click('[data-tab=teams]').catch(() => {}); await new Promise(r => setTimeout(r, 1000));
+    for (const el of await p3.$$('[data-go]')) await el.hover().catch(() => {});
+    const result = await p3.evaluate(() => ({pwned: !!window.pwned, injected: document.querySelectorAll('img[src="x"]').length}));
+    check(!result.pwned && !result.injected, 'a crafted share link cannot run anything', JSON.stringify(result));
+    await other.close();
+  }
   await page.click('#studySec .rb-tok'); await sleep(300); await settled();
   await page.click('#btnDelete'); await sleep(100);
   check(/again/.test(await text('#btnDelete')), 'Delete asks for a second click');
@@ -367,6 +400,7 @@ try {
 }
 
 check(pageErrors.length === 0, 'no page errors', pageErrors.join(' | '));
+check(blocked.length === 0, 'nothing blocked by the Content Security Policy', [...new Set(blocked)].join(' | '));
 check(failedRequests.length === 0, 'no failed requests', failedRequests.join(' | '));
 await browser.close();
 server?.close();

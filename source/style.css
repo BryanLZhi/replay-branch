@@ -26,11 +26,9 @@ body.dark {
 }
 
 /* ---- the look of Showdown's replay site (pokemonshowdown.com/style/global.css): starfield, frosted panels, blue buttons ---- */
+/* (not its horizon image: on long pages its top edge shows halfway down) */
 html { background: #010327 url(https://pokemonshowdown.com/images/bg-starfield.jpg); background-size: 30%; min-height: 100%; }
-html body, html body.dark {   /* (beats replay.css, which colours the page body) */
-  background: transparent url(https://pokemonshowdown.com/images/bg-horizon-fade@2x.jpg) no-repeat bottom right !important;
-  background-size: 100% auto !important; min-height: 100vh; padding-bottom: 20vw; color: #fff;
-}
+html body, html body.dark { background: transparent !important; min-height: 100vh; padding-bottom: 40px; color: #fff; }   /* (beats replay.css) */
 .rb-sheet {   /* Showdown's .section */
   color: #000; background: rgba(255, 255, 255, .75); border: 1px solid rgba(255, 255, 255, .6); border-radius: 10px;
   padding: 20px; margin: 20px auto; box-sizing: border-box; backdrop-filter: blur(4px);

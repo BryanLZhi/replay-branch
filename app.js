@@ -86,6 +86,7 @@ function unstore(key) {
 
 // source/app/study.js
 var SEED = [11, 22, 33, 44];
+var GLYPHS = ["!!", "!", "!?", "?!", "?", "??"];
 var isReplayPos = (id) => id[0] === "r";
 var replayTurn = (id) => +id.slice(1);
 function newStudy() {
@@ -356,7 +357,7 @@ function monCard(si, k, set, types) {
   }).join("");
   const nature = E.Dex.natures.get(set.nature || "Serious");
   const mark = (st) => st === nature.plus ? '<b class="rb-plus">+</b>' : st === nature.minus ? '<b class="rb-minus">\u2212</b>' : "";
-  const evs = STATS.map((st) => `<span>${STAT_NAMES[st]}${mark(st)}</span>`).join("") + STATS.map((st) => `<input class="textbox" ${attrs("ev_" + st)} inputmode="numeric" value="${set.evs[st] || 0}" aria-label="${STAT_NAMES[st]} EVs">`).join("");
+  const evs = STATS.map((st) => `<span>${STAT_NAMES[st]}${mark(st)}</span>`).join("") + STATS.map((st) => `<input class="textbox" ${attrs("ev_" + st)} inputmode="numeric" value="${Number(set.evs[st]) || 0}" aria-label="${STAT_NAMES[st]} EVs">`).join("");
   const abilities = [.../* @__PURE__ */ new Set([...Object.values(sp.abilities || {}), set.ability])].filter(Boolean);
   return `<div class="rb-mon">
     <div class="hd"><span class="rb-picon" style="${icon(set.species)}"></span><span class="nm">${esc(set.name)}${set.name !== set.species ? ` <span class="rb-note">(${esc(set.species)})</span>` : ""}</span> ${(sp.types || []).map(typeTag).join("")}</div>
@@ -366,7 +367,7 @@ function monCard(si, k, set, types) {
     <div class="rb-mvgrid">${moves}</div>
     ${S.rep.gen >= 3 ? `<label>Nature<input class="textbox" ${attrs("nature")} list="dl-natures" value="${esc(set.nature)}"></label>
     <div class="rb-evs">${evs}</div>` : ""}
-    <label>Level<input class="textbox" ${attrs("level")} type="number" min="1" max="100" value="${set.level}"></label>
+    <label>Level<input class="textbox" ${attrs("level")} type="number" min="1" max="100" value="${Number(set.level) || 100}"></label>
     <p style="margin:0;text-align:right"><button class="button" data-reset-mon="${si},${k}">Reset</button></p>
   </div>`;
 }
@@ -815,7 +816,6 @@ function permutations(n) {
 }
 
 // source/app/panels.js
-var GLYPHS = ["!!", "!", "!?", "?!", "?", "??"];
 function renderStudyPanel() {
   const el = $id("studySec");
   el.innerHTML = `<div class="rb-tabs"><button class="button ${S.tab === "study" ? "cur" : ""}" data-tab="study">Study</button><button class="button ${S.tab === "teams" ? "cur" : ""}" data-tab="teams">Teams</button></div><div id="tabBody"></div>`;
@@ -831,12 +831,12 @@ function lineToken(id) {
   try {
     line = compute(id);
   } catch {
-    return `<span class="rb-tok rb-err" data-go="${id}">(error)</span>`;
+    return `<span class="rb-tok rb-err" data-go="${esc(id)}">(error)</span>`;
   }
   const n = S.study.nodes[id];
   const s = E.summarize(line.lines);
   const turn = isReplayPos(n.parent) ? replayTurn(n.parent) : compute(n.parent).battle.turn;
-  return `<span class="rb-tok ${id === S.cur ? "cur" : ""}" data-go="${id}"><span class="tn">${turn}.</span>${esc(s.p1 || "\u2026")} <span class="tn">|</span> ${esc(s.p2 || "\u2026")}` + (n.forced.length ? ' <i class="fa fa-cube" title="Dice set by you" aria-hidden="true"></i>' : "") + (n.glyph ? `<span class="rb-glyph">${esc(n.glyph)}</span>` : "") + (n.comment ? ` <i class="rb-cmt">${esc(n.comment.slice(0, 60))}</i>` : "") + `</span>`;
+  return `<span class="rb-tok ${id === S.cur ? "cur" : ""}" data-go="${esc(id)}"><span class="tn">${turn}.</span>${esc(s.p1 || "\u2026")} <span class="tn">|</span> ${esc(s.p2 || "\u2026")}` + (n.forced.length ? ' <i class="fa fa-cube" title="Dice set by you" aria-hidden="true"></i>' : "") + (n.glyph ? `<span class="rb-glyph">${esc(n.glyph)}</span>` : "") + (n.comment ? ` <i class="rb-cmt">${esc(n.comment.slice(0, 60))}</i>` : "") + `</span>`;
 }
 function lineHTML(first) {
   let html = "";
@@ -850,7 +850,7 @@ var linesFrom = (id) => kids(id).length ? `<div class="rb-vars">${kids(id).map((
 function renderStudy() {
   const body = $id("tabBody");
   const leads = E.replayLeads(S.rep);
-  const row = (id, no, cells, extra = "") => `<div class="rb-mrow ${extra} ${S.cur === id ? "cur" : ""}" data-go="${id}"><div class="no">${no}</div>${cells}</div>`;
+  const row = (id, no, cells, extra = "") => `<div class="rb-mrow ${extra} ${S.cur === id ? "cur" : ""}" data-go="${esc(id)}"><div class="no">${no}</div>${cells}</div>`;
   const rows = [
     row("r0", "", `<div class="a">Team preview</div>`, "start"),
     linesFrom("r0"),
@@ -1102,6 +1102,86 @@ function showTitle() {
   $id("rbTitle").innerHTML = `<strong>${esc(S.rep.tier || S.rep.formatid)}</strong><br>${esc(playerName(0))} vs. ${esc(playerName(1))}` + (isReplayPos(S.cur) ? "" : ' <span class="rb-mode">Your line</span>');
 }
 
+// source/app/clean.js
+var str = (v, max = 100) => typeof v === "string" ? v.slice(0, max) : "";
+var int = (v, lo, hi, fallback) => Number.isInteger(v) ? Math.max(lo, Math.min(hi, v)) : fallback;
+var STATS2 = ["hp", "atk", "def", "spa", "spd", "spe"];
+var stats = (o, max, fallback) => Object.fromEntries(STATS2.map((s) => [s, int(o?.[s], 0, max, fallback)]));
+var CHOICE = /^(move [1-4]( (mega|megax|megay|ultra|zmove|dynamax|terastallize))?|switch [1-6]|team [1-6]|pass)$/;
+function cleanSet(set, fallback) {
+  if (!set || typeof set !== "object") return JSON.parse(JSON.stringify(fallback));
+  const out = {
+    name: str(set.name, 40) || fallback.name,
+    species: str(set.species, 40) || fallback.species,
+    item: str(set.item, 40),
+    ability: str(set.ability, 40),
+    nature: str(set.nature, 20),
+    teraType: str(set.teraType, 20),
+    gender: str(set.gender, 2),
+    moves: (Array.isArray(set.moves) ? set.moves : []).slice(0, 4).map((m) => str(m, 40)),
+    evs: stats(set.evs, 255, 0),
+    ivs: stats(set.ivs, 31, 31),
+    level: int(set.level, 1, 100, 100),
+    itemGone: !!set.itemGone,
+    fixed: fallback.fixed
+  };
+  if (set.pasted) out.pasted = true;
+  return out;
+}
+function cleanSets(sets, base) {
+  return base.map((side, si) => side.map((b, k) => cleanSet(Array.isArray(sets?.[si]) ? sets[si][k] : null, b)));
+}
+function cleanForced(list) {
+  const value = (v) => typeof v === "boolean" || Number.isInteger(v) ? v : Array.isArray(v) && v.length <= 8 && v.every(Number.isInteger) ? v : void 0;
+  return (Array.isArray(list) ? list : []).slice(0, 200).map((f) => ({ key: str(f?.key, 200), value: value(f?.value) })).filter((f) => f.key && f.value !== void 0);
+}
+function cleanStudy(raw, base) {
+  var _a;
+  const study = { rbv: 1, sets: cleanSets(raw?.sets, base), nodes: {}, kids: {}, notes: {}, seq: 0 };
+  const nodes = raw?.nodes && typeof raw.nodes === "object" ? raw.nodes : {};
+  const ids = Object.keys(nodes).filter((id) => /^n\d{1,6}$/.test(id)).sort((a, b) => +a.slice(1) - +b.slice(1));
+  for (const id of ids) {
+    const n = nodes[id];
+    if (!n || typeof n !== "object") continue;
+    const parent = str(n.parent, 12);
+    if (!/^r\d{1,4}$/.test(parent) && !study.nodes[parent]) continue;
+    const choices = {};
+    for (const p of ["p1", "p2"]) if (typeof n.choices?.[p] === "string" && CHOICE.test(n.choices[p])) choices[p] = n.choices[p];
+    const seed = Array.isArray(n.seed) && n.seed.length === 4 && n.seed.every((x) => Number.isInteger(x) && x >= 0 && x < 65536) ? n.seed : [1, 2, 3, 4];
+    study.nodes[id] = {
+      id,
+      parent,
+      choices,
+      forced: cleanForced(n.forced),
+      seed,
+      comment: str(n.comment, 2e3),
+      glyph: GLYPHS.includes(n.glyph) ? n.glyph : "",
+      .../^r/.test(parent) ? { sets: cleanSets(n.sets, base) } : {}
+    };
+    study.seq = Math.max(study.seq, +id.slice(1));
+  }
+  for (const id of Object.keys(study.nodes)) {
+    const parent = study.nodes[id].parent;
+    ((_a = study.kids)[parent] || (_a[parent] = [])).push(id);
+  }
+  for (const [parent, list] of Object.entries(study.kids)) {
+    const order = Array.isArray(raw?.kids?.[parent]) ? raw.kids[parent] : [];
+    list.sort((a, b) => (order.indexOf(a) + 1 || 1e9) - (order.indexOf(b) + 1 || 1e9));
+  }
+  for (const [id, note] of Object.entries(raw?.notes && typeof raw.notes === "object" ? raw.notes : {})) {
+    if (/^r\d{1,4}$/.test(id)) study.notes[id] = { comment: str(note?.comment, 2e3), glyph: GLYPHS.includes(note?.glyph) ? note.glyph : "" };
+  }
+  if (raw?.meta && typeof raw.meta === "object") {
+    study.meta = {
+      format: str(raw.meta.format),
+      players: (Array.isArray(raw.meta.players) ? raw.meta.players : []).slice(0, 2).map((p) => str(p, 40)),
+      ...typeof raw.meta.log === "string" ? { log: raw.meta.log } : {}
+    };
+  }
+  if (Number.isFinite(raw?.opened)) study.opened = raw.opened;
+  return study;
+}
+
 // source/app/landing.js
 function renderLanding() {
   renderRecent();
@@ -1279,9 +1359,7 @@ async function loadText(text, { shown = false, replayId = null, study = null } =
   S.stats = await fetchStats(rep.formatid);
   S.cbEnd = E.clientAt(rep, rep.lastTurn + 1);
   S.base = E.revealedTeams(rep).map((team) => team.map((known) => E.suggestSet(known, S.stats, rep.gen)));
-  S.study = study || exported?.study || loadSaved(S.key) || newStudy();
-  const fits = S.study.sets?.length === 2 && S.study.sets.every((side, si) => side.length === S.base[si].length);
-  if (!fits) S.study.sets = clone(S.base);
+  S.study = cleanStudy(study || exported?.study || loadSaved(S.key) || newStudy(), S.base);
   S.study.meta = { format: rep.tier || rep.formatid, players: [S.cbEnd.p1.name, S.cbEnd.p2.name], ...replayId ? {} : { log: rep.lines.join("\n") } };
   S.study.opened = Date.now();
   save();
@@ -1315,7 +1393,8 @@ async function fetchReplay(id) {
 }
 var shareable = () => ({ ...S.study, meta: void 0, opened: void 0 });
 async function shareLink() {
-  const payload = { rbv: 1, study: shareable(), ...S.replayId ? { id: S.replayId } : { log: S.rep.lines.join("\n") } };
+  const byId = S.replayId && !/pw$/.test(S.replayId);
+  const payload = { rbv: 1, study: shareable(), ...byId ? { id: S.replayId } : { log: S.rep.lines.join("\n") } };
   const stream = new Blob([JSON.stringify(payload)]).stream().pipeThrough(new CompressionStream("deflate-raw"));
   const bytes = new Uint8Array(await new Response(stream).arrayBuffer());
   let binary = "";

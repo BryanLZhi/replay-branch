@@ -107,7 +107,7 @@ function monCard(si, k, set, types) {
   const nature = E.Dex.natures.get(set.nature || 'Serious');
   const mark = st => st === nature.plus ? '<b class="rb-plus">+</b>' : st === nature.minus ? '<b class="rb-minus">−</b>' : '';
   const evs = STATS.map(st => `<span>${STAT_NAMES[st]}${mark(st)}</span>`).join('') +
-    STATS.map(st => `<input class="textbox" ${attrs('ev_' + st)} inputmode="numeric" value="${set.evs[st] || 0}" aria-label="${STAT_NAMES[st]} EVs">`).join('');
+    STATS.map(st => `<input class="textbox" ${attrs('ev_' + st)} inputmode="numeric" value="${Number(set.evs[st]) || 0}" aria-label="${STAT_NAMES[st]} EVs">`).join('');
   const abilities = [...new Set([...Object.values(sp.abilities || {}), set.ability])].filter(Boolean);
   return `<div class="rb-mon">
     <div class="hd"><span class="rb-picon" style="${icon(set.species)}"></span><span class="nm">${esc(set.name)}${set.name !== set.species ? ` <span class="rb-note">(${esc(set.species)})</span>` : ''}</span> ${(sp.types || []).map(typeTag).join('')}</div>
@@ -117,7 +117,7 @@ function monCard(si, k, set, types) {
     <div class="rb-mvgrid">${moves}</div>
     ${S.rep.gen >= 3 ? `<label>Nature<input class="textbox" ${attrs('nature')} list="dl-natures" value="${esc(set.nature)}"></label>
     <div class="rb-evs">${evs}</div>` : ''}
-    <label>Level<input class="textbox" ${attrs('level')} type="number" min="1" max="100" value="${set.level}"></label>
+    <label>Level<input class="textbox" ${attrs('level')} type="number" min="1" max="100" value="${Number(set.level) || 100}"></label>
     <p style="margin:0;text-align:right"><button class="button" data-reset-mon="${si},${k}">Reset</button></p>
   </div>`;
 }
