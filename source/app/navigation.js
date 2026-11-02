@@ -5,7 +5,7 @@ import {watchOnly} from './replay.js';
 import {isPlaying, showPosition} from './viewer.js';
 import {pickerOn, renderPicker, closeMenu} from './picker.js';
 import {renderDice} from './dice.js';
-import {renderStudyPanel} from './panels.js';
+import {renderStudyPanel, renderNote} from './panels.js';
 
 // The current position: on the replay ('replay'; 'preview' or 'turn' when the move picker can take over there),
 // or in a line ('line', with the dice of the step that led to it).
@@ -36,7 +36,7 @@ function renderNow() {
     S.err = e.message || String(e);
     pos = {kind: 'replay', t: isReplayPos(S.cur) ? replayTurn(S.cur) : 0};
   }
-  renderPicker(pos); renderDice(pos); renderStudyPanel();
+  renderPicker(pos); renderDice(pos); renderNote(pos); renderStudyPanel();
 }
 
 // Go to a position. animate: play a line's last step instead of jumping to its end; force: show it even if it is current.

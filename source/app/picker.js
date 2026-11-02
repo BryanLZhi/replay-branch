@@ -101,13 +101,17 @@ function targetName(pos, si, loc) {
 }
 
 // ---------------------------------------------------------------- the bar
+// The turn a position is about, as the bar names it (the note card uses it too)
+export const turnLabelOf = pos => pos.kind === 'preview' ? 'Team preview' : pos.battle ? `Turn ${pos.battle.turn}`
+  : pos.t > S.rep.lastTurn ? 'End' : pos.t ? `Turn ${pos.t}` : 'Start';
+
 export function renderPicker(pos) {
   const el = $id('pickSec');
   showPickerSetting();
   el.hidden = !pickerOn();
   if (el.hidden) { setTooltipRequest(null); return; }
   const battle = pos.battle;
-  const turnLabel = pos.kind === 'preview' ? 'Team preview' : battle ? `Turn ${battle.turn}` : pos.t > S.rep.lastTurn ? 'End' : pos.t ? `Turn ${pos.t}` : 'Start';
+  const turnLabel = turnLabelOf(pos);
   const doubles = doublesBattle(pos) || (!battle && S.rep.lines.includes('|gametype|doubles'));
   let groups, playable = false;
   if (!battle || battle.ended) {

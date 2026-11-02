@@ -777,6 +777,36 @@ function trapDamage(rep, hits, foe) {
 }
 // Bide: the turns it has left and the damage it has stored (from the HP the log shows it losing to moves since it began, so
 // near), and who hit it last. Gen 1 keeps "time" and "damage" instead (its length is random there, and 3 or 4 turns in gen 2).
+// Gen 1 Counter (data/mods/gen1 moves.ts): twice the battle's last damage, when the foe's last used move was a damaging Normal
+// or Fighting one. Both from the log, by the simulator's gen 1 rules: a move (not one of GEN1_KEEP_DAMAGE) sets the last damage
+// to 0, then the damage it deals sets it (a Substitute's is not in the log: it stays 0), as do a drain move's heal, confusion,
+// Jump Kick crash and partial-trap damage; poison, burn, Leech Seed and recoil damage leave it. In HP, from the shown percent.
+const GEN1_KEEP_DAMAGE = new Set(['confuseray', 'conversion', 'counter', 'focusenergy', 'glare', 'haze', 'leechseed', 'lightscreen',
+  'mimic', 'mist', 'poisongas', 'poisonpowder', 'recover', 'reflect', 'rest', 'softboiled', 'splash', 'stunspore', 'substitute',
+  'supersonic', 'teleport', 'thunderwave', 'toxic', 'transform']);
+const GEN1_COUNTED_FROM = new Set(['confusion', 'jumpkick', 'highjumpkick', 'wrap', 'bind', 'clamp', 'firespin', 'partiallytrapped']);
+function gen1Counter(rep, t, battle) {
+  const mid = r => (r[0] + r[1]) / 2;
+  const monOf = who => { const m = /^p([12])[a-c]?: (.+)$/.exec(who || ''); return m ? battle.sides[+m[1] - 1].pokemon.find(p => p.name === m[2]) : null; };
+  const last = [null, null];
+  let damage = 0;
+  for (let i = 0; i < (rep.turnIdx[t] ?? rep.lines.length); i++) {
+    const line = rep.lines[i], a = line.split('|'), from = /\[from\] ?([^|]+)/.exec(line);
+    if (a[1] === 'move') {
+      const side = /^p([12])/.exec(a[2] || ''), id = toID(a[3]);
+      if (side && Dex.moves.get(id).exists) last[+side[1] - 1] = id;
+      if (!GEN1_KEEP_DAMAGE.has(id)) damage = 0;
+    } else if (a[1] === '-damage' && (!from || GEN1_COUNTED_FROM.has(toID(from[1])))) {
+      const mon = monOf(a[2]);
+      if (mon) damage = Math.max(0, Math.round(mid(hpAt(rep, i - 1, mon)) - mid(hpAt(rep, i, mon))));
+    } else if (a[1] === '-heal' && from && toID(from[1]) === 'drain') {
+      const mon = monOf(a[2]);
+      if (mon) damage = Math.max(0, Math.round(mid(hpAt(rep, i, mon)) - mid(hpAt(rep, i - 1, mon))));
+    }
+  }
+  battle.lastDamage = damage;
+  last.forEach((id, si) => { const move = id ? battle.dex.getActiveMove(id) : null; Object.assign(battle.sides[si], {lastMove: move, lastEnemyMove: move}); });
+}
 function bideFromLog(rep, t, battle, si, name, sp, st) {
   const s = lastStart(rep, t, si, name, 'bide');
   if (!s) return;
@@ -1356,7 +1386,7 @@ export function gen1Stats(sp) {
   if (sp.status === 'par') sp.modifiedStats.spe = Math.max(1, Math.floor(sp.modifiedStats.spe / 4));
 }
 const TRAPPING = ['wrap', 'bind', 'firespin', 'whirlpool', 'sandtomb', 'clamp', 'infestation', 'magmastorm', 'snaptrap', 'thundercage'];
-const VOLATILES = ['mustrecharge', 'substitute', 'confusion', 'leechseed', 'taunt', 'encore', 'yawn', 'perishsong', 'curse', 'saltcure', 'aquaring', 'ingrain', 'focusenergy',
+const VOLATILES = ['mist', 'mustrecharge', 'substitute', 'confusion', 'leechseed', 'taunt', 'encore', 'yawn', 'perishsong', 'curse', 'saltcure', 'aquaring', 'ingrain', 'focusenergy',
   'magnetrise', 'charge', 'stockpile', 'protosynthesis', 'quarkdrive', 'torment', 'disable', 'throatchop', 'healblock', 'smackdown', 'partiallytrapped',
   'flashfire', 'unburden', 'slowstart', 'glaiverush', 'tarshot', 'trapped', 'nightmare', 'embargo', 'imprison', 'gastroacid', 'laserfocus', 'noretreat', 'octolock', 'syrupbomb',
   'rage', 'bide', 'destinybond', 'uproar', 'foresight', 'reflect', 'lightscreen', 'mudsport', 'watersport',
@@ -1743,6 +1773,7 @@ export function takeover(rep, t, sets, seed) {
   refreshLocks(battle);
   if (battle.gen === 1) {
     gen1Selection(rep, t, battle).forEach((s, si) => Object.assign(battle.sides[si], {lastSelectedMove: s.sel, lastSelectedMoveSlot: s.slot, lastEnemySelectedMove: s.enemy}));
+    gen1Counter(rep, t, battle);
   }
   battle.turn = t;
   battle.makeRequest('move');

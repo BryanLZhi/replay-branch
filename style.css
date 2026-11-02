@@ -271,8 +271,16 @@ body.dark .rb-hpbar { background: #1c1f23; }
 .rb-tok.cur { background: var(--rb-cur); outline: 1px solid var(--rb-curline); }
 .rb-tok .tn { color: var(--rb-muted); margin-right: 2px; }
 .rb-cmt { color: var(--rb-muted); font-style: italic; }
-.rb-notes { margin-top: 8px; display: flex; flex-direction: column; gap: 6px; }
+.rb-vars.rb-plain[data-go] { cursor: pointer; }
+.rb-lineacts { margin-top: 8px; }
+.rb-tabs .rb-copynotes { margin-left: auto; }
+/* the note card, under the turn bar: the turn it is about, the marks, the comment */
+.rb-notehd { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px; margin-bottom: 6px; }
+.rb-noteturn { font-size: 11pt; white-space: nowrap; }
+.rb-glyphs { display: flex; gap: 3px; flex-wrap: wrap; }
+.rb-glyphs .button { min-width: 30px; }
 .rb-glyphs .button.on { background: var(--rb-sel); font-weight: bold; }
+#noteSec textarea { width: 100%; box-sizing: border-box; resize: vertical; min-height: 2.6em; }
 
 /* teams */
 .rb-teamhead { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; margin: 4px 0 8px; flex-wrap: wrap; }

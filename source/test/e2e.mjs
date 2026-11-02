@@ -42,6 +42,8 @@ if (!url) { server = await serve(root); url = `http://127.0.0.1:${server.address
 console.log('testing', url);
 
 const browser = await puppeteer.launch({executablePath: browserPath, headless: 'new', args: ['--disable-gpu', '--autoplay-policy=no-user-gesture-required', ...(process.env.CI ? ['--no-sandbox'] : [])]});
+// (Copy notes is checked by reading the clipboard back)
+await browser.defaultBrowserContext().overridePermissions(new URL(url).origin, ['clipboard-read', 'clipboard-write', 'clipboard-sanitized-write']).catch(() => {});
 const page = await browser.newPage();
 await page.setViewport({width: 1280, height: 1000});
 const pageErrors = [], failedRequests = [], blocked = [];
@@ -268,9 +270,20 @@ try {
   check(!await inLine() && await currentRow() === '3', 'Left arrow goes back to the replay');
   await press('ArrowRight'); await press('ArrowDown'); await settled();
   check(await inLine(), 'Down arrow switches from the replay turn to the line');
-  await page.click('#studySec [data-glyph="!?"]'); await sleep(100);
+  await page.click('#noteSec [data-glyph="!?"]'); await sleep(100);
   await page.type('#comment', 'interesting try');
   await page.$eval('#comment', el => el.blur()); await sleep(200);
+  check(await text('#noteSec .rb-noteturn') === await turnLabel(), 'the note card, under the turn bar, names the turn the bar shows', await text('#noteSec .rb-noteturn'));
+  // a note on a replay turn: its mark by the row's number, its comment under the row; Copy notes gives every note as text
+  await press('ArrowUp'); await settled();
+  await page.click('#noteSec [data-glyph="?"]'); await sleep(100);
+  await page.type('#comment', 'should switch here');
+  await page.$eval('#comment', el => el.blur()); await sleep(200);
+  const under = await page.$eval('#studySec .rb-mrow.cur + .rb-vars.rb-plain', el => el.textContent).catch(() => '');
+  check(!await inLine() && /^\?\s+should switch here/.test(under.trim()), 'a note on a replay turn: mark and comment under the row that leads to it', under);
+  await page.click('#btnCopyNotes'); await sleep(300);
+  const copied = await page.evaluate(() => navigator.clipboard.readText()).catch(e => 'clipboard: ' + e.message);
+  check(/Turn \d+ \?: should switch here/.test(copied) && /Turn \d+, line .+ !\?: interesting try/.test(copied), 'Copy notes copies every note, in turn order', copied.replace(/\n/g, ' / '));
 
   // ---------------------------------------------------------------- the position editor
   await control('reset'); await sleep(400);
