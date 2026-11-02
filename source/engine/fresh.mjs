@@ -4,19 +4,28 @@
 import {Battle as SimBattle, Dex, toID} from '@pkmn/sim';
 
 // The formats a new battle can be: singles and doubles (not triples, free-for-all or multi battles), not random battles
-// (they make their own teams), and only those Showdown lets players challenge each other in. Newest generation first,
-// singles before doubles: [{group: 'Gen 9 · Singles', formats: [{id, name}]}].
+// (they make their own teams), and only those Showdown lets players challenge each other in. In sections as Showdown's
+// format menu has them: [{section: 'S/V Singles', formats: [{id, name}]}].
+const GAMES = {9: 'S/V', 8: 'S/S', 7: 'US/UM', 6: 'OR/AS', 5: 'B2/W2', 4: 'DPP', 3: 'ADV', 2: 'GSC', 1: 'RBY'};
 export function freshFormats() {
-  const groups = new Map();
   const usable = Dex.formats.all().filter(f => f.exists && f.effectType === 'Format' && ['singles', 'doubles'].includes(f.gameType || 'singles') &&
     !f.team && f.challengeShow !== false);
-  usable.sort((a, b) => (Dex.forFormat(b).gen - Dex.forFormat(a).gen) || ((a.gameType === 'doubles') - (b.gameType === 'doubles')));
+  const sectionOf = f => {
+    const gen = Dex.forFormat(f).gen, doubles = f.gameType === 'doubles';
+    if (/nationaldex/.test(f.id)) return 'National Dex';
+    if (gen < 9 && /^gen\d+ou$/.test(f.id)) return 'Past Gens OU';
+    return `${GAMES[gen]} ${doubles ? 'Doubles' : 'Singles'}`;
+  };
+  const order = ['S/V Singles', 'S/V Doubles', 'National Dex', 'Past Gens OU',
+    ...[8, 7, 6, 5, 4, 3, 2, 1].flatMap(g => [`${GAMES[g]} Singles`, `${GAMES[g]} Doubles`])];
+  const sections = new Map(order.map(s => [s, []]));
   for (const f of usable) {
-    const group = `Gen ${Dex.forFormat(f).gen} · ${f.gameType === 'doubles' ? 'Doubles' : 'Singles'}`;
-    if (!groups.has(group)) groups.set(group, []);
-    groups.get(group).push({id: f.id, name: f.name.replace(/^\[Gen \d+\] /, '')});
+    const section = sectionOf(f);
+    // (within a generation's own section the "[Gen N]" goes without saying)
+    const name = /^(National Dex|Past Gens OU)$/.test(section) ? f.name : f.name.replace(/^\[Gen \d+\] /, '');
+    sections.get(section)?.push({id: f.id, name, full: f.name});
   }
-  return [...groups].map(([group, formats]) => ({group, formats}));
+  return [...sections].filter(([, formats]) => formats.length).map(([section, formats]) => ({section, formats}));
 }
 
 // teams: two lists of sets (as parseTeam gives them); names: the two players. Returns the log, and the sets as the battle

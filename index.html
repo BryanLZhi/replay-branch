@@ -31,7 +31,9 @@
   <section class="rb-sheet">
     <h2>New battle</h2>
     <form id="freshForm">
-      <p class="rb-row"><select class="textbox" id="freshFormat" aria-label="Format"><option value="gen9ou" selected>OU</option></select></p>
+      <div class="rb-formatpick"><button type="button" class="button rb-formatbtn" id="btnFormat" aria-haspopup="true" aria-expanded="false"><span id="formatName">[Gen 9] OU</span> <i class="fa fa-caret-down" aria-hidden="true"></i></button>
+        <input type="hidden" id="freshFormat" value="gen9ou">
+        <div class="rb-formatmenu" id="formatMenu" hidden></div></div>
       <div class="rb-twoteams">
         <textarea class="textbox" id="freshTeam1" placeholder="Team 1" aria-label="Team 1"></textarea>
         <textarea class="textbox" id="freshTeam2" placeholder="Team 2" aria-label="Team 2"></textarea>

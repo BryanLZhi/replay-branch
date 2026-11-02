@@ -552,6 +552,14 @@ try {
     const t2 = team(['Great Tusk @ Booster Energy', 'Ability: Protosynthesis', 'EVs: 252 Atk / 4 Def / 252 Spe', 'Jolly Nature', '- Headlong Rush', '- Ice Spinner', '- Rapid Spin', '- Knock Off'].join('\n'),
       ['Kingambit @ Black Glasses', 'Ability: Supreme Overlord', 'EVs: 252 HP / 252 Atk / 4 SpD', 'Adamant Nature', '- Kowtow Cleave', '- Sucker Punch', '- Iron Head', '- Swords Dance'].join('\n'));
     await page.click('#home'); await sleep(300);
+    // the format menu: sections that fold, as Showdown's
+    await page.click('#btnFormat');
+    await until(() => document.querySelector('#formatMenu:not([hidden]) .rb-fhead'), null, 60000);
+    const folded = await page.$$eval('#formatMenu .rb-fhead', h => h.filter(x => x.getAttribute('aria-expanded') === 'false').length);
+    await page.click('#formatMenu .rb-fhead[data-sec="S/V Doubles"]'); await sleep(150);
+    await page.click('#formatMenu .rb-fitem[data-format="gen9doublesou"]'); await sleep(150);
+    check(folded > 10 && await page.$eval('#freshFormat', el => el.value) === 'gen9doublesou' && /Doubles OU/.test(await text('#formatName')) && !await visible('#formatMenu'),
+      'the format menu has sections that fold, and picks a format', `${folded} folded, ${await text('#formatName')}`);
     await page.$eval('#freshFormat', el => { el.value = 'gen9ou'; });
     await page.$eval('#freshTeam1', (el, v) => { el.value = v; }, t1);
     await page.$eval('#freshTeam2', (el, v) => { el.value = v; }, t2);

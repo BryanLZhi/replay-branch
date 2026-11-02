@@ -1534,11 +1534,7 @@ function wireLanding() {
     if (id) visit(id);
   };
   $id("btnPasteLog").onclick = () => $id("btnLoad").click();
-  S.ready.then(() => {
-    const select2 = $id("freshFormat"), was = select2.value || "gen9ou";
-    select2.innerHTML = E.freshFormats().map((g) => `<optgroup label="${esc(g.group)}">` + g.formats.map((f) => `<option value="${esc(f.id)}" ${f.id === was ? "selected" : ""}>${esc(f.name)}</option>`).join("") + `</optgroup>`).join("");
-  }).catch(() => {
-  });
+  wireFormatMenu();
   $id("freshForm").onsubmit = async (e) => {
     e.preventDefault();
     $id("freshErr").textContent = "";
@@ -1560,6 +1556,77 @@ function wireLanding() {
     d.innerHTML = Object.keys(formats).map((f) => `<option value="${f}">`).join("");
     document.body.appendChild(d);
   }).catch(() => {
+  });
+}
+function wireFormatMenu() {
+  const button = $id("btnFormat"), menu = $id("formatMenu"), value = $id("freshFormat");
+  let sections = null;
+  const open = () => {
+    try {
+      return new Set(JSON.parse(stored("rb-format-open", "[]")));
+    } catch {
+      return /* @__PURE__ */ new Set();
+    }
+  };
+  const render = (query = "") => {
+    const q = query.trim().toLowerCase(), shown = open();
+    const current = sections.find((s) => s.formats.some((f) => f.id === value.value))?.section;
+    menu.innerHTML = `<input class="textbox" id="formatSearch" placeholder="Search" aria-label="Search formats" value="${esc(query)}">` + sections.map((s) => {
+      const formats = q ? s.formats.filter((f) => f.full.toLowerCase().includes(q) || f.id.includes(q.replace(/[^a-z0-9]/g, ""))) : s.formats;
+      if (!formats.length) return "";
+      const expanded = !!q || shown.has(s.section) || !shown.size && s.section === current;
+      return `<div class="rb-fsec"><button type="button" class="rb-fhead" data-sec="${esc(s.section)}" aria-expanded="${expanded}"><i class="fa fa-caret-${expanded ? "down" : "right"}" aria-hidden="true"></i>${esc(s.section)}<small>${formats.length}</small></button><div class="rb-fitems" ${expanded ? "" : "hidden"}>${formats.map((f) => `<button type="button" class="rb-fitem ${f.id === value.value ? "cur" : ""}" data-format="${esc(f.id)}" title="${esc(f.full)}">${esc(f.name)}</button>`).join("")}</div></div>`;
+    }).join("");
+    const search2 = $id("formatSearch");
+    search2.oninput = () => {
+      render(search2.value);
+      const again = $id("formatSearch");
+      again.focus();
+      again.setSelectionRange(again.value.length, again.value.length);
+    };
+    for (const h of menu.querySelectorAll("[data-sec]")) h.onclick = () => {
+      const now = open();
+      if (!now.size && h.dataset.sec === current) now.add(current);
+      if (now.has(h.dataset.sec)) now.delete(h.dataset.sec);
+      else now.add(h.dataset.sec);
+      store("rb-format-open", JSON.stringify([...now]));
+      render(search2.value);
+    };
+    for (const b of menu.querySelectorAll("[data-format]")) b.onclick = () => {
+      value.value = b.dataset.format;
+      $id("formatName").textContent = b.title;
+      close();
+    };
+  };
+  const raise = (up) => button.closest(".rb-sheet")?.classList.toggle("rb-raised", up);
+  const close = () => {
+    menu.hidden = true;
+    button.setAttribute("aria-expanded", "false");
+    raise(false);
+  };
+  button.onclick = async (e) => {
+    e.stopPropagation();
+    if (!menu.hidden) {
+      close();
+      return;
+    }
+    await S.ready;
+    sections || (sections = E.freshFormats());
+    render();
+    menu.hidden = false;
+    button.setAttribute("aria-expanded", "true");
+    raise(true);
+    menu.querySelector(".rb-fitem.cur")?.scrollIntoView({ block: "nearest" });
+  };
+  menu.onclick = (e) => e.stopPropagation();
+  document.addEventListener("click", () => {
+    if (!menu.hidden) close();
+  });
+  menu.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") {
+      close();
+      button.focus();
+    }
   });
 }
 var ago = (ms) => {

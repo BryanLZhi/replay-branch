@@ -1,5 +1,5 @@
 // The landing page: open a replay by link, search Showdown's replays, and the replays opened before (with their lines).
-import {S, E, $id, esc, stored, unstore} from './state.js';
+import {S, E, $id, esc, stored, store, unstore} from './state.js';
 import {replayIdFrom, visit, SAMPLE, startFresh, showPage} from './load.js';
 
 export function renderLanding() {
@@ -15,12 +15,7 @@ export function wireLanding() {
     if (id) visit(id);
   };
   $id('btnPasteLog').onclick = () => $id('btnLoad').click();
-  // (the formats a new battle can be, once the simulator is loaded)
-  S.ready.then(() => {
-    const select = $id('freshFormat'), was = select.value || 'gen9ou';
-    select.innerHTML = E.freshFormats().map(g => `<optgroup label="${esc(g.group)}">` +
-      g.formats.map(f => `<option value="${esc(f.id)}" ${f.id === was ? 'selected' : ''}>${esc(f.name)}</option>`).join('') + `</optgroup>`).join('');
-  }).catch(() => {});
+  wireFormatMenu();
   $id('freshForm').onsubmit = async e => {
     e.preventDefault();
     $id('freshErr').textContent = '';
@@ -34,6 +29,52 @@ export function wireLanding() {
     d.innerHTML = Object.keys(formats).map(f => `<option value="${f}">`).join('');
     document.body.appendChild(d);
   }).catch(() => {});
+}
+
+// ---------------------------------------------------------------- the format of a new battle
+// Showdown's format menu: sections (S/V Singles, National Dex, Past Gens OU...) that fold away and stay as you left them,
+// and a search that shows every match.
+function wireFormatMenu() {
+  const button = $id('btnFormat'), menu = $id('formatMenu'), value = $id('freshFormat');
+  let sections = null;
+  const open = () => { try { return new Set(JSON.parse(stored('rb-format-open', '[]'))); } catch { return new Set(); } };
+  const render = (query = '') => {
+    const q = query.trim().toLowerCase(), shown = open();
+    const current = sections.find(s => s.formats.some(f => f.id === value.value))?.section;
+    menu.innerHTML = `<input class="textbox" id="formatSearch" placeholder="Search" aria-label="Search formats" value="${esc(query)}">` + sections.map(s => {
+      const formats = q ? s.formats.filter(f => f.full.toLowerCase().includes(q) || f.id.includes(q.replace(/[^a-z0-9]/g, ''))) : s.formats;
+      if (!formats.length) return '';
+      const expanded = !!q || shown.has(s.section) || (!shown.size && s.section === current);
+      return `<div class="rb-fsec"><button type="button" class="rb-fhead" data-sec="${esc(s.section)}" aria-expanded="${expanded}">` +
+        `<i class="fa fa-caret-${expanded ? 'down' : 'right'}" aria-hidden="true"></i>${esc(s.section)}<small>${formats.length}</small></button>` +
+        `<div class="rb-fitems" ${expanded ? '' : 'hidden'}>${formats.map(f => `<button type="button" class="rb-fitem ${f.id === value.value ? 'cur' : ''}" data-format="${esc(f.id)}" title="${esc(f.full)}">${esc(f.name)}</button>`).join('')}</div></div>`;
+    }).join('');
+    const search = $id('formatSearch');
+    search.oninput = () => { render(search.value); const again = $id('formatSearch'); again.focus(); again.setSelectionRange(again.value.length, again.value.length); };
+    for (const h of menu.querySelectorAll('[data-sec]')) h.onclick = () => {
+      const now = open();
+      if (!now.size && h.dataset.sec === current) now.add(current);
+      if (now.has(h.dataset.sec)) now.delete(h.dataset.sec); else now.add(h.dataset.sec);
+      store('rb-format-open', JSON.stringify([...now])); render(search.value);
+    };
+    for (const b of menu.querySelectorAll('[data-format]')) b.onclick = () => {
+      value.value = b.dataset.format; $id('formatName').textContent = b.title; close();
+    };
+  };
+  // (the open menu goes over the sections below it)
+  const raise = up => button.closest('.rb-sheet')?.classList.toggle('rb-raised', up);
+  const close = () => { menu.hidden = true; button.setAttribute('aria-expanded', 'false'); raise(false); };
+  button.onclick = async e => {
+    e.stopPropagation();
+    if (!menu.hidden) { close(); return; }
+    await S.ready;
+    sections ||= E.freshFormats();
+    render(); menu.hidden = false; button.setAttribute('aria-expanded', 'true'); raise(true);
+    menu.querySelector('.rb-fitem.cur')?.scrollIntoView({block: 'nearest'});
+  };
+  menu.onclick = e => e.stopPropagation();
+  document.addEventListener('click', () => { if (!menu.hidden) close(); });
+  menu.addEventListener('keydown', e => { if (e.key === 'Escape') { close(); button.focus(); } });
 }
 
 // ---------------------------------------------------------------- recent

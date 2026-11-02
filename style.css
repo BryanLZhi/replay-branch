@@ -126,7 +126,25 @@ body.dark .rb-slot { color: #eee; background: linear-gradient(color-mix(in srgb,
 .rb-bar.doubles .rb-slotwrap { gap: 3px; }
 .rb-place { font-size: 7.5pt; color: var(--rb-muted); margin-right: 2px; }
 .rb-place::after { content: ':'; }
-/* new battle: the two teams side by side (one above the other on a phone) */
+/* new battle: the format menu, as Showdown's (sections that fold away), and the two teams */
+.rb-formatpick { position: relative; display: inline-block; }
+.rb-sheet.rb-raised { position: relative; z-index: 30; }
+.rb-formatbtn { min-width: 210px; text-align: left; display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.rb-formatmenu { position: absolute; z-index: 20; top: calc(100% + 4px); left: 0; width: min(560px, 92vw); max-height: min(440px, 70vh); overflow-y: auto;
+  background: var(--rb-panel, #fff); color: var(--rb-fg, #222); border: 1px solid #999; border-radius: 5px; box-shadow: 0 3px 12px rgba(0, 0, 0, .35); padding: 6px; }
+body.dark .rb-formatmenu { background: #2a2f36; border-color: #555; }
+.rb-formatmenu .textbox { width: 100%; box-sizing: border-box; margin-bottom: 4px; }
+.rb-fhead { display: flex; width: 100%; align-items: center; gap: 6px; background: none; border: 0; border-bottom: 1px solid rgba(128, 128, 128, .35); padding: 5px 2px;
+  font: inherit; font-size: 9pt; font-weight: bold; color: inherit; cursor: pointer; text-align: left; }
+.rb-fhead .fa { width: 10px; opacity: .7; }
+.rb-fhead small { margin-left: auto; font-weight: normal; opacity: .6; }
+.rb-fitems { columns: 2 180px; column-gap: 6px; padding: 4px 0 6px 16px; }
+.rb-fitems[hidden] { display: none; }
+.rb-fitem { display: block; width: 100%; break-inside: avoid; text-align: left; background: none; border: 0; border-radius: 3px; padding: 2px 6px;
+  font: inherit; font-size: 9pt; color: inherit; cursor: pointer; }
+.rb-fitem:hover, .rb-fitem:focus { background: rgba(80, 130, 200, .18); }
+.rb-fitem.cur { font-weight: bold; background: rgba(80, 130, 200, .28); }
+/* the two teams side by side (one above the other on a phone) */
 .rb-twoteams { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 6px 0; }
 .rb-twoteams textarea { height: 150px; resize: vertical; font-family: monospace; font-size: 9pt; }
 @media (max-width: 700px) { .rb-twoteams { grid-template-columns: 1fr; } }
