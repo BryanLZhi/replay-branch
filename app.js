@@ -1467,6 +1467,145 @@ function playTurn(pos) {
   go(id, { animate: true });
 }
 
+// source/app/notefmt.js
+var icon4 = (species) => {
+  try {
+    return Dex.getPokemonIcon(species);
+  } catch {
+    return "";
+  }
+};
+var ph = (k) => "\0" + String.fromCharCode(57344 + k) + "\0";
+var restore = (t, keep) => t.replace(/\u0000([-])\u0000/g, (_, c) => keep[c.charCodeAt(0) - 57344]);
+var norm = (s) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
+var names = null;
+function nameTable() {
+  if (names) return names;
+  const tab = /* @__PURE__ */ new Map();
+  try {
+    for (const m of E.Dex.moves.all()) if (m.exists && !m.isNonstandard && m.num > 0) tab.set(norm(m.name), { kind: "move", m });
+    for (const s of E.Dex.species.all()) {
+      if (!s.exists || s.isNonstandard === "CAP" || s.num <= 0) continue;
+      const k = norm(s.name);
+      if (!tab.has(k) || tab.get(k).kind === "move") tab.set(k, { kind: "pokemon", s });
+    }
+  } catch {
+    return /* @__PURE__ */ new Map();
+  }
+  return names = tab;
+}
+function moveTitle(m) {
+  const bits = [m.type, m.category];
+  if (m.category !== "Status" && m.basePower) bits.push(`${m.basePower} BP`);
+  bits.push(m.accuracy === true ? "never misses" : `${m.accuracy}% accuracy`);
+  if (m.priority) bits.push(`priority ${m.priority > 0 ? "+" : ""}${m.priority}`);
+  return `${m.name}: ${bits.join(", ")}${m.shortDesc ? ". " + m.shortDesc : ""}`;
+}
+function monTitle(s) {
+  const st = s.baseStats || {};
+  return `${s.name}: ${s.types.join("/")}; ${Object.values(s.abilities || {}).join(" / ")}; ` + ["hp", "atk", "def", "spa", "spd", "spe"].map((k) => st[k]).join("/");
+}
+function entityHTML(shown, e) {
+  if (e.kind === "pokemon") {
+    return `<span class="rb-ent rb-mon-ent" title="${esc(monTitle(e.s))}"><span class="picon" style="${esc(icon4(e.s.name))}"></span>${shown}</span>`;
+  }
+  return `<span class="rb-ent rb-move-ent rb-t-${esc(norm(e.m.type))}" title="${esc(moveTitle(e.m))}">${shown}</span>`;
+}
+function markNames(t, keep) {
+  const tab = nameTable();
+  if (!tab.size) return t;
+  const re = /[A-Za-z0-9À-ɏ](?:[A-Za-z0-9À-ɏ'’.\-]*[A-Za-z0-9À-ɏ])?/g;
+  const words = [];
+  for (let m; m = re.exec(t); ) words.push({ i: m.index, j: m.index + m[0].length, w: m[0] });
+  let out = "", last = 0;
+  for (let a = 0; a < words.length; a++) {
+    if (!/^[A-Z0-9À-Þ]/.test(words[a].w)) continue;
+    let hit = null;
+    for (let b = Math.min(words.length - 1, a + 3); b >= a && !hit; b--) {
+      let ok = true;
+      for (let c = a; c < b; c++) if (!/^\.? $/.test(t.slice(words[c].j, words[c + 1].i))) {
+        ok = false;
+        break;
+      }
+      if (!ok) continue;
+      const e = tab.get(norm(t.slice(words[a].i, words[b].j)));
+      if (e) hit = { b, e };
+    }
+    if (!hit) continue;
+    const i = words[a].i, j = words[hit.b].j;
+    keep.push(entityHTML(esc(t.slice(i, j)), hit.e));
+    out += t.slice(last, i) + ph(keep.length - 1);
+    last = j;
+    a = hit.b;
+  }
+  return out + t.slice(last);
+}
+function inline(t, keep) {
+  t = t.replace(/\u0000/g, "");
+  t = t.replace(/`([^`\n]+)`/g, (_, c) => {
+    keep.push(`<code>${esc(c)}</code>`);
+    return ph(keep.length - 1);
+  });
+  t = t.replace(/\bhttps?:\/\/[^\s<>"'`]+[^\s<>"'`.,;:!?)\]]/g, (u) => {
+    keep.push(`<a href="${esc(u)}" target="_blank" rel="noopener noreferrer nofollow">${esc(u)}</a>`);
+    return ph(keep.length - 1);
+  });
+  t = esc(markNames(t, keep));
+  t = t.replace(/\*\*(?=\S)([^*\n]*?\S)\*\*/g, "<strong>$1</strong>");
+  t = t.replace(/(^|[^*\w])\*(?=\S)([^*\n]*?\S)\*(?![*\w])/g, "$1<em>$2</em>");
+  t = t.replace(/(^|[^_\w])_(?=\S)([^_\n]*?\S)_(?![_\w])/g, "$1<em>$2</em>");
+  return t;
+}
+function noteHTML(text, { flow = false } = {}) {
+  const keep = [];
+  const lines = String(text || "").replace(/\r/g, "").split("\n");
+  if (flow) return restore(lines.map((l) => l.replace(/^\s*[-*]\s+/, "\u2022 ")).filter((l) => l.trim()).map((l) => inline(l, keep)).join(" \xB7 "), keep);
+  let html = "", list = false;
+  for (const l of lines) {
+    const b = /^\s*[-*]\s+(.*)$/.exec(l);
+    if (b) {
+      if (!list) {
+        html += "<ul>";
+        list = true;
+      }
+      html += `<li>${inline(b[1], keep)}</li>`;
+      continue;
+    }
+    if (list) {
+      html += "</ul>";
+      list = false;
+    }
+    html += l.trim() ? `<div>${inline(l, keep)}</div>` : '<div class="rb-gap"></div>';
+  }
+  if (list) html += "</ul>";
+  return restore(html, keep);
+}
+function noteKeys(box, onChange) {
+  box.addEventListener("keydown", (e) => {
+    if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey) return;
+    const k = e.key.toLowerCase();
+    const mark = k === "b" ? "**" : k === "i" ? "*" : null;
+    if (!mark) return;
+    e.preventDefault();
+    const v = box.value;
+    let s = box.selectionStart, f = box.selectionEnd;
+    if (s === f) {
+      while (s > 0 && /\S/.test(v[s - 1])) s--;
+      while (f < v.length && /\S/.test(v[f])) f++;
+    }
+    const n = mark.length, sel = v.slice(s, f);
+    const wrapped = v.slice(Math.max(0, s - n), s) === mark && v.slice(f, f + n) === mark && !(mark === "*" && (v[s - n - 1] === "*" || v[f + n] === "*"));
+    if (wrapped) {
+      box.value = v.slice(0, s - n) + sel + v.slice(f + n);
+      box.setSelectionRange(s - n, f - n);
+    } else {
+      box.value = v.slice(0, s) + mark + sel + mark + v.slice(f);
+      box.setSelectionRange(s + n, f + n);
+    }
+    onChange(box.value);
+  });
+}
+
 // source/app/panels.js
 function renderStudyPanel() {
   const el = $id("studySec");
@@ -1510,6 +1649,10 @@ function renderNote(pos) {
     noteOf(S.cur, true).comment = e.target.value;
     save();
   };
+  noteKeys($id("comment"), (v) => {
+    noteOf(S.cur, true).comment = v;
+    save();
+  });
   $id("comment").onchange = () => renderStudyPanel();
 }
 function noteList() {
@@ -1562,7 +1705,7 @@ function lineToken(id) {
     const s = E.summarize(line.lines);
     what = `${esc(s.p1 || "\u2026")} <span class="tn">|</span> ${esc(s.p2 || "\u2026")}`;
   }
-  return `<span class="rb-tok ${n.edit ? "rb-edited" : ""} ${id === S.cur ? "cur" : ""}" data-go="${esc(id)}"><span class="tn">${turn}.</span>${what}` + (n.forced.length ? ' <i class="fa fa-cube" title="Dice set by you" aria-hidden="true"></i>' : "") + (n.glyph ? `<span class="rb-glyph">${esc(n.glyph)}</span>` : "") + (n.comment ? ` <i class="rb-cmt">${esc(n.comment)}</i>` : "") + `</span>`;
+  return `<span class="rb-tok ${n.edit ? "rb-edited" : ""} ${id === S.cur ? "cur" : ""}" data-go="${esc(id)}"><span class="tn">${turn}.</span>${what}` + (n.forced.length ? ' <i class="fa fa-cube" title="Dice set by you" aria-hidden="true"></i>' : "") + (n.glyph ? `<span class="rb-glyph">${esc(n.glyph)}</span>` : "") + (n.comment ? ` <span class="rb-cmt rb-cmt-flow">${noteHTML(n.comment, { flow: true })}</span>` : "") + `</span>`;
 }
 function lineHTML(first) {
   let html = "";
@@ -1579,7 +1722,7 @@ function renderStudy() {
   const row = (id, no, cells, extra = "") => `<div class="rb-mrow ${extra} ${S.cur === id ? "cur" : ""}" data-go="${esc(id)}"><div class="no">${no}</div>${cells}</div>`;
   const cmt = (id) => {
     const n = S.study.notes[id];
-    return n?.comment || n?.glyph ? `<div class="rb-vars rb-plain" data-go="${esc(id)}">${n.glyph ? `<span class="rb-glyph">${esc(n.glyph)}</span> ` : ""}<span class="rb-cmt">${esc(n.comment || "")}</span></div>` : "";
+    return n?.comment || n?.glyph ? `<div class="rb-vars rb-plain" data-go="${esc(id)}">${n.glyph ? `<span class="rb-glyph">${esc(n.glyph)}</span> ` : ""}` + (n.comment ? `<div class="rb-cmt rb-note-md">${noteHTML(n.comment)}</div>` : "") + `</div>` : "";
   };
   const rows = [
     row("r0", "", `<div class="a">Team preview</div>`, "start"),
@@ -1598,6 +1741,7 @@ function renderStudy() {
   body.innerHTML = `<div class="rb-movelist">${rows.join("")}</div>` + (inLine ? `<p class="rb-row rb-lineacts"><button class="button" id="btnPromote" ${isFirst ? "disabled" : ""}>Make this the first line</button>
         <button class="button" id="btnDelete">${S.deleteArmed === S.cur ? "Click again to delete" : "Delete from here"}</button></p>` : "");
   for (const el of body.querySelectorAll("[data-go]")) el.onclick = () => go(el.dataset.go);
+  for (const a of body.querySelectorAll(".rb-cmt a")) a.onclick = (e) => e.stopPropagation();
   if (inLine) {
     $id("btnPromote").onclick = () => {
       promote(S.cur);
@@ -2261,7 +2405,7 @@ function renderChapterBar(key = S.key) {
 }
 function renderChapterMenu(id, st, i) {
   const menu = $id("chapMenu"), n = st.chapters.length;
-  const tool = (attr, j, title, icon4, off = false) => `<button type="button" class="rb-linkbtn" ${attr}="${j}" title="${title}" aria-label="${title}" ${off ? "disabled" : ""}>${icon4}</button>`;
+  const tool = (attr, j, title, icon5, off = false) => `<button type="button" class="rb-linkbtn" ${attr}="${j}" title="${title}" aria-label="${title}" ${off ? "disabled" : ""}>${icon5}</button>`;
   menu.innerHTML = `<div class="rb-pophead">` + (editing === "name" ? `<input class="textbox" id="studyRename" maxlength="80" value="${esc(st.name)}" aria-label="Study name">` : `<strong>${esc(st.name)}</strong>${tool("data-rename-study", 0, "Rename study", '<i class="fa fa-pencil" aria-hidden="true"></i>')}`) + `<button type="button" class="button" id="btnShareStudy">Share</button></div>` + st.chapters.map((ch, j) => `<div class="rb-chap ${j === i ? "cur" : ""}">` + (editing === j ? `<input class="textbox" id="chapRename" maxlength="80" value="${esc(ch.title || "")}" placeholder="${esc(chapterTitle({ key: ch.key }))}" aria-label="Chapter title">` : `<button type="button" class="rb-fitem" data-chapter="${j}"><span class="rb-chapn">${j + 1}</span>${esc(chapterTitle(ch))}</button>`) + `<span class="rb-chaptools">${tool("data-up", j, "Move up", '<i class="fa fa-caret-up" aria-hidden="true"></i>', !j)}` + tool("data-down", j, "Move down", '<i class="fa fa-caret-down" aria-hidden="true"></i>', j === n - 1) + tool("data-retitle", j, "Rename chapter", '<i class="fa fa-pencil" aria-hidden="true"></i>') + (n > 1 ? tool("data-remove", j, "Remove chapter", removeArmed2 === j ? "Remove?" : '<i class="fa fa-times" aria-hidden="true"></i>') : "") + `</span></div>`).join("");
   const redo = () => renderChapterBar();
   const change = (f) => {

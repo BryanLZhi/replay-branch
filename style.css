@@ -270,7 +270,25 @@ body.dark .rb-hpbar { background: #1c1f23; }
 .rb-tok:hover { background: var(--rb-panel2); }
 .rb-tok.cur { background: var(--rb-cur); outline: 1px solid var(--rb-curline); }
 .rb-tok .tn { color: var(--rb-muted); margin-right: 2px; }
-.rb-cmt { color: var(--rb-muted); font-style: italic; }
+/* notes: readable text (notefmt.js: **bold**, *italic*, `code`, "- " lists, links, Pokemon and move names) */
+.rb-cmt { color: var(--rb-fg); font-style: normal; overflow-wrap: anywhere; }
+.rb-note-md { font-size: 9.5pt; line-height: 1.45; border-left: 3px solid var(--rb-curline); padding: 1px 0 1px 8px; margin: 2px 0; cursor: auto; }
+.rb-vars.rb-plain .rb-glyph + .rb-note-md { margin-top: 3px; }
+.rb-cmt-flow { margin-left: 4px; }
+.rb-cmt ul { margin: 2px 0 2px 16px; padding: 0; }
+.rb-cmt li { margin: 1px 0; }
+.rb-cmt .rb-gap { height: 0.45em; }
+.rb-cmt code { font-family: Consolas, Menlo, monospace; font-size: 0.95em; background: var(--rb-panel2); border: 1px solid var(--rb-line); border-radius: 3px; padding: 0 3px; }
+.rb-cmt a { color: var(--rb-curline); text-decoration: underline; cursor: pointer; }
+.rb-cmt strong { font-weight: bold; }
+.rb-ent { font-weight: 600; white-space: nowrap; cursor: help; }
+.rb-mon-ent .picon { display: inline-block; width: 40px; height: 30px; vertical-align: middle; margin: -9px -6px -7px -8px; }
+.rb-move-ent { border-bottom: 2px solid var(--tc, var(--rb-line)); padding: 0 1px; }
+.rb-t-normal { --tc: #a8a77a; } .rb-t-fire { --tc: #ee8130; } .rb-t-water { --tc: #6390f0; } .rb-t-electric { --tc: #f7d02c; }
+.rb-t-grass { --tc: #7ac74c; } .rb-t-ice { --tc: #96d9d6; } .rb-t-fighting { --tc: #c22e28; } .rb-t-poison { --tc: #a33ea1; }
+.rb-t-ground { --tc: #e2bf65; } .rb-t-flying { --tc: #a98ff3; } .rb-t-psychic { --tc: #f95587; } .rb-t-bug { --tc: #a6b91a; }
+.rb-t-rock { --tc: #b6a136; } .rb-t-ghost { --tc: #735797; } .rb-t-dragon { --tc: #6f35fc; } .rb-t-dark { --tc: #705746; }
+.rb-t-steel { --tc: #b7b7ce; } .rb-t-fairy { --tc: #d685ad; } .rb-t-stellar { --tc: #40b5a5; }
 .rb-vars.rb-plain[data-go] { cursor: pointer; }
 .rb-lineacts { margin-top: 8px; }
 .rb-tabs .rb-copynotes { margin-left: auto; }

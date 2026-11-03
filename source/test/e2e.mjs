@@ -284,6 +284,34 @@ try {
   await page.click('#btnCopyNotes'); await sleep(300);
   const copied = await page.evaluate(() => navigator.clipboard.readText()).catch(e => 'clipboard: ' + e.message);
   check(/Turn \d+ \?: should switch here/.test(copied) && /Turn \d+, line .+ !\?: interesting try/.test(copied), 'Copy notes copies every note, in turn order', copied.replace(/\n/g, ' / '));
+  // notes as readable text: **bold**, *italic*, lists, links, Pokemon and move names; nothing a note says becomes markup
+  await page.$eval('#comment', el => {
+    el.value = '**Bold** and *careful* here: Kingambit Sucker Punch, then rest\n- one\n- two <img src=x onerror="window.__xss=1"> `code` https://example.com/a?b=1';
+    el.dispatchEvent(new Event('input')); el.dispatchEvent(new Event('change'));
+  });
+  await page.$eval('#comment', el => el.blur()); await sleep(250);
+  const md = await page.$eval('#studySec .rb-mrow.cur + .rb-vars.rb-plain .rb-note-md', el => ({
+    strong: el.querySelector('strong')?.textContent, em: el.querySelector('em')?.textContent, li: el.querySelectorAll('li').length,
+    mon: [...el.querySelectorAll('.rb-mon-ent')].map(x => x.textContent), move: [...el.querySelectorAll('.rb-move-ent')].map(x => x.textContent),
+    monIcon: !!el.querySelector('.rb-mon-ent .picon'), tips: [...el.querySelectorAll('.rb-ent')].every(x => x.title.length > 5),
+    img: el.querySelectorAll('img').length, text: el.textContent, code: el.querySelector('code')?.textContent,
+    link: el.querySelector('a') && {href: el.querySelector('a').getAttribute('href'), rel: el.querySelector('a').rel, target: el.querySelector('a').target},
+    ents: [...el.querySelectorAll('.rb-ent')].map(x => x.textContent),
+  })).catch(e => ({error: e.message}));
+  check(md.strong === 'Bold' && md.em === 'careful' && md.li === 2 && md.code === 'code', 'a note shows **bold**, *italic*, a list and `code`', JSON.stringify(md));
+  check(md.mon?.includes('Kingambit') && md.monIcon && md.move?.includes('Sucker Punch') && md.tips && !md.ents?.includes('rest'),
+    'Pokemon and move names show as an icon / a type-coloured name with a tooltip; a lower-case word stays a word', JSON.stringify(md.ents));
+  check(md.img === 0 && /<img src=x/.test(md.text || '') && await page.evaluate(() => window.__xss === undefined), 'a note cannot add markup or script: it shows as text', md.text);
+  check(md.link?.href === 'https://example.com/a?b=1' && /noopener/.test(md.link.rel) && md.link.target === '_blank', 'a link in a note opens safely in a new tab', JSON.stringify(md.link));
+  await page.$eval('#comment', el => { el.value = 'make this bold'; el.dispatchEvent(new Event('input')); el.focus(); el.setSelectionRange(10, 14); });
+  await page.keyboard.down('Control'); await page.keyboard.press('b'); await page.keyboard.up('Control');
+  const boldKey = await page.$eval('#comment', el => el.value);
+  await page.$eval('#comment', el => el.setSelectionRange(5, 9));
+  await page.keyboard.down('Control'); await page.keyboard.press('i'); await page.keyboard.up('Control');
+  const italicKey = await page.$eval('#comment', el => el.value);
+  check(boldKey === 'make this **bold**' && italicKey === 'make *this* **bold**', 'Ctrl+B / Ctrl+I in the note box wrap the selection', `${boldKey} / ${italicKey}`);
+  await page.$eval('#comment', el => { el.value = 'should switch here'; el.dispatchEvent(new Event('input')); el.dispatchEvent(new Event('change')); el.blur(); });
+  await sleep(150);
 
   // ---------------------------------------------------------------- the position editor
   await control('reset'); await sleep(400);

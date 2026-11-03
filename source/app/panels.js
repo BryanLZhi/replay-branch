@@ -5,6 +5,7 @@ import {turnSummary} from './replay.js';
 import {go} from './navigation.js';
 import {renderTeams} from './teams.js';
 import {turnLabelOf} from './picker.js';
+import {noteHTML, noteKeys} from './notefmt.js';
 
 
 export function renderStudyPanel() {
@@ -39,6 +40,7 @@ export function renderNote(pos) {
     const n = noteOf(S.cur, true); n.glyph = n.glyph === b.dataset.glyph ? '' : b.dataset.glyph; save(); renderNote(pos); renderStudyPanel();
   };
   $id('comment').oninput = e => { noteOf(S.cur, true).comment = e.target.value; save(); };
+  noteKeys($id('comment'), v => { noteOf(S.cur, true).comment = v; save(); });
   $id('comment').onchange = () => renderStudyPanel();
 }
 
@@ -89,7 +91,7 @@ function lineToken(id) {
   return `<span class="rb-tok ${n.edit ? 'rb-edited' : ''} ${id === S.cur ? 'cur' : ''}" data-go="${esc(id)}"><span class="tn">${turn}.</span>${what}` +
     (n.forced.length ? ' <i class="fa fa-cube" title="Dice set by you" aria-hidden="true"></i>' : '') +
     (n.glyph ? `<span class="rb-glyph">${esc(n.glyph)}</span>` : '') +
-    (n.comment ? ` <i class="rb-cmt">${esc(n.comment)}</i>` : '') + `</span>`;
+    (n.comment ? ` <span class="rb-cmt rb-cmt-flow">${noteHTML(n.comment, {flow: true})}</span>` : '') + `</span>`;
 }
 // A line written inline; where it branches, the other continuations are nested under it.
 function lineHTML(first) {
@@ -110,7 +112,7 @@ function renderStudy() {
   const cmt = id => {
     const n = S.study.notes[id];
     return n?.comment || n?.glyph ? `<div class="rb-vars rb-plain" data-go="${esc(id)}">${n.glyph ? `<span class="rb-glyph">${esc(n.glyph)}</span> ` : ''}` +
-      `<span class="rb-cmt">${esc(n.comment || '')}</span></div>` : '';
+      (n.comment ? `<div class="rb-cmt rb-note-md">${noteHTML(n.comment)}</div>` : '') + `</div>` : '';
   };
   const rows = [
     row('r0', '', `<div class="a">Team preview</div>`, 'start'), cmt('r0'), linesFrom('r0'),
@@ -128,6 +130,7 @@ function renderStudy() {
         <button class="button" id="btnDelete">${S.deleteArmed === S.cur ? 'Click again to delete' : 'Delete from here'}</button></p>` : '');
 
   for (const el of body.querySelectorAll('[data-go]')) el.onclick = () => go(el.dataset.go);
+  for (const a of body.querySelectorAll('.rb-cmt a')) a.onclick = e => e.stopPropagation();     // (a note's link opens; the row does not move)
   if (inLine) {
     $id('btnPromote').onclick = () => { promote(S.cur); renderStudy(); };
     $id('btnDelete').onclick = () => {
