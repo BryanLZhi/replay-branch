@@ -42,15 +42,16 @@ jobs:
           name: e2e-failure
           path: e2e-failure.png
           if-no-files-found: ignore
-      - name: Build with the site's password gate
+      # the public site has no password gate (owner, 2026-11-04); the gate code stays for local builds with source/.pwhash
+      - name: Build the public site (no password gate)
         if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
         run: |
-          [ -n "$RBV_PW_HASH" ] || { echo "::error::repository variable RBV_PW_HASH is not set"; exit 1; }
-          npm run build
+          npm run build | tee build.log
+          grep -q 'no password gate' build.log || { echo "::error::build still has a password gate"; exit 1; }
           mkdir _site
           cp -r index.html app.js style.css engine.js validator.js sample.json js stats LICENSE _site/
         env:
-          RBV_PW_HASH: ${{ vars.RBV_PW_HASH }}
+          RBV_PW_HASH: ''
       - if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
         uses: actions/upload-pages-artifact@v5
         with:

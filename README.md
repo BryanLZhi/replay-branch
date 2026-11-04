@@ -65,8 +65,8 @@ page has no gate. It only keeps casual visitors out: the site is static, so noth
 ## Publishing
 
 Every push runs `.github/workflows/site.yml`: it builds the site from `source/` (`npm run build:engine`), runs the end-to-end
-test on that build behind a throwaway password, and on `main` only, if the test passed, rebuilds with the real gate
-(repository variable `RBV_PW_HASH`) and publishes it to GitHub Pages. A push to any other branch, or a pull request, gets
+test on that build behind a throwaway password, and on `main` only, if the test passed, rebuilds without a password gate
+and publishes it to GitHub Pages (the public site is open). A push to any other branch, or a pull request, gets
 the build and the test without the publish, so a change can be tried on a branch first. A failing test keeps the site as it was
 (the screenshot of the failure is attached to the run).
 
